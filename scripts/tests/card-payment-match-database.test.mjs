@@ -29,22 +29,34 @@
 //   CARD_MATCH_MUTATION=ignore-rowcount  an RLS-refused update is reported as a match
 //   CARD_MATCH_MUTATION=insert-any-source   the record accepts any account as the payer
 //   CARD_MATCH_MUTATION=insert-skip-amount  the record accepts two sides that do not offset
+//   CARD_MATCH_MUTATION=payer-any-treatment the paying row is coded whatever the account type is
+//   CARD_MATCH_MUTATION=restore-changed     undoing restores a paying row somebody has since recoded
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
+// Every mutation targets the CURRENT definitions, which live in the
+// both-sides migration: it redefines the link, the undo and the record's
+// trigger, so mutating the first migration alone would be overwritten and
+// prove nothing.
 const MUTATIONS = {
   'no-exclude': ["     set status = 'excluded', exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()",
     '     set exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()'],
-  'ignore-rowcount': ['  if v_rows = 0 then\n    raise exception \'This transaction cannot be changed — its import is approved or posted, or you do not have finance access\';\n  end if;\n\n  insert into public.card_payment_matches',
-    '  insert into public.card_payment_matches'],
+  'ignore-rowcount': ["  get diagnostics v_rows = row_count;\n  if v_rows = 0 then\n    raise exception 'This transaction cannot be changed — its import is approved or posted, or you do not have finance access';\n  end if;\n\n  -- The paying row posts this payment",
+    '  -- The paying row posts this payment'],
   // The two rules the RPC and the record's own trigger both hold. Mutating the
   // trigger is what a mutation must be able to see, because the trigger is
   // what holds a write that never went through the RPC.
-  'insert-any-source': ["  if coalesce(v_bank_src.source_type, '') <> 'bank' then raise exception 'The paying side must be a bank account'; end if;", ''],
-  'insert-skip-amount': ["  if coalesce(v_card.amount, 0) = 0 or round(v_bank.amount, 2) <> round(-v_card.amount, 2) then\n    raise exception 'The two amounts do not offset';\n  end if;", ''],
+  'insert-any-source': ["  if coalesce(v_bank_src.credit_qbo_account_type, '') <> 'Bank' then\n    raise exception 'The paying side must be an account of type Bank';\n  end if;", ''],
+  'insert-skip-amount': ["  if round(v_bank.amount, 2) <> round(-v_card.amount, 2) then\n    raise exception 'The two amounts do not offset';\n  end if;", ''],
+  // Coding the paying row is the second half of the feature, and both halves
+  // of it have to hold: the treatment comes from the account type approval
+  // will judge, and an undo never overwrites coding somebody did themselves.
+  'payer-any-treatment': ['    else null end;', "    else 'card_payment' end;"],
+  'restore-changed': ["    if v_bank.id is not null and v_bank.status = 'coded'\n       and v_bank.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n       and v_bank.accounting_treatment is not distinct from v_treatment then",
+    '    if v_bank.id is not null then'],
 };
 const mutation = process.env.CARD_MATCH_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown mutation');
@@ -78,6 +90,7 @@ const co = randomUUID();
 const finance = randomUUID(), reader = randomUUID();
 const conn = randomUUID();
 const bankSource = randomUUID(), cardSource = randomUUID(), secondCard = randomUUID();
+const payableSource = randomUUID(), oddSource = randomUUID();
 let rowNo = 0;
 
 async function newBatch(source, { status = 'draft', company = co } = {}) {
@@ -99,6 +112,10 @@ const link = (card, bank, user = finance) =>
   as(user, () => one('select link_card_payment_match($1,$2) as r', [card, bank]));
 const unlink = (card, user = finance) => as(user, () => one('select unlink_card_payment_match($1) as r', [card]));
 const row = (id) => one('select status, exclude_reason from card_transactions where id=$1', [id]);
+const coding = (id) => one(`select status, qbo_account_id, qbo_account_name, accounting_treatment, coding_source
+                            from card_transactions where id=$1`, [id]);
+const proposals = (ids, days = 7, user = finance) =>
+  as(user, () => q('select * from card_payment_match_proposals($1,$2)', [ids, days]));
 const postedLines = (id) => q('select * from card_coding_effective_lines where transaction_id=$1', [id]);
 
 try {
@@ -107,7 +124,9 @@ try {
   await db.exec(`create or replace function public.attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
                  create or replace function public.silo_business_today() returns date language sql stable as $$ select date '2026-10-31' $$;`);
 
-  let sql = await readFile(new URL('supabase/migrations/20261125020000_card_payment_match.sql', root), 'utf8');
+  const pairSql = await readFile(new URL('supabase/migrations/20261125020000_card_payment_match.sql', root), 'utf8');
+  await db.exec(pairSql);
+  let sql = await readFile(new URL('supabase/migrations/20261125060000_card_payment_match_both_sides.sql', root), 'utf8');
   if (mutation) {
     const [from, to] = MUTATIONS[mutation];
     assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
@@ -115,6 +134,7 @@ try {
   }
   await db.exec(sql);
   // Applied twice: apply_all_post_merge.sql re-runs every migration.
+  await db.exec(pairSql);
   await db.exec(sql);
 
   await q("insert into entities(id,title) values($1,'A')", [co]);
@@ -125,12 +145,18 @@ try {
   await q(`insert into quickbooks_connections(id,company_entity_id,realm_id,is_active) values($1,$2,'realm',true)`, [conn, co]);
   await q(`insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values
            ($1,$2,'supplies','Supplies','Expense',true),($1,$2,'card','Company card','Credit Card',true),
-           ($1,$2,'checking','Checking','Bank',true),($1,$2,'clearing','Clearing','Other Current Asset',true)`, [co, conn]);
-  await q(`insert into card_sources(id,company_entity_id,source_key,display_name,source_type,qbo_connection_id,credit_qbo_account_id,credit_qbo_account_name,is_active) values
-           ($1,$4,'bank','Operating checking','bank',$5,'checking','Checking',true),
-           ($2,$4,'card','Company card','card',$5,'card','Company card',true),
-           ($3,$4,'card2','Second card','card',$5,'card','Company card',true)`,
-  [bankSource, cardSource, secondCard, co, conn]);
+           ($1,$2,'checking','Checking','Bank',true),($1,$2,'clearing','Clearing','Other Current Asset',true),
+           ($1,$2,'payable','Processor payable','Other Current Liability',true)`, [co, conn]);
+  /* The two sides are told apart by the ACCOUNT TYPE behind the source, not by
+     the word 'card': a payable line of credit and a source whose credit
+     account is an expense are both here to prove it. */
+  await q(`insert into card_sources(id,company_entity_id,source_key,display_name,source_type,qbo_connection_id,credit_qbo_account_id,credit_qbo_account_name,credit_qbo_account_type,is_active) values
+           ($1,$6,'bank','Operating checking','bank',$7,'checking','Checking','Bank',true),
+           ($2,$6,'card','Company card','card',$7,'card','Company card','Credit Card',true),
+           ($3,$6,'card2','Second card','card',$7,'card','Company card','Credit Card',true),
+           ($4,$6,'payable','Processor float','card',$7,'payable','Processor payable','Other Current Liability',true),
+           ($5,$6,'odd','Misconfigured source','card',$7,'supplies','Supplies','Expense',true)`,
+  [bankSource, cardSource, secondCard, payableSource, oddSource, co, conn]);
 
   // The paydown as the two feeds see it: the card gains 5,412.01, the bank
   // loses it. SILO's sign convention is money out positive.
@@ -161,14 +187,16 @@ try {
     assert.equal(wider.length, 2, 'a wider window reaches the far one, and only it');
   });
 
-  await test('matching excludes the card row, names the payment, and leaves the bank row untouched', async () => {
+  await test('matching excludes the card row, names the payment, and leaves a posted payment untouched', async () => {
     const before = await row(payment);
     const result = await link(paydown, payment);
     const after = await row(paydown);
     assert.equal(after.status, 'excluded');
     assert.match(after.exclude_reason, /Operating checking/, 'the reason says which payment it was');
     assert.match(after.exclude_reason, /2026-10-10/);
-    assert.deepEqual(await row(payment), before, 'the bank side is read, never written');
+    assert.deepEqual(await row(payment), before, 'a payment already in the books is read, never written');
+    assert.equal((await one('select payer_coded_at from card_payment_matches where card_transaction_id=$1', [paydown])).payer_coded_at,
+      null, 'and the record says so, so undoing it will not invent coding for it');
     assert.equal(result.r.status, 'excluded');
     assert.equal(result.r.bank_transaction_id, payment);
     assert.equal((await postedLines(paydown)).length, 0, 'an excluded row contributes no line: the paydown posts once');
@@ -186,7 +214,7 @@ try {
     const mismatched = await newTxn(bankBatch, 12.34, { date: '2026-10-11', description: 'WRONG AMOUNT' });
     const onACard = await newTxn(await newBatch(secondCard), 99.5, { date: '2026-10-11', description: 'ANOTHER CARD' });
     await refused(() => link(other, mismatched), /do not offset/, 'two amounts that do not offset');
-    await refused(() => link(other, onACard), /bank account/, 'a card cannot pay a card');
+    await refused(() => link(other, onACard), /type Bank/, 'a card cannot pay a card');
 
     // The record's own trigger holds a DIRECT write to the same rules, so the
     // table is not a back door around the RPC.
@@ -197,7 +225,7 @@ try {
     await refused(() => direct(other, pays), /excluded/, 'a row still in the entry is not settled by a record saying it is');
     await q("update card_transactions set status='excluded' where id=$1", [other]);
     await refused(() => direct(other, mismatched), /offset/, 'a record of two amounts that do not offset');
-    await refused(() => direct(other, onACard), /bank account/, 'a record naming a card as the payer');
+    await refused(() => direct(other, onACard), /type Bank/, 'a record naming a card as the payer');
     await q("update card_transactions set status='coded' where id=$1", [other]);
   });
 
@@ -234,6 +262,84 @@ try {
     const held = await unlink(paydown);
     assert.equal(held.r.status, 'excluded');
     assert.match(held.r.exclude_reason, /Pending/);
+  });
+
+
+  /* The second half: the paying row is the one that posts, and the account it
+     must hit is the liability account of the source being paid. Confirming the
+     match is the decision; coding it afterwards by hand was never a separate
+     one. */
+  await test('confirming a match codes the paying row, so it leaves Needs categorizing', async () => {
+    const owed = await newTxn(cardBatch, -1200, { date: '2026-10-14', account: 'clearing', description: 'AUTOPAY 1200' });
+    const pays = await newTxn(bankBatch, 1200, { date: '2026-10-14', status: 'uncoded', description: 'CARD PAYMENT 1200' });
+    const result = await link(owed, pays);
+    const after = await coding(pays);
+    assert.equal(after.status, 'coded', 'it is no longer waiting to be categorized');
+    assert.equal(after.qbo_account_id, 'card', 'it hits the liability account of the source it paid');
+    assert.equal(after.accounting_treatment, 'card_payment', 'the treatment approval requires for that account type');
+    assert.equal(result.r.bank_coded, true);
+    assert.equal(result.r.bank_qbo_account_name, 'Company card');
+    assert.ok((await postedLines(pays)).length > 0, 'and it is the side that posts');
+    await unlink(owed);
+  });
+
+  await test('the treatment follows the account type, and an account type approval would refuse is left alone', async () => {
+    const floatBatch = await newBatch(payableSource);
+    const owed = await newTxn(floatBatch, -300, { date: '2026-10-15', account: 'clearing', description: 'FLOAT REPAID' });
+    const pays = await newTxn(bankBatch, 300, { date: '2026-10-15', status: 'uncoded', description: 'PAYS THE FLOAT' });
+    await link(owed, pays);
+    const floatPayer = await coding(pays);
+    assert.equal(floatPayer.accounting_treatment, 'transfer', 'Other Current Liability posts as a transfer, not a card payment');
+    assert.equal(floatPayer.qbo_account_id, 'payable');
+
+    const oddBatch = await newBatch(oddSource);
+    const oddOwed = await newTxn(oddBatch, -42, { date: '2026-10-16', account: 'clearing', description: 'ODD SOURCE' });
+    const oddPays = await newTxn(bankBatch, 42, { date: '2026-10-16', status: 'uncoded', description: 'PAYS THE ODD ONE' });
+    const oddResult = await link(oddOwed, oddPays);
+    assert.equal((await coding(oddPays)).status, 'uncoded',
+      'no treatment is right for an expense account, and approval would refuse a guess');
+    assert.equal(oddResult.r.bank_coded, false);
+    assert.equal((await row(oddOwed)).status, 'excluded', 'the settled side is still settled either way');
+  });
+
+  await test('undoing a match puts the paying row back, unless somebody recoded it since', async () => {
+    const owed = await newTxn(cardBatch, -800, { date: '2026-10-17', account: 'clearing', description: 'AUTOPAY 800' });
+    const pays = await newTxn(bankBatch, 800, { date: '2026-10-17', status: 'uncoded', description: 'PAYS 800' });
+    await link(owed, pays);
+    const undone = await unlink(owed);
+    assert.equal(undone.r.bank_restored, true);
+    const back = await coding(pays);
+    assert.equal(back.status, 'uncoded', 'it is back where the match found it');
+    assert.equal(back.qbo_account_id, null);
+
+    await link(owed, pays);
+    await q("update card_transactions set qbo_account_id='supplies', qbo_account_name='Supplies', coding_source='manual' where id=$1", [pays]);
+    const second = await unlink(owed);
+    assert.equal(second.r.bank_restored, false);
+    assert.equal((await coding(pays)).qbo_account_id, 'supplies', 'their coding is the newer decision and stands');
+  });
+
+  await test('proposals answer a whole screen, and name no payment when there are two', async () => {
+    const single = await newTxn(cardBatch, -611.11, { date: '2026-10-18', account: 'clearing', description: 'ONE MATCH' });
+    const singlePays = await newTxn(bankBatch, 611.11, { date: '2026-10-18', status: 'uncoded', description: 'THE PAYMENT' });
+    const ambiguous = await newTxn(cardBatch, -222.22, { date: '2026-10-19', account: 'clearing', description: 'TWO MATCHES' });
+    await newTxn(bankBatch, 222.22, { date: '2026-10-19', status: 'uncoded', description: 'EITHER ONE' });
+    await newTxn(bankBatch, 222.22, { date: '2026-10-20', status: 'uncoded', description: 'OR THIS ONE' });
+    const payer = await newTxn(bankBatch, 999.99, { date: '2026-10-18', status: 'uncoded', description: 'A BANK ROW' });
+
+    const got = await proposals([single, ambiguous, payer]);
+    const bySingle = got.find((r) => r.transaction_id === single);
+    assert.equal(Number(bySingle.candidate_count), 1);
+    assert.equal(bySingle.bank_transaction_id, singlePays, 'one candidate is offered by name, ready to confirm');
+    assert.equal(bySingle.bank_source_name, 'Operating checking');
+    const byAmbiguous = got.find((r) => r.transaction_id === ambiguous);
+    assert.equal(Number(byAmbiguous.candidate_count), 2);
+    assert.equal(byAmbiguous.bank_transaction_id, null, 'choosing between two payments of the same amount stays a person\'s call');
+    assert.equal(got.find((r) => r.transaction_id === payer), undefined, 'a bank row is not something to settle');
+
+    await link(single, singlePays);
+    assert.equal((await proposals([single])).length, 0, 'a settled row is no longer proposed');
+    await unlink(single);
   });
 
   await test('the browser role reads the record but cannot reach it as anon', async () => {

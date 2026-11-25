@@ -492,6 +492,7 @@
               <button class="bcn-btn" type="button" id="btnClearFilters">Clear filters</button>
             </div>
             <div class="bcn-status bcn-status--neg txn-blockers" id="codeBlockers" role="status" hidden></div>
+            <div class="bcn-status bcn-status--info txn-blockers" id="codePaydowns" role="status" hidden></div>
             <div class="cc-variants" id="codeVariants"></div>
             <div class="cc-body">
               <table class="cc-tbl" id="tblCoding"></table>
@@ -2380,6 +2381,47 @@
       }, () => { for (const id of want) matchLoading.delete(id); });
   }
 
+  /* Offered, not hunted: every paydown on screen is asked about in one call,
+     so the page can say "this looks like the payment" and the person confirms.
+     A row with two candidates carries the count and no pick -- choosing
+     between two payments of the same amount is the judgement this keeps. */
+  const proposalCache = new Map();   // card transaction id -> proposal, or null
+  const proposalAsked = new Set();
+  function ensureProposals(rows) {
+    const want = (rows || []).filter((t) => paydownCandidate(t) && !matchFor(t) && !proposalAsked.has(t.id))
+      .map((t) => t.id).slice(0, 200);
+    if (!want.length) return;
+    for (const id of want) proposalAsked.add(id);
+    sb.rpc('card_payment_match_proposals', { p_transaction_ids: want, p_days: 7 })
+      .then(({ data, error }) => {
+        // A failed read offers nothing rather than claiming there is nothing.
+        if (error) { for (const id of want) proposalAsked.delete(id); return; }
+        const byId = new Map((data || []).map((p) => [p.transaction_id, p]));
+        for (const id of want) proposalCache.set(id, byId.get(id) || null);
+        renderPaydownOffers(reviewDateRows());
+        if (expandedTransaction) renderTxnDetailDrawer();
+      }, () => { for (const id of want) proposalAsked.delete(id); });
+  }
+  const proposalFor = (t) => (paydownCandidate(t) && !matchFor(t) ? proposalCache.get(t.id) || null : null);
+  const confirmableRows = (rows) => (rows || []).filter((t) => rowEditable(t) && !state.dirty.has(t.id)
+    && proposalFor(t)?.bank_transaction_id);
+
+  /* One place where a confirmed match lands on the row in front of the
+     reader, so the drawer and the bulk confirm cannot drift apart. */
+  function applyMatchToRow(t, data) {
+    const reason = data?.exclude_reason || 'Matched to the bank payment';
+    t.status = 'excluded';
+    t.exclude_reason = reason;
+    state.dirty.delete(t.id);
+    if (dateBrowse && state.batch) {
+      state.txns = state.txns.map((x) => (x.id === t.id ? { ...x, status: 'excluded', exclude_reason: reason } : x));
+    }
+    matchCache.set(t.id, { card_transaction_id: t.id, bank_transaction_id: data?.bank_transaction_id,
+      note: reason, matched_at: new Date().toISOString() });
+    proposalCache.delete(t.id);
+    proposalAsked.delete(t.id);
+  }
+
   const matchStateLine = (r) => ({ draft: 'Not approved yet', categorized: 'Not approved yet',
     approved: 'Approved', posted: 'In QuickBooks' }[r.batch_status] || r.batch_status || '');
 
@@ -2392,8 +2434,19 @@
       return `${head}<p class="txn-qbo-state"><b>Matched</b> ${esc(m.note || 'Matched to a bank payment')}</p>`
         + `<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-unlink-match>Unmatch</button></div></section>`;
     }
+    const offer = proposalFor(t);
     const search = matchSearch && matchSearch.id === t.id ? matchSearch : null;
+    if (offer?.bank_transaction_id && !search) {
+      return `${head}<p class="txn-qbo-state"><b>Looks like the payment</b> ${esc(offer.bank_source_name || 'bank account')}`
+        + ` on ${esc(offer.bank_txn_date || '')} · ${esc(money(Math.abs(Number(offer.bank_amount))))}`
+        + `${offer.bank_description ? ` · ${esc(offer.bank_description)}` : ''}</p>`
+        + `<div class="txn-detail-actions"><button class="bcn-btn bcn-btn--primary" type="button" data-link-match="${esc(offer.bank_transaction_id)}">Confirm match</button>`
+        + `<button class="bcn-btn" type="button" data-find-match="7">Pick a different payment</button></div></section>`;
+    }
     let body = '';
+    if (offer && !offer.bank_transaction_id && !search) {
+      body = `<p class="cc-note">${offer.candidate_count} bank payments of this amount are within 7 days, so pick the one that paid this.</p>`;
+    }
     if (search?.busy) body = '<p class="cc-note">Looking for a matching bank payment…</p>';
     else if (search?.error) body = `<p class="cc-note">${esc(search.error)}</p>`;
     else if (search && !search.rows.length) {
@@ -2451,17 +2504,23 @@
     if (link) {
       const { data, error } = await sb.rpc('link_card_payment_match',
         { p_card_transaction_id: t.id, p_bank_transaction_id: link.dataset.linkMatch });
-      if (error) return setStatus(`Could not match it — ${error.message}`, 'neg', 12000);
-      matchCache.set(t.id, { card_transaction_id: t.id, bank_transaction_id: data?.bank_transaction_id,
-        note: data?.exclude_reason, matched_at: new Date().toISOString() });
+      if (error) {
+        // The offer was made from data that has since moved on.
+        proposalCache.delete(t.id); proposalAsked.delete(t.id);
+        return setStatus(`Could not match it — ${error.message}`, 'neg', 12000);
+      }
+      applyMatchToRow(t, data);
       applied('excluded', data?.exclude_reason || 'Matched to the bank payment');
-      setStatus('Matched to the bank payment. This row is out of the entry, so the paydown is recorded once.', 'pos', 8000);
+      setStatus(data?.bank_coded
+        ? `Matched. This row is out of the entry, and the payment on ${data.bank_source_name || 'the bank account'} is coded to ${data.bank_qbo_account_name || 'the paid account'} — the paydown is recorded once.`
+        : 'Matched to the bank payment. This row is out of the entry, so the paydown is recorded once.', 'pos', 9000);
       return;
     }
 
     const { data, error } = await sb.rpc('unlink_card_payment_match', { p_card_transaction_id: t.id });
     if (error) return setStatus(`Could not undo the match — ${error.message}`, 'neg', 12000);
     matchCache.set(t.id, null);
+    proposalCache.delete(t.id); proposalAsked.delete(t.id);
     applied(data?.status || 'uncoded', data?.exclude_reason || null);
     setStatus('Match removed. This row is back in the import — code it or exclude it.', 'info', 8000);
   }
@@ -2578,6 +2637,53 @@
     box.hidden = false;
     syncFilterPanelVisibility();
   }
+  /* Offered above the table, because a paydown you never open is exactly the
+     one that doubles. Not in the blockers box: nothing here is broken. */
+  function renderPaydownOffers(rows) {
+    const box = el('codePaydowns');
+    if (!box) return;
+    const ready = confirmableRows(rows);
+    const ambiguous = (rows || []).filter((t) => proposalFor(t) && !proposalFor(t).bank_transaction_id);
+    if (!ready.length && !ambiguous.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const parts = [];
+    if (ready.length) {
+      parts.push(`<div><b>${ready.length} paydown${ready.length === 1 ? '' : 's'} match${ready.length === 1 ? 'es' : ''} a bank payment</b>`
+        + ' — confirming keeps this row out of the entry and codes the payment on the bank side, so it is recorded once.'
+        + ` <button class="bcn-btn bcn-btn--primary" type="button" data-paydown-confirm>Confirm ${ready.length === 1 ? 'it' : `all ${ready.length}`}</button></div>`);
+    }
+    if (ambiguous.length) {
+      parts.push(`<div>${ambiguous.length} other paydown${ambiguous.length === 1 ? ' has' : 's have'} more than one payment of the same amount`
+        + ' — open the row to pick which one paid it.</div>');
+    }
+    box.innerHTML = parts.join('');
+    box.hidden = false;
+  }
+
+  el('codePaydowns').addEventListener('click', async (e) => {
+    const go = e.target.closest('[data-paydown-confirm]');
+    if (!go || !requireEditable()) return;
+    const rows = confirmableRows(reviewDateRows());
+    if (!rows.length) return;
+    go.disabled = true;
+    setStatus(`Confirming ${rows.length} match${rows.length === 1 ? '' : 'es'}…`, 'info', 0);
+    let done = 0; let failed = 0; let coded = 0; let lastError = '';
+    for (const t of rows) {
+      const offer = proposalFor(t);
+      const { data, error } = await sb.rpc('link_card_payment_match',
+        { p_card_transaction_id: t.id, p_bank_transaction_id: offer.bank_transaction_id });
+      if (error) { failed++; lastError = error.message; proposalCache.delete(t.id); proposalAsked.delete(t.id); continue; }
+      done++;
+      if (data?.bank_coded) coded++;
+      applyMatchToRow(t, data);
+    }
+    renderCoding();
+    renderEntry();
+    const bits = [`${done} matched and out of the entry`];
+    if (coded) bits.push(`${coded} bank payment${coded === 1 ? '' : 's'} coded on the paying account`);
+    if (failed) bits.push(`${failed} could not be matched — ${lastError}`);
+    setStatus(bits.join(' · '), failed ? 'neg' : 'pos', failed ? 12000 : 9000);
+  });
+
   el('codeBlockers').addEventListener('click', (e) => {
     const show = e.target.closest('[data-blocker-filter]');
     if (show) {
@@ -2607,6 +2713,7 @@
   }
   function renderCoding() {
     ensureMatches(workingRows());
+    ensureProposals(reviewDateRows());
     renderSaveBar();
     for(const id of ['dateStart','dateEnd'])el(id).disabled=state.codingBusy || !!state.dirty.size;
 
@@ -2624,6 +2731,7 @@
     renderFilterBar(reviewDateRows(), filteredRows.length);
     entityHints = null;
     renderBlockers(reviewDateRows());
+    renderPaydownOffers(reviewDateRows());
     /* A removed row cannot be coded, but it can be looked at, and the one that
        matters is the one nothing replaced. Refreshed HERE, before the early
        returns below, for the same reason the filter chips are: an account or
