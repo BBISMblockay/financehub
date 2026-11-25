@@ -87,19 +87,34 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
   checked before each, stopping at the first refusal. **Undo** stays on a marked row.
 - Open months and rows SILO does not send are not tasks: one quiet line, the rows behind it.
 - **In QuickBooks** is one line per month; the entries and their QuickBooks numbers are behind it.
-- **QuickBooks and SILO agree / Differs by X** on each of those months comes from the nightly read-back
-  (`quickbooks_ledger_mirror_*`, 20261125150000). `agreementSql()` runs through `chat_run_readonly_query`
-  as the signed-in finance user. It judges each entry SILO posted (`quickbooks_journal_postings.status =
-  'posted'`), only for days a read covers: same day, same net amount per account, matched by QuickBooks
-  transaction id and type Journal Entry. Changed, moved or deleted in QuickBooks = differs; X is half the
-  sum of per-account differences (a deleted entry differs by its whole amount). Entries made by hand in
-  QuickBooks are not SILO's and are not a difference. A month with no read says "Not compared with
-  QuickBooks yet". If the read-back or the comparison cannot be read, no month gets a verdict and nothing
-  else on the page changes. This is display only: it gates nothing.
+- **QuickBooks and SILO agree / Differs by X** on each of those months comes from the read-back
+  (`quickbooks_ledger_mirror_*`) through the view `quickbooks_sent_entries_check_v` (20261125235000), read
+  as the signed-in finance user. One row per entry SILO posted: `unread`, `as_sent`, `changed` or
+  `settled`. An entry is judged only for days a read covers on its own connection: same day, same net
+  amount per account, matched by QuickBooks transaction id and type Journal Entry. Changed, moved or
+  deleted in QuickBooks = `changed`; X is half the sum of per-account differences (a deleted entry
+  differs by its whole amount). A month says agree only when every entry SILO posted in it was compared
+  and none is still `changed`; an entry no read reaches makes it "not compared yet". Entries made by
+  hand in QuickBooks are not judged here.
+- **QuickBooks is the master copy** (Blake, 2026-11-25: "qbo is current master", "with action to get
+  settled and mirrored, not just flag"). SILO's statements already use QuickBooks' lines for a month that
+  was read back. A month that differs lists each changed entry and one button, **Use QuickBooks' version**:
+  it calls `quickbooks_accept_quickbooks_version(posting_id)` for each, which records the exact QuickBooks
+  state accepted (`quickbooks_entry_settlements`). The entry reads `settled` and the month agrees. If
+  QuickBooks changes that entry again, the acceptance no longer matches and it is flagged again. Nothing
+  is written to QuickBooks, and no posting or journal entry changes.
+- **Mirror now** (header) reads QuickBooks again on demand: the page calls
+  `quickbooks-ledger-mirror-scheduled` with the person's own session and `{since}` until it answers
+  done, one month per call, newest first, the last twelve months plus the current one. The database
+  (`quickbooks_ledger_mirror_my_due`) decides who may ask (finance, active company) and which month is
+  next; the page names no company or month. The nightly run is unchanged.
+- If the read-back or the comparison cannot be read, no month gets a verdict and nothing else on the
+  page changes. The verdict gates no send.
 
 ## Tests
 
-`node --test scripts/tests/quickbooks-sync.test.mjs` (37); the agreement SQL runs on real PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs`. `QBSYNC_MUTATION=<name>` breaks one protection;
-all 26 must fail the suite and CI runs each. The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
+`node --test scripts/tests/quickbooks-sync.test.mjs` (40). `QBSYNC_MUTATION=<name>` breaks one protection; every one
+must fail the suite and CI runs each. The entry check, the settle function and Mirror now's work list run on real
+PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs` (26 checks; `SETTLE_MUTATION`, 19). The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
 (13 checks, 17 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

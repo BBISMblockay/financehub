@@ -51,7 +51,8 @@ const CONN = { id: CONNECTION, company_entity_id: COMPANY, realm_id: '9130', env
 const REPORT = { Header: { ReportName: 'GeneralLedger' }, Rows: { Row: [] } };
 
 function fixture({ work = WORK, conn = CONN, disabled, due = 'ok', store = { ok: true, changed: true, lines: 7 },
-  storeError = false, failedError = false, quickbooks = {}, environment = 'production', secrets = true } = {}) {
+  storeError = false, failedError = false, quickbooks = {}, environment = 'production', secrets = true,
+  mine = 'ok', myWork = { ...WORK, remaining: 3 }, noUserDb = false } = {}) {
   const events = [];
   const db = {
     rpc: async (name, args) => {
@@ -93,10 +94,20 @@ function fixture({ work = WORK, conn = CONN, disabled, due = 'ok', store = { ok:
       QBO_LEDGER_MIRROR_DISABLED: disabled ? 'true' : '' })[key] ?? '',
     verifyIdentity: (value, aud) => verifySchedulerIdentity(value, aud, keys.publicKey),
     createDb: () => { events.push(['db']); return db; }, fetchImpl,
+    // Mirror now: a client that carries the caller's own token.
+    ...(noUserDb ? {} : { createUserDb: (userToken) => { events.push(['user-db', userToken]); return { rpc: async (name, args) => {
+      events.push(['user-rpc', name, args]);
+      if (name !== 'quickbooks_ledger_mirror_my_due') throw new Error(`unexpected user rpc ${name}`);
+      return mine === 'ok' ? { data: myWork ? [myWork] : [], error: null } : { data: null, error: { message: 'Finance access is required' } };
+    } }; } }),
   });
   return { events, request: (body = '{}', identity = token, method = 'POST') => handler(new Request(audience, { method,
-    headers: { 'x-silo-scheduler-token': identity }, ...(method === 'POST' ? { body } : {}) })) };
+    headers: { 'x-silo-scheduler-token': identity }, ...(method === 'POST' ? { body } : {}) })),
+    person: (body = `{"since":"${SINCE}"}`, headers = { authorization: `Bearer ${USER_TOKEN}` }, method = 'POST') =>
+      handler(new Request(audience, { method, headers, ...(method === 'POST' ? { body } : {}) })) };
 }
+const SINCE = '2026-11-25T22:00:00.000Z';
+const USER_TOKEN = `${'a'.repeat(20)}.${'b'.repeat(20)}.${'c'.repeat(20)}`;
 const fetches = (events) => events.filter((e) => e[0] === 'fetch');
 const rpcs = (events) => events.filter((e) => e[0] === 'rpc').map((e) => e[1]);
 
@@ -246,6 +257,72 @@ test('no response ever carries a company, an account or a QuickBooks message', a
     const text = await (await fixture(options).request()).text();
     assert.equal(/9130|Acme|Wholesale|live-|fresh-|00000000-0000-4000-8000/.test(text), false, text);
   }
+});
+
+test('Mirror now: the database is asked AS the caller first, and its refusal ends everything', async () => {
+  // Refused by the database (not finance, no company, a token it does not accept).
+  const refused = fixture({ mine: 'down' });
+  const res = await refused.person();
+  assert.equal(res.status, 403);
+  assert.deepEqual(await res.json(), { error_code: 'not_allowed' });
+  assert.deepEqual(refused.events.map((e) => e[0]), ['user-db', 'user-rpc']);
+  assert.equal(refused.events[0][1], USER_TOKEN);
+  // No way to ask as the caller: refuse, never fall back to the service role.
+  const unwired = fixture({ noUserDb: true });
+  assert.equal((await unwired.person()).status, 403);
+  assert.deepEqual(unwired.events, []);
+  // The switch stops a person too, and nothing is read before the body is right.
+  const off = fixture({ disabled: true });
+  assert.equal((await off.person()).status, 403);
+  assert.deepEqual(off.events, []);
+  for (const body of ['{}', '{"since":"yesterday"}', `{"since":"${SINCE}","company":"x"}`, '{"company":"x"}', `{"since":123}`, '[]', 'nope']) {
+    const f = fixture();
+    assert.equal((await f.person(body)).status, 400, body);
+    assert.deepEqual(f.events, []);
+  }
+  // No scheduler token and nothing usable as a person's token: 401, nothing read.
+  for (const headers of [{}, { authorization: 'Bearer short' }, { authorization: `Basic ${USER_TOKEN}` }]) {
+    const f = fixture();
+    assert.equal((await f.person(undefined, headers)).status, 401);
+    assert.deepEqual(f.events, []);
+  }
+  // A request that carries the scheduler header is judged as the scheduler only.
+  const both = fixture();
+  assert.equal((await both.person('{}', { authorization: `Bearer ${USER_TOKEN}`, 'x-silo-scheduler-token': 'not-a-token' })).status, 401);
+  assert.deepEqual(both.events, []);
+});
+
+test('Mirror now: the month the database hands the caller is read and stored, and the count to go comes back', async () => {
+  const f = fixture();
+  const res = await f.person();
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('access-control-allow-origin'), '*');
+  assert.deepEqual(await res.json(), { done: false, ok: true, changed: true, lines: 7, remaining: 2 });
+  assert.deepEqual(f.events.slice(0, 2).map((e) => e[0]), ['user-db', 'user-rpc']);
+  assert.deepEqual(f.events[1][2], { p_since: SINCE, p_months_back: MONTHS_BACK });
+  // The scheduler's own work list is never consulted for a person.
+  assert.deepEqual(rpcs(f.events), ['quickbooks_ledger_mirror_store']);
+  const stored = f.events.find((e) => e[0] === 'rpc')[2];
+  assert.equal(stored.p_company, COMPANY); assert.equal(stored.p_connection, CONNECTION); assert.equal(stored.p_period_start, '2026-09-01');
+  // The person's token never goes to QuickBooks.
+  for (const e of fetches(f.events)) assert.ok(!JSON.stringify(e[3].headers || {}).includes(USER_TOKEN));
+  // Nothing left: done. A broken row from the database fails closed.
+  const none = fixture({ myWork: null });
+  assert.deepEqual(await (await none.person()).json(), { done: true });
+  assert.deepEqual(none.events.map((e) => e[0]), ['user-db', 'user-rpc']);
+  const broken = fixture({ myWork: { ...WORK, company_entity_id: 'x', remaining: 1 } });
+  assert.equal((await broken.person()).status, 503);
+  assert.deepEqual(fetches(broken.events), []);
+  // A failed read is recorded on the month, so the same press is not handed it again.
+  const failing = fixture({ quickbooks: { ledger: () => new Response('{}', { status: 500 }) } });
+  assert.deepEqual(await (await failing.person()).json(), { done: false, ok: false, changed: false, lines: 0, error_code: 'quickbooks_read_failed', remaining: 2 });
+  assert.deepEqual(rpcs(failing.events), ['quickbooks_ledger_mirror_failed']);
+  // The browser's preflight is answered without reading anything.
+  const pre = fixture();
+  const opt = await pre.person(undefined, { origin: 'https://example.test' }, 'OPTIONS');
+  assert.equal(opt.status, 204);
+  assert.match(opt.headers.get('access-control-allow-headers'), /authorization/);
+  assert.deepEqual(pre.events, []);
 });
 
 // ── The runner ─────────────────────────────────────────────────────────────

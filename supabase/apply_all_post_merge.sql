@@ -19969,6 +19969,11 @@ $c$select (select count(*) from v_po_header_summary
 -- per query instead of once per row (same predicate, hoisted).
 \i migrations/20261125160000_history_read_policy_once_per_query.sql
 
+-- 20261125235000: the QuickBooks read-back can store a month on production (its UPDATE gets a
+-- WHERE), a finance user can start a read (Mirror now), and an entry changed in QuickBooks can
+-- be settled to QuickBooks' version. Must run AFTER 20261125150000, which it patches.
+\i migrations/20261125235000_quickbooks_settle_and_mirror_now.sql
+
 -- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
 -- not contact), so worked finds leave Affiliate Studio's working lists.
 \i migrations/20261125210000_affiliate_customer_review.sql

@@ -11071,3 +11071,36 @@ select 'QuickBooks ledger mirror' as check_name,
       then 'CRITICAL: silo_books_ledger_v names a company id'
     else 'ok'
   end as status;
+
+-- QuickBooks settle and Mirror now (20261125235000). The read-back's store function must not
+-- carry an UPDATE without a WHERE (production refuses one, and then no month is ever stored);
+-- only a signed-in finance user may start a read or accept QuickBooks' version of an entry,
+-- and only the accept function writes acceptances.
+select 'QuickBooks settle and Mirror now' as check_name,
+  case
+    when to_regclass('public.quickbooks_entry_settlements') is null
+      or to_regclass('public.quickbooks_sent_entries_check_v') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)') is null
+      or to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)') is null
+      then 'MISSING — run 20261125235000_quickbooks_settle_and_mirror_now.sql'
+    when position('::numeric, 0) where true;' in coalesce(pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)')), '')) = 0
+      then 'BROKEN — the QuickBooks read-back cannot store a month (UPDATE without WHERE); re-run 20261125235000'
+    when has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'), 'execute')
+      or has_function_privilege('anon', to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)'), 'execute')
+      then 'CRITICAL: a signed-out caller can start a QuickBooks read or settle an entry'
+    when position('can_manage_journal_entries()' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'))) = 0
+      or position('can_manage_journal_entries()' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)'))) = 0
+      or position('active_company_id()' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'))) = 0
+      or position('active_company_id()' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)'))) = 0
+      then 'CRITICAL: starting a QuickBooks read or settling an entry is not limited to the company''s finance users'
+    when exists (select 1 from pg_class c where c.oid = to_regclass('public.quickbooks_entry_settlements')
+                    and (not c.relrowsecurity
+                      or has_table_privilege('anon', c.oid, 'SELECT')
+                      or has_table_privilege('authenticated', c.oid, 'INSERT,UPDATE,DELETE')))
+      then 'CRITICAL: quickbooks_entry_settlements is open (RLS off, readable by anon, or writable by a browser)'
+    when not exists (select 1 from pg_class c where c.oid = to_regclass('public.quickbooks_sent_entries_check_v')
+                      and c.reloptions @> array['security_invoker=true'])
+      or has_table_privilege('anon', to_regclass('public.quickbooks_sent_entries_check_v'), 'SELECT')
+      then 'CRITICAL: quickbooks_sent_entries_check_v is not security_invoker, or anon can read it'
+    else 'ok'
+  end as status;
