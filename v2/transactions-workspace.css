@@ -205,61 +205,58 @@
 }
 .wsec-lbl::after { content: ''; flex: 1; height: 1px; background: var(--bcn-border); order: 2; }
 .wsec-meta { font: 500 9.5px var(--bcn-mono); letter-spacing: .08em; color: var(--bcn-ink-4); text-transform: none; }
-.wsec-expand {
-  order: 3; margin-left: auto; padding: 3px 8px; cursor: pointer;
-  border: 1px solid var(--bcn-border); border-radius: 6px; background: var(--bcn-surface);
-  color: var(--bcn-ink-2); font: 600 10px var(--bcn-font); letter-spacing: .04em; text-transform: none;
-}
-.wsec-expand:hover { border-color: var(--bcn-border-strong); color: var(--bcn-ink); }
-
-/* Collapsed: ONE scrolling row, so the account band keeps a fixed height
-   however many accounts exist and the register below always gets the same
-   leftover space. Expanded: wraps and grows downward. */
-.wtiles {
-  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;
-  scroll-snap-type: x mandatory;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 34px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 34px), transparent);
-}
-.wtiles.is-expanded {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(214px, 1fr));
-  overflow: visible; -webkit-mask-image: none; mask-image: none;
-}
-.wtiles::-webkit-scrollbar { height: 6px; }
-.wtiles::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); border-radius: 3px; }
-
-/* `color` is set explicitly: a <button> does not inherit it, and without this
-   the tile text falls back to the UA default and goes low-contrast in dark. */
-.wtile {
-  position: relative; flex: 0 0 200px; scroll-snap-align: start;
-  display: flex; flex-direction: column; gap: 6px; text-align: left;
-  padding: 8px 10px 7px; cursor: pointer;
-  border: 1px solid var(--bcn-border); border-radius: 8px;
+/* ONE dropdown at every width. The predecessor was a side-scrolling rail of
+   tiles: accounts past the right edge were invisible, and the band cost the
+   register height whether or not anyone was reading it. `color` is set
+   explicitly because a <button> does not inherit it — without it the text
+   falls back to the UA default and goes low-contrast in dark. */
+.wacct { position: relative; display: flex; align-items: stretch; gap: 0; }
+.wacct-label {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 7px 34px 7px 9px; cursor: pointer;
+  border: 1px solid var(--bcn-border); border-radius: 9px;
   background: var(--bcn-surface); color: var(--bcn-ink); font-family: inherit;
-  transition: border-color .12s, box-shadow .12s;
+  transition: border-color .12s;
 }
-.wtiles.is-expanded .wtile { flex: initial; }
-.wtile:hover:not(:disabled) { border-color: var(--bcn-border-strong); }
-.wtile:disabled { opacity: .55; cursor: default; }
-.wtile.is-on { border-color: var(--bcn-accent); box-shadow: 0 0 0 1px var(--bcn-accent); }
-.wtile:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
-.wtile-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wacct-label:hover:not(:disabled) { border-color: var(--bcn-border-strong); }
+.wacct-label:disabled { opacity: .55; cursor: default; }
+.wacct-label:focus-visible, .wacct-opt:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
+.wacct-id { min-width: 0; flex: 1; }
+.wacct-line { display: flex; align-items: center; gap: 9px; min-width: 0; margin-top: 1px; }
+.wacct-right { flex: none; display: flex; align-items: center; gap: 10px; }
+.wacct-bal { font: 650 15px var(--bcn-font); letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums; line-height: 1.1; text-align: right; }
+.wacct-bal small { display: block; font: 500 9px var(--bcn-mono); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--bcn-ink-4); margin-bottom: 2px; }
+/* Positioned against .wacct (the only positioned ancestor), clear of the
+   details "i" button that sits at its right edge. */
+.wacct-label .wper-caret { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); }
+
+.wacct-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+  max-height: 330px; overflow-y: auto; padding: 5px;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border-strong); border-radius: 10px;
+  box-shadow: 0 12px 32px -8px rgba(15, 23, 42, .28);
+}
+.wacct-pop[hidden] { display: none; }
+.wacct-opt {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 7px 8px; cursor: pointer; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--bcn-ink); font-family: inherit;
+}
+.wacct-opt:hover { background: var(--bcn-sunken); }
+.wacct-opt.is-on { border-color: var(--bcn-accent); background: var(--bcn-sunken); }
+.wacct-opt .wacct-bal { font-size: 13px; }
+
 .wtile-mark {
   flex: none; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
   font: 700 10px var(--bcn-font); letter-spacing: -.02em; color: #fff;
   background: linear-gradient(145deg, oklch(.58 .17 var(--wtile-hue, 245)), oklch(.44 .15 var(--wtile-hue, 245)));
 }
-.wtile-id { min-width: 0; flex: 1; }
 .wtile-name { display: block; font-size: 12.5px; font-weight: 650; letter-spacing: -.015em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wtile-mask { display: block; font: 400 10px var(--bcn-mono); color: var(--bcn-ink-3); margin-top: 1px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wtile-bal { display: block; font: 650 17px var(--bcn-font); letter-spacing: -.04em;
-  font-variant-numeric: tabular-nums; line-height: 1; }
-.wtile-bal small { display: block; font: 500 10px var(--bcn-mono); letter-spacing: .1em;
-  text-transform: uppercase; color: var(--bcn-ink-4); margin-bottom: 3px; }
-.wtile-ft { display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  flex-wrap: nowrap; padding-top: 7px; border-top: 1px solid var(--bcn-border); }
+.wtile-mask { display: block; font: 400 10px var(--bcn-mono); color: var(--bcn-ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
 .wtile-sync { display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
   color: var(--bcn-ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wtile-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--bcn-ink-4); }
@@ -286,7 +283,7 @@
 .wper-label:disabled { opacity: .55; cursor: default; }
 .wper-sub { font: 500 11px var(--bcn-mono); color: var(--bcn-ink-3); }
 .wper-caret { color: var(--bcn-ink-4); font-size: 10px; }
-.wper-step:focus-visible, .wper-label:focus-visible, .wper-cell:focus-visible, .wsec-expand:focus-visible {
+.wper-step:focus-visible, .wper-label:focus-visible, .wper-cell:focus-visible {
   outline: 2px solid var(--bcn-accent); outline-offset: 2px;
 }
 .wper-pop {
@@ -310,7 +307,12 @@
   background: var(--bcn-sunken); font-size: 11.5px; color: var(--bcn-ink-3); }
 
 @media (max-width: 1000px) {
-  .wtiles { -webkit-mask-image: none; mask-image: none; }
+  /* Narrow: the account NAME wins the first line and the figures wrap under
+     it, rather than the name truncating to make room for them. */
+  .wacct-label { flex-wrap: wrap; row-gap: 4px; }
+  .wacct-label > .wacct-right { flex: 1 1 100%; margin-left: 36px; }
+  .wacct-opt { flex-wrap: wrap; row-gap: 3px; }
+  .wacct-opt > .wacct-right { flex: 1 1 100%; margin-left: 36px; }
   .wper { flex-wrap: wrap; }
   .wper-bar { width: 100%; }
   .wper-label { flex: 1; }
@@ -318,12 +320,9 @@
 }
 
 /* Compact register: account context is on demand, activity owns the height. */
-.wtile-wrap {position:relative;flex:0 0 222px;scroll-snap-align:start;}
-.wtile-wrap .wtile {width:100%;height:100%;padding:10px;gap:7px;}
-.wtile-wrap .wtile-name {padding-right:24px;}
-.wtile-info {position:absolute;top:8px;right:7px;border:0;background:transparent;color:var(--bcn-ink-3);cursor:pointer;font:14px var(--bcn-font);padding:2px 4px;}
+.wtile-info {position:absolute;top:50%;right:4px;transform:translateY(-50%);width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--bcn-ink-3);cursor:pointer;font:14px var(--bcn-font);padding:0;}
+.wtile-info:hover {background:var(--bcn-sunken);color:var(--bcn-ink);}
 .wtile-info:focus-visible {outline:2px solid var(--bcn-accent);}
-.wtiles.is-expanded {grid-template-columns:repeat(auto-fill,minmax(222px,1fr));}
 .txn-account-dialog {max-width:760px;width:calc(100% - 32px);max-height:85vh;overflow:auto;padding:12px;border:1px solid var(--bcn-border);border-radius:12px;background:var(--bcn-surface);color:var(--bcn-ink);}
 .txn-account-dialog::backdrop {background:rgba(0,0,0,.3);}
 .txn-account-dialog > form {display:flex;justify-content:flex-end;margin-bottom:8px;}
@@ -360,7 +359,6 @@
  .cc-pane[data-pane="coding"] {overflow:hidden;gap:9px;}
  .cc-pane[data-pane="coding"] .transaction-list {flex:1;min-height:170px;flex-shrink:1;}
  .transaction-list .cc-body {overflow:auto;}
- .wtiles.is-expanded {max-height:280px;overflow-y:auto;}
 }
 @media(max-width:1000px) {
  .txn-dates {gap:6px;}
@@ -397,11 +395,9 @@
 .cc-content {padding:8px 12px;}
 .cc-pane[data-pane="coding"] {gap:6px;}
 .wsec-lbl {margin-bottom:4px;font-size:9px;}
-.wtile-wrap {flex-basis:214px;}
-.wtile-wrap .wtile {padding:8px 10px;gap:5px;}
-.wtile-bal {font-size:15px;}
-.wtile-bal small {display:inline;font-size:9px;margin:0 7px 0 0;}
-.wtile-ft {padding-top:5px;}
+.wacct-label {padding-block:6px;}
+.wacct-bal {font-size:14px;}
+.wacct-bal small {display:inline;font-size:9px;margin:0 7px 0 0;}
 .txn-dates {padding:4px 7px;gap:5px;}
 #codeKpis .cc-kpi {flex-direction:row;align-items:center;justify-content:space-between;padding:5px 9px;gap:8px;}
 #codeKpis .cc-kpi-label {font-size:9px;}
@@ -423,17 +419,15 @@
 
 /* SILO register: a quiet account rail and one primary decision per row. */
 #codeKpis[hidden] {display:none!important;}
-.wtiles {gap:6px;padding:2px 1px 5px;}
-.wtile-wrap {flex-basis:228px;}
-.wtile-wrap .wtile {border-radius:6px;padding:8px 12px;gap:6px;box-shadow:none;}
-.wtile.is-on {border-color:var(--bcn-border-strong);background:var(--bcn-accent-soft);box-shadow:inset 3px 0 var(--bcn-accent);}
+.wacct-label {border-radius:6px;padding:7px 36px 7px 12px;}
+.wacct-opt.is-on {border-color:var(--bcn-border-strong);background:var(--bcn-accent-soft);box-shadow:inset 3px 0 var(--bcn-accent);}
 .wtile-mark {background:var(--bcn-sunken);color:var(--bcn-ink-2);border:1px solid var(--bcn-border);border-radius:5px;}
-.wtile.is-on .wtile-mark {color:var(--bcn-accent);background:var(--bcn-surface);}
-.wtile-wrap .wtile-name {font-size:12px;}
-.wtile-bal {display:flex;align-items:baseline;gap:6px;font-size:15px;letter-spacing:-.025em;white-space:nowrap;}
-.wtile-bal small {font-size:8px;letter-spacing:.03em;margin:0;}
-.wtile-info {display:grid;place-items:center;width:16px;height:16px;border:1px solid var(--bcn-border-strong);border-radius:50%;font:11px Georgia,serif;padding:0;}
-.wtile-ft {border-top:0;padding-top:0;}
+.wacct-opt.is-on .wtile-mark {color:var(--bcn-accent);background:var(--bcn-surface);}
+.wtile-name {font-size:12px;}
+.wacct-bal {display:flex;align-items:baseline;gap:6px;font-size:14px;letter-spacing:-.025em;white-space:nowrap;}
+.wacct-bal small {font-size:8px;letter-spacing:.03em;margin:0;}
+.wtile-info {display:grid;place-items:center;width:16px;height:16px;border:1px solid var(--bcn-border-strong);border-radius:50%;font:11px Georgia,serif;padding:0;right:9px;}
+.wacct-label {padding-right:40px;}
 .wtile-pending {background:transparent;padding:0;color:var(--bcn-warn);font-family:var(--bcn-font);}
 .wtile-pending.is-clear {background:transparent;color:var(--bcn-ink-3);font-weight:400;}
 .txn-dates {border:0;border-radius:0;background:transparent;padding:2px 0 5px;}
@@ -612,7 +606,7 @@
 
 /* Accounting workbench: one title, a distinct local view row, readable activity.
    Existing IDs, controls, scopes and write handlers are intentionally unchanged. */
-.accounting-workspace .cc-page > #ccTabs{order:0;flex:none;display:flex;gap:22px;padding:0 24px;height:auto;min-height:46px;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);overflow-x:auto;}
+.accounting-workspace .cc-page > #ccTabs{order:0;flex:none;display:flex;gap:22px;padding:8px 24px 0;height:auto;min-height:46px;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);overflow-x:auto;}
 .accounting-workspace .cc-page > #ccTabs .bcn-tab{padding:13px 0;border-radius:0;border-bottom:2px solid transparent;font-size:13px;background:transparent;}
 .accounting-workspace .cc-page > #ccTabs .bcn-tab--active{border-bottom-color:var(--bcn-accent);background:transparent;}
 .accounting-workspace .cc-content{padding:18px 24px;}
