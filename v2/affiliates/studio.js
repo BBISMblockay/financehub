@@ -294,6 +294,11 @@ function shopifyCodesMessage(results) {
   return parts.join(' ') || 'Nothing was waiting.';
 }
 
+// A preview link: 32 random bytes, URL-safe, the shape the portal accepts.
+function previewToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 async function invoke(fn, body) {
   const { data: { session: s } } = await db.auth.getSession();
   const res = await fetch(`${cfg.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${fn}`, {
@@ -2782,6 +2787,7 @@ function renderAffiliates() {
     if (!MANAGE) return '';
     const b = [];
     if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
+    if (['active', 'paused'].includes(a.status) && a.terms_accepted_at) b.push(btn('View as rep', 'view-as-rep', { id: a.id }));
     // Someone invited who never signed up (or was ended before signing up)
     // can be invited again from their own card (Blake 2026-11-18: "there is
     // no resend button"). The server re-opens an ended, never-signed-up
@@ -4535,6 +4541,27 @@ const A = {
     if (!rows.length) return 'Nothing is waiting in that batch.';
     const missing = await deliverBatch(id, rows, b?.exported_at || new Date().toISOString());
     return `Downloaded ${rows.length}.${missing ? ` ${missing} have no personal link; the file says why.` : ''} Send them, then mark each one sent.`;
+  },
+  // View as rep (Blake 2026-11-24): their own portal, read-only, in a new
+  // tab. A one-hour preview link made for this press: the raw link is made
+  // here and only its hash is stored, it never replaces or resets the rep's
+  // own links, and the server refuses every change it asks for. The tab is
+  // opened inside the click, before anything is awaited, so the browser does
+  // not block it as a pop-up.
+  'view-as-rep': async ({ id }) => {
+    const w = window.open('', '_blank');
+    try {
+      const raw = previewToken();
+      must(await db.rpc('affiliate_issue_preview_token', { p_affiliate_id: id, p_token_hash: await sha256Hex(raw) }));
+      const url = new URL('portal.html', location.href);
+      url.searchParams.set('view', 'rep');
+      url.searchParams.set('t', raw);
+      if (!w) { setStatus('Your browser blocked the new tab. Allow pop-ups for SILO and press View as rep again.', 'neg'); return null; }
+      w.opener = null;
+      w.location.replace(url.toString());
+      setStatus('Opened their portal in a new tab. Read-only, for one hour.', 'pos', 5000);
+      return null;
+    } catch (e) { w?.close(); throw e; }
   },
   'portal-link': async ({ id }) => {
     const out = await invoke('affiliate-invite', { action: 'portal_link', affiliate_id: id, email: true });

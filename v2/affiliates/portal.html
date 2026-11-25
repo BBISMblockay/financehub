@@ -189,12 +189,16 @@
     .af-sheet-head h2 { margin: 0; font-size: 18px; }
     .af-sheet-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; color: var(--bcn-ink-2); }
     .af-install-glyph { font-size: 16px; }
+    /* View as rep: staff see the rep's portal, read-only. */
+    .af-preview-bar { border: 1px solid var(--bcn-warn); border-radius: 12px; padding: 10px 14px; font-weight: 600; color: var(--bcn-ink); background: color-mix(in srgb, var(--bcn-warn) 12%, transparent); }
+    body.af-readonly .af-wrap label.bcn-btn { pointer-events: none; opacity: .5; }
   </style>
 </head>
 <body class="silo-brand">
 <main class="af-wrap">
   <header class="af-top"><div class="af-brand"><span id="mark"></span><h1 id="title">Affiliate portal</h1></div><div class="af-brand"><span class="af-switch" id="switch"></span><span class="af-muted" id="who"></span></div></header>
   <div class="bcn-status" id="status" hidden></div>
+  <div class="af-preview-bar" id="previewBar" hidden></div>
   <div id="install"></div>
   <div id="hero"></div>
   <div class="af-stats" id="kpis" hidden></div>
@@ -205,7 +209,12 @@
 import { $, esc, call, setStatus, takeToken, brandMark, wireBrandMark } from './public.js';
 import { formatMoney, seedView } from './studio-core.js';
 import { setupInstall } from './install.js';
-const token = takeToken('silo_affiliate_portal');
+// View as rep (Blake 2026-11-24): staff open a rep's portal through a
+// one-hour, read-only preview link from Affiliate Studio. It is kept under
+// its own key so it never replaces a rep's own link in this browser, and the
+// server refuses every change it asks for; the page only says so first.
+const PREVIEW = new URLSearchParams(location.search).get('view') === 'rep';
+const token = takeToken(PREVIEW ? 'silo_affiliate_portal_preview' : 'silo_affiliate_portal');
 const card = (title, html) => `<div class="af-panel"><h2>${esc(title)}</h2>${html}</div>`;
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
 const day = (s) => (s ? String(s).slice(0, 10) : '');
@@ -247,18 +256,47 @@ function expired() {
   });
 }
 
+// A preview that has ended (or a page opened without one) offers nothing a
+// rep would: no sign-in, no renewal. Staff open a new one from Studio.
+function previewEnded() {
+  $('kpis').hidden = true; $('hero').innerHTML = '';
+  $('body').innerHTML = card('This preview has ended', '<p>Open View as rep again from Affiliate Studio.</p>');
+}
+// Every control that would change something is switched off, including the
+// ones drawn later (orders, posts, products). Tabs, Copy, Open, filters and
+// Show more still work: they read.
+const READ_OK = '[data-tab], [data-copy], [data-filter], #ordMore';
+function lockPage() {
+  document.body.classList.add('af-readonly');
+  const lock = () => {
+    for (const el of document.querySelectorAll('.af-wrap button, .af-wrap input, .af-wrap textarea, .af-wrap select')) {
+      if (!el.matches(READ_OK) && !el.disabled) { el.disabled = true; el.title = 'Read-only preview'; }
+    }
+  };
+  lock();
+  new MutationObserver(lock).observe(document.querySelector('.af-wrap'), { childList: true, subtree: true });
+}
+
 async function load() {
-  if (!token) return signIn();
+  if (!token) return PREVIEW ? previewEnded() : signIn();
   let r;
   try { r = await call('resolve', { token }); }
-  catch (e) { if (e.status === 404) return expired(); $('body').innerHTML = card('Something went wrong', `<p>${esc(e.message)}</p>`); return; }
+  catch (e) { if (e.status === 404) return PREVIEW ? previewEnded() : expired(); $('body').innerHTML = card('Something went wrong', `<p>${esc(e.message)}</p>`); return; }
+  // A preview page shows only a preview link, and a preview link only on a
+  // preview page: either way round, nothing is drawn.
+  if (PREVIEW !== (r.preview === true)) { if (PREVIEW) previewEnded(); else signIn(); return; }
   if (r.purpose === 'signup') { location.replace(`join.html?t=${encodeURIComponent(token)}`); return; }
+  if (PREVIEW) {
+    $('previewBar').textContent = `Viewing as ${r.affiliate?.display_name || 'this affiliate'}, read-only`;
+    $('previewBar').hidden = false;
+    lockPage();
+  }
   $('title').textContent = `${r.brand} affiliate portal`;
   BRAND = String(r.brand || BRAND);
-  $('foot').textContent = `Run by ${r.brand}. This page is personal to you.`;
+  $('foot').textContent = PREVIEW ? `Run by ${r.brand}. Read-only preview for ${r.brand}'s team.` : `Run by ${r.brand}. This page is personal to you.`;
   $('mark').innerHTML = brandMark(r.brand, r.brand_logo);
   wireBrandMark($('mark'));
-  setupInstall({ token, brand: r.brand, logo: r.brand_logo, mount: $('install'), onStatus: setStatus }).catch(() => {});
+  if (!PREVIEW) setupInstall({ token, brand: r.brand, logo: r.brand_logo, mount: $('install'), onStatus: setStatus }).catch(() => {});
   // Seeding is a second, fail-soft call: an older server without it just
   // shows no seeding.
   const [st, seeds, content] = await Promise.all([call('statement', { token }), call('seeds', { token }).catch(() => null),
@@ -273,7 +311,7 @@ async function load() {
     + kpi('Earned', m(t.earned_cents), 'af-stat--pos', rateText(r.program?.commission, cur)) + kpi('Paid to you', m(t.paid_cents)) + kpi('Coming to you', m(t.unclaimed_cents));
   $('kpis').hidden = false;
   const name = String(s.affiliate?.display_name || r.affiliate?.display_name || '').split(' ')[0];
-  $('who').textContent = name ? `Signed in as ${s.affiliate?.display_name || r.affiliate?.display_name}` : '';
+  $('who').textContent = name ? `${PREVIEW ? 'Viewing as' : 'Signed in as'} ${s.affiliate?.display_name || r.affiliate?.display_name}` : '';
   $('hero').innerHTML = heroCard(st.feed, name, r.brand, s.affiliate?.status);
 
   const codes = s.codes || [];
@@ -307,7 +345,7 @@ async function load() {
     for (const x of document.querySelectorAll('[data-panel]')) x.hidden = x.dataset.panel !== k;
     try { sessionStorage.setItem('silo_affiliate_portal_tab', k); } catch {}
   });
-  brandSwitcher();
+  if (!PREVIEW) brandSwitcher();
   wirePhoto();
   wirePayoutEmail();
   wireContent();

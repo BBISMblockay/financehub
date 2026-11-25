@@ -55,6 +55,8 @@
 //   AFFILIATE_EDGE_MUTATION=photoshared   every upload overwrites one object, so a racing Remove deletes the new photo
 //   AFFILIATE_EDGE_MUTATION=contentpath   the upload is signed for a path the request names, not the database's
 //   AFFILIATE_EDGE_MUTATION=contentsignup a signup link (not yet joined) may share content
+//   AFFILIATE_EDGE_MUTATION=previewwrite  a View-as-rep preview link may change the rep's portal
+//   AFFILIATE_EDGE_MUTATION=previewread   a View-as-rep preview link cannot read the rep's portal
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -113,6 +115,8 @@ async function load(fn, file) {
     contentpath: ['affiliate-portal', "const path = String(data?.path || '');", "const path = String(body?.path || data?.path || '');"],
     contentsignup: ['affiliate-portal', "    if (action === 'content_start') {\n      if (t.purpose !== 'portal' || !t.affiliate_id) return", "    if (action === 'content_start') {\n      if (!t.affiliate_id) return"],
     photohidden: ['affiliate-portal', "if (error || !a || a.photo_hidden === true) return", 'if (error || !a) return'],
+    previewwrite: ['affiliate-portal', "    if (preview && !PREVIEW_READS.has(action)) return reply({ error: 'This is a read-only preview.', code: 'read_only' }, 403);\n", ''],
+    previewread: ['affiliate-portal', "    const portalLink = t.purpose === 'portal' || preview;", "    const portalLink = t.purpose === 'portal';"],
     unboundmail: ['affiliate-invite', "            const sent = await mintMailed({ company, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS });", "            const sent = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });"],
   };
   const m = muts[MUT];
@@ -125,7 +129,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup', 'anyprogram', 'scopefailopen'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup', 'anyprogram', 'scopefailopen', 'previewwrite', 'previewread'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -219,6 +223,35 @@ await test('portal: the database only ever sees the token\'s hash', async () => 
   const hash = await sha256hex(TOKEN);
   assert.ok(svc.log.some((c) => c.args?.p_token_hash === hash));
   assert.ok(!JSON.stringify(svc.log).includes(TOKEN), 'the raw token reached the database');
+});
+
+await test('portal: a View-as-rep preview reads the rep\'s portal and changes nothing', async () => {
+  const svc = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'preview', affiliate_status: 'active', terms_accepted_at: '2026-11-01T00:00:00Z' })], error: null },
+    affiliate_portal_statement: { data: { currency: 'USD', totals: { earned_cents: 500 }, codes: [], links: [] }, error: null },
+    affiliate_portal_seeds: { data: { offer: { enabled: false }, claims: [] }, error: null },
+    affiliate_portal_content: { data: { items: [] }, error: null },
+    affiliate_portal_orders: { data: { orders: [], total: 0 }, error: null },
+  } });
+  const h = createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' });
+  const r = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+  assert.equal(r.preview, true, 'the page is told it is a preview');
+  for (const action of ['statement', 'seeds', 'content', 'orders']) {
+    const res = await h(post({ action, token: TOKEN }));
+    assert.equal(res.status, 200, `${action} reads for a preview`);
+  }
+  assert.ok(svc.log.some((c) => c.name === 'affiliate_portal_statement'), 'the statement is the rep\'s own');
+  assert.deepEqual((await (await h(post({ action: 'brands', token: TOKEN }))).json()).brands, [], 'a preview never lists the rep\'s other brands');
+  const before = svc.log.length;
+  for (const body of [{ action: 'photo', remove: true }, { action: 'payout_email', email: 'x@y.invalid' }, { action: 'claim', item_id: AFF2 },
+    { action: 'seed_request', item_id: AFF2 }, { action: 'content_start', kind: 'link', link_url: 'https://x.invalid/p' }, { action: 'content_finish', id: AFF2 },
+    { action: 'switch', affiliate_id: AFF2 }, { action: 'accept', signed_name: 'Pat', terms_version: 2 }]) {
+    const res = await h(post({ ...body, token: TOKEN }));
+    assert.equal(res.status, 403, `${body.action} is refused for a preview`);
+    assert.equal((await res.json()).code, 'read_only');
+  }
+  const after = svc.log.slice(before).filter((c) => !(c.kind === 'rpc' && ['affiliate_portal_resolve', 'affiliate_portal_touch_token'].includes(c.name)));
+  assert.deepEqual(after, [], 'nothing past the link check runs for a refused change');
 });
 
 await test('portal: an unknown or expired link is a 404 and nothing is written', async () => {

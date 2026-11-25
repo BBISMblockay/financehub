@@ -1432,7 +1432,7 @@ jobs:
           }
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
-          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup anyprogram scopefailopen
+          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup previewwrite previewread anyprogram scopefailopen
           run MUT scripts/tests/affiliate-shopify-codes.test.mjs scnoadopt scnoscope scnotpending scguess scsweepopen scanyco scendday scnoremint scfirstpage scnonext scwrongstore scadoptany scnorename scendanyco scendfailok scendcut scendmissing scseednear scseedstate scseedpages scearnagain scearnanon
           run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep allcompanies nocompanyfilter longchain syncfatal noseed seedsilent norefresh refreshsilent nomatch matchfatal matchchained matchrebuild nosplit oldestfirst
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
@@ -2883,6 +2883,22 @@ jobs:
           set -u
           for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred nopred anonread clientwrite wholescan handle handleshare handlebrand handlefirst; do
             if PASTCUST_MUTATION="$m" node scripts/tests/affiliate-past-customer-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # View as rep (20261125030000) on real PostgreSQL: a one-hour 'preview'
+      # portal link only a program manager of the active company can mint, for
+      # a signed-up affiliate; the portal reads accept it, the writes refuse it.
+      - name: Affiliate view as rep database (real PostgreSQL)
+        run: node scripts/tests/affiliate-view-as-rep-database.test.mjs
+      - name: The view-as-rep guards, removed, must break it
+        run: |
+          set -u
+          for m in anongrant nomanage anyco unsigned noread; do
+            if PREVIEW_DB_MUTATION="$m" node scripts/tests/affiliate-view-as-rep-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

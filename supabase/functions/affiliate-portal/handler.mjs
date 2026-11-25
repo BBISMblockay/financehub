@@ -51,6 +51,9 @@ export const corsHeaders = {
 };
 
 export const PORTAL_LINK_DAYS = 90;
+// What a View-as-rep preview may do: read, nothing else. `brands` answers an
+// empty list for it (the preview is never bound to the rep's mailbox).
+export const PREVIEW_READS = new Set(['resolve', 'statement', 'orders', 'seeds', 'content', 'brands']);
 // The SILO platform terms every affiliate accepts with the brand's program
 // terms (/legal/affiliate-terms.html, whose meta tag carries the same number;
 // scripts/tests/affiliate-edge.test.mjs pins the two). Bump both together.
@@ -337,6 +340,15 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     if (!t) return reply({ error: 'This link has expired or is no longer valid.', code: 'invalid_link' }, 404);
     await service.rpc('affiliate_portal_touch_token', { p_token_hash: hash });
 
+    // View as rep (20261125030000): staff see a rep's portal through a
+    // one-hour 'preview' link. It READS like the rep's own portal link and
+    // writes nothing: every other action is refused here, before any write,
+    // and the database refuses it again on its own (every portal write
+    // function demands purpose 'portal').
+    const preview = t.purpose === 'preview';
+    const portalLink = t.purpose === 'portal' || preview;
+    if (preview && !PREVIEW_READS.has(action)) return reply({ error: 'This is a read-only preview.', code: 'read_only' }, 403);
+
     if (action === 'resolve') {
       // A signed link to the agreement PDF, good for an hour. If it cannot be
       // made, url is null and the join page will not take a signature.
@@ -360,6 +372,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           email: t.purpose === 'signup' ? (t.affiliate_contact_email || null) : undefined,
           terms_version_accepted: t.terms_version_accepted, terms_accepted_at: t.terms_accepted_at } : null,
         expires_at: t.expires_at,
+        ...(preview ? { preview: true } : {}),
       });
     }
 
@@ -577,7 +590,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     }
 
     if (action === 'content') {
-      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      if (!portalLink || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_content', { p_token_hash: hash });
       if (error) return dbError(error);
       return reply(data && typeof data === 'object' ? data : { bonus_cents: null, items: [] });
@@ -629,7 +642,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     // made. The database decides everything: whose rep, which program, that
     // seeding is on, that the shared item is a product this rep can see.
     if (action === 'seeds') {
-      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      if (!portalLink || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_seeds', { p_token_hash: hash });
       if (error) return dbError(error);
       return reply(data && typeof data === 'object' ? data : { offer: { enabled: false }, claims: [] });
@@ -661,7 +674,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     // order -- day, order number, value, what they earned, what is paid --
     // and never anything that identifies the customer.
     if (action === 'orders') {
-      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      if (!portalLink || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
       const limit = Number.isFinite(Number(body?.limit)) ? Number(body.limit) : 50;
       const offset = Number.isFinite(Number(body?.offset)) ? Number(body.offset) : 0;
       const { data, error } = await service.rpc('affiliate_portal_orders', {
@@ -672,7 +685,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     }
 
     if (action === 'statement') {
-      if (t.purpose !== 'portal') return reply({ error: 'Finish signing up first.' }, 400);
+      if (!portalLink) return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_statement', { p_token_hash: hash });
       if (error) return dbError(error);
       const feed = await portalFeed(hash);
