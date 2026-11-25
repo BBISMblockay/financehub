@@ -470,7 +470,13 @@ const closeDialog = (page) => page.evaluate(() => document.getElementById('afDia
 // The program's numbers sit on the Program tab, one along from People, and
 // only the open tab renders.
 // Outreach is one list at a time now, picked from chips (Blake 2026-11-20).
-const commsChip = async (p, k) => { await p.click(`#outreachBody [data-act="comms-tab"][data-k="${k}"]`); await p.waitForFunction((x) => document.querySelector(`#outreachBody [data-act="comms-tab"][data-k="${x}"]`)?.getAttribute('aria-selected') === 'true', k, { timeout: 5000 }); };
+// The queue's state chips are a radio row, the other chips are tabs, so a
+// chip is "on" at aria-selected or aria-checked (2026-11-25).
+const commsChip = async (p, k) => {
+  await p.click(`#outreachBody [data-act="comms-tab"][data-k="${k}"]`);
+  await p.waitForFunction((x) => [...document.querySelectorAll(`#outreachBody [data-act="comms-tab"][data-k="${x}"]`)]
+    .some((el) => el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-checked') === 'true'), k, { timeout: 5000 });
+};
 const toProgram = async (p) => { await p.click('#tabs [data-tab="overview"]'); await p.waitForFunction(() => !!document.getElementById('overviewBody')?.innerHTML.trim(), null, { timeout: 5000 }); };
 // People is two sub-tabs now (Blake 2026-11-20): Affiliates and Discovery.
 // Clicking anything in the creators list means picking Discovery first.
@@ -681,8 +687,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // (Blake 2026-11-20: the tab scrolled for pages).
     R.ok('Outreach is one list at a time, picked from chips', (await page.$$('#outreachBody [data-act="comms-tab"]')).length >= 3);
     R.ok('exactly one list is shown', (await page.$$('#outreachBody .af-surface, #outreachBody .bcn-card')).length === 1);
-    if (process.env.OUTREACH_SHOT) { await page.setViewportSize({ width: 1280, height: 900 }); await (await page.$('#outreachBody')).screenshot({ path: process.env.OUTREACH_SHOT }); }
     await commsChip(page, 'email');
+    if (process.env.OUTREACH_SHOT) { await page.setViewportSize({ width: 1280, height: 900 }); await (await page.$('#outreachBody')).screenshot({ path: process.env.OUTREACH_SHOT }); }
     const ob = await text(page, '#outreachBody');
     R.has(ob, 'Your own MCP client sends approved messages', 'Messages leads with sending through a connected MCP client');
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
@@ -2867,6 +2873,31 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(allHome, '$150.00', 'and sums sales across programs');
     R.has(allHome, '$20.00', 'and sums what is owed across programs');
     await closeDialog(all);
+
+    // A program in another currency is never left out of a company figure:
+    // money is listed per currency, counts are the company's (review cycle 1).
+    {
+      const PROGC = '88888888-8888-4888-8888-888888888888';
+      const AFFC = '99999999-9999-4999-8999-999999999999';
+      const mixTables = { ...allTables,
+        affiliate_programs: [...allTables.affiliate_programs, { ...allTables.affiliate_programs[0], id: PROGC, name: 'Europe', slug: 'europe', currency: 'EUR' }],
+        affiliates: [...allTables.affiliates, { ...allTables.affiliates[0], id: AFFC, program_id: PROGC, display_name: 'Eva Euro', contact_email: 'eva@creator.invalid', from_prospect_id: null }],
+        affiliate_attributions: [...allTables.affiliate_attributions,
+          { id: 'aE', company_entity_id: CO, program_id: PROGC, affiliate_id: AFFC, order_id: '2001', order_number: '#2001', order_day: '2026-11-03', order_currency: 'EUR', codes_on_order: 1, matched_code: 'EVA10', basis: 'single_affiliate_code', gross_subtotal_cents: 4000, refunded_subtotal_cents: 0, commissionable_cents: 4000 }],
+        affiliate_balances_v: [...allTables.affiliate_balances_v,
+          { company_entity_id: CO, program_id: PROGC, affiliate_id: AFFC, currency: 'EUR', earned_cents: 600, refund_adjustment_cents: null, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 600 }] };
+      const mix = await suite.open('/v2/affiliates/index.html', mixTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      mix.on('pageerror', (e) => errors.push(e.message));
+      await toProgram(mix);
+      await mix.waitForFunction(() => /By program/.test(document.getElementById('overviewBody')?.textContent || ''), null, { timeout: 5000 });
+      const mixHome = await text(mix, '#overviewBody');
+      R.ok('sales are listed in each currency, never summed across them', /\$50[\s\S]{0,12}€40/.test(mixHome));
+      R.ok('and so is what is unpaid', mixHome.includes('$5.00') && mixHome.includes('€6.00'));
+      R.has(mixHome, 'Europe', 'the other-currency program is in the By-program table');
+      R.not(mixHome, 'All programs', 'with two currencies there is no single total line');
+      await closeDialog(mix);
+      await mix.close();
+    }
     await all.click('#tabs [data-tab="people"]');
     await all.waitForFunction(() => !!document.querySelector('#affiliatesBody .af-allprog'), null, { timeout: 5000 });
     await toTiles(all, '#affiliatesBody');

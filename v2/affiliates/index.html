@@ -97,6 +97,10 @@
     /* The stores not shown yet. Out of the page AND out of the tab order, so
        the save still reads every chip's state. */
     .af-chips-off { display: none; }
+    /* Above the message list: how these get sent, as ONE small line with the
+       Copy agent prompt beside it, rather than a block of its own. */
+    .af-queue-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; font-size: 12px; }
+    .af-queue-head > p, .af-queue-head > .af-ai-tab-hint { margin: 0; flex: 1 1 320px; min-width: 240px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
     /* The button an empty box carries: the step that fills it. */
     .af-empty-go { margin-top: 10px; display: flex; justify-content: center; gap: 6px; }
     /* A quiet heading for the settings set once a year. */

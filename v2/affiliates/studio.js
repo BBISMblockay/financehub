@@ -1046,7 +1046,7 @@ const surface = (title, body, meta = '', id = '', actions = '') => {
 };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
-const money = (c) => formatMoney(c, ovCur());
+const money = (c, currency = null) => formatMoney(c, currency || ovCur());
 
 function scrollWorkflowTo(id) {
   requestAnimationFrame(() => {
@@ -2756,14 +2756,20 @@ function renderOutreach() {
     { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' })}</div>` : '') },
   ];
   // One list at a time, picked from chips, as Records and Share already are
-  // (Blake 2026-11-20: the tab scrolled for pages). Nothing folds: a chip is
-  // a tab, and the list under it is open.
+  // (Blake 2026-11-20: the tab scrolled for pages; 2026-11-25: "let's keep em
+  // separate for now tab wise"). Nothing folds: a chip is a tab, and the list
+  // under it is open.
   const views = [
     ['approve', 'To approve', drafts.length, () => surface('To approve', queueTable('msgs', drafts, draftCols, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Mark as sent', 'q-msg-sent', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
       { text: 'No drafts. Approving a creator drafts their message here.', go: btn('Find creators', 'go-tab', { t: 'people' }, 'primary') }), `${num(drafts.length)} draft(s)`)],
-    ['email', 'Send by email', ready.length, () => surface('Send by email', `${table(approvedCols, ready, { text: 'Nothing approved yet.', go: drafts.length ? btn(`Approve ${num(drafts.length)} waiting`, 'comms-tab', { k: 'approve' }, 'primary') : '' })}
-      ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, canSend ? 'surface' : 'primary', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`)],
+    // How these get sent stays at the top, as one small line with the Copy
+    // agent prompt beside it -- not a block that pushes the queue down and
+    // not buried under it (Blake 2026-11-25: "keep small instruction and copy
+    // prompt up top").
+    ['email', 'Send by email', ready.length, () => surface('Send by email', `<div class="af-queue-head">${aiSendBlock(d.aiApps)}${
+      canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${
+      MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>
+      ${table(approvedCols, ready, { text: 'Nothing approved yet.', go: drafts.length ? btn(`Approve ${num(drafts.length)} waiting`, 'comms-tab', { k: 'approve' }, 'primary') : '' })}`, `${num(ready.length)} approved`)],
     ['dm', 'Send by DM', readyDm.length, () => surface('Send by DM', table(dmCols, readyDm, 'Nobody is waiting on a DM.'), `${num(readyDm.length)} with no email`), !readyDm.length],
     ['sent', 'Mark sent', out.length, () => surface('Mark sent', table(exportedCols, out, 'Nothing exported.'), `${num(out.length)} exported`), !out.length],
     ['inbound', 'Inbound', applied.length, () => surface('Inbound', table(appCols, applied, 'No applications waiting.'), `${num(applied.length)} applied`)],
@@ -3961,6 +3967,15 @@ const outreachVars = (x, p = progOf(x) || prog()) => {
 // from rows the page has already read under RLS.
 const OV_WEEKS = 12;
 const ovCur = () => (companyMulti() ? mainCurrency() : (prog()?.currency || 'USD').toUpperCase());
+// Every currency the company's programs are in, the most common first. Money
+// is shown per currency and never summed across them, so a program in another
+// currency is not silently left out of a company figure (review cycle 1).
+function ovCurrencies() {
+  const n = {};
+  for (const x of S.programs) { const c = (x.currency || 'USD').toUpperCase(); n[c] = (n[c] || 0) + 1; }
+  const list = Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b));
+  return list.length ? list : [ovCur()];
+}
 const ovDay = (back) => dayShift(today(), back);
 // 30 / 90 / any two dates. The same control heads Home, Money and Records, so
 // one choice follows you between them.
@@ -4014,8 +4029,8 @@ const ovWindowLabel = () => {
   return w.custom ? `${fmtDate(w.from)} – ${fmtDate(w.to)}` : `last ${num(w.days)} days`;
 };
 // Whole currency units, for the big figures. Exact amounts stay on Pay.
-function moneyRound(cents) {
-  const cur = ovCur();
+function moneyRound(cents, currency = null) {
+  const cur = (currency || ovCur() || 'USD').toUpperCase();
   if (cents === null || cents === undefined || !Number.isFinite(Number(cents))) return '—';
   const v = Number(cents) / minorUnits(cur);
   try {
@@ -4262,33 +4277,53 @@ function renderOverview() {
     return;
   }
   const w = ovWindows();
-  const cur = ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
-  const prev = ovWindow(d.ovAttributions, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
-  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const commPrev = ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
+  // One currency for a program; every currency the company's programs use for
+  // the company view. Money is listed per currency, counts are the company's.
+  const curs = multi ? ovCurrencies() : [ovCur()];
+  const mixed = curs.length > 1;
+  const win = (c, back = false) => ovWindow(d.ovAttributions, { from: back ? w.prevFrom : w.from, to: back ? w.prevTo : w.to, currency: c });
+  const cur = curs.map((c) => win(c));
+  const prev = curs.map((c) => win(c, true));
+  const comm = curs.map((c) => ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: c }));
+  const commPrev = curs.map((c) => ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: c }));
+  const sumOf = (list, k) => list.reduce((n, x) => n + Number(x[k] || 0), 0);
+  const orders = sumOf(cur, 'orders'); const ordersPrev = sumOf(prev, 'orders');
+  const sellers = new Set(cur.flatMap((x) => x.sellers)).size;
+  const sellersPrev = new Set(prev.flatMap((x) => x.sellers)).size;
+  // One figure per currency, joined -- never one number standing for two.
+  const perCur = (vals) => curs.map((c, i) => moneyRound(vals[i], c)).join(' · ');
   const active = d.affiliates.filter((a) => a.status === 'active').length;
   const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
+  // A trend line can only be drawn in one currency; it says which.
+  const sparkNote = mixed ? `<span>${esc(`trend in ${ovCur()}`)}</span>` : '';
+  const avgOrder = orders && !mixed ? moneyRound(cur[0].sales / cur[0].orders, curs[0]) : '';
   const metrics = [
-    ovMetricCard('Sales from codes', moneyRound(cur.sales),
-      `${ovDelta(cur.sales, prev.sales)}<span>vs previous ${num(w.days)} days</span>`,
+    ovMetricCard('Sales from codes', perCur(cur.map((x) => x.sales)),
+      `${mixed ? '' : ovDelta(cur[0].sales, prev[0].sales)}<span>vs previous ${num(w.days)} days</span>${sparkNote}`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) }), 'accent')),
-    ovMetricCard('Commission earned', SEES_MONEY ? moneyRound(comm) : '—',
-      `${ovDelta(comm, commPrev)}<span>${esc(p ? rateShort(p) : ovPlural(S.programs.length, 'program'))}</span>`,
+    ovMetricCard('Commission earned', SEES_MONEY ? perCur(comm) : '—',
+      `${mixed ? '' : ovDelta(comm[0], commPrev[0])}<span>${esc(p ? rateShort(p) : ovPlural(S.programs.length, 'program'))}</span>`,
       ovSpark(ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) }), 'pos')),
-    ovMetricCard('Orders', num(cur.orders),
-      `${ovDelta(cur.orders, prev.orders)}<span>${esc(moneyRound(cur.orders ? cur.sales / cur.orders : 0))} average order</span>`,
+    ovMetricCard('Orders', num(orders),
+      `${ovDelta(orders, ordersPrev)}<span>${esc(avgOrder ? `${avgOrder} average order` : `${num(curs.length)} currencies`)}</span>`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? 1 : 0) }), 'accent')),
-    ovMetricCard('Selling affiliates', num(cur.sellers.length),
-      `${ovDelta(cur.sellers.length, prev.sellers.length)}<span>of ${num(active)} active</span>`,
+    ovMetricCard('Selling affiliates', num(sellers),
+      `${ovDelta(sellers, sellersPrev)}<span>of ${num(active)} active</span>`,
       ovSpark(ovWeeklySellers(d.ovAttributions, opt), 'warn')),
   ].join('');
-  const owedCents = ovUnpaid(d.balances, p ? p.currency : ovCur());
+  const owedLine = curs.map((c) => money(ovUnpaid(d.balances, c), c)).join(' · ');
   const liveCodes = d.codes.filter((c) => c.status === 'active').length;
-  const otherCur = ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
+  // Orders in a currency NO program of this company is in: still not counted
+  // above, so the band says how many there are.
+  const inScope = new Set(curs);
+  const otherCur = mixed
+    ? new Set((d.ovAttributions || []).filter((r) => r?.order_day && r.order_day >= w.from && r.order_day <= w.to
+      && !inScope.has(String(r.order_currency || curs[0]).toUpperCase())).map((r) => r.order_id)).size
+    : ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: curs[0] });
   const lastLedger = (d.ledger || [])[0]?.created_at;
   const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
   const band = '<div class="af-ov-band">'
-    + bandItem('Commission unpaid', SEES_MONEY ? esc(money(owedCents)) : '—')
+    + bandItem('Commission unpaid', SEES_MONEY ? esc(owedLine) : '—')
     + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
     + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
     + '<div class="af-ov-bsep"></div>'
