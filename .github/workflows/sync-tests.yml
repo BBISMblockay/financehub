@@ -342,6 +342,8 @@ on:
       - 'supabase/migrations/*card_payment_match_relink.sql'
       - 'supabase/migrations/*card_payment_match_either_side.sql'
       - 'scripts/tests/accounting-mode.test.mjs'
+      - 'v2/quickbooks-sync.js'
+      - 'scripts/tests/quickbooks-sync.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
       - 'scripts/tests/bookkeeping-transition-*.mjs'
@@ -781,6 +783,18 @@ jobs:
       # that names every surface that stops sending.
       - name: Bookkeeping mode card
         run: node --test scripts/tests/accounting-mode.test.mjs
+
+      # The QuickBooks sync page (testing/quickbooks-sync.html): which state
+      # each month and entry is in, and the send run. Every mutation breaks one
+      # protection and must fail the suite.
+      - name: QuickBooks sync page
+        run: |
+          node --test scripts/tests/quickbooks-sync.test.mjs
+          for m in claim-not-first unread-claims-ok open-month-sendable ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
+            if QBSYNC_MUTATION=$m node --test scripts/tests/quickbooks-sync.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+          done
 
       - name: Accounting suite navigation and legacy routes
         run: node --test scripts/tests/accounting-overview.test.mjs scripts/tests/accounting-setup-workspace.test.mjs scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-journal-signs.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
