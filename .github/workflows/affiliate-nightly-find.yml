@@ -4,7 +4,9 @@ name: Affiliate nightly Find
 # customers (scripts/affiliate-nightly-find.mjs). The affiliate-research
 # function does the work and stops at the company's own limits: customers per
 # night, spend per night, and the monthly cap over all Affiliate Studio usage.
-# Off for every company until its owner or admin turns it on.
+# Off for every company until its owner or admin turns it on. Since
+# 20261125070000 it also starts nightly Discovery where that is switched on
+# (one program a night, its own creators- and dollars-per-night).
 #
 # 13:15 UTC: after the Shopify sync (08:30 UTC, about two hours) has landed
 # the previous day's customers, and before the 14:00 commissions run.

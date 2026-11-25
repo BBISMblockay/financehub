@@ -208,6 +208,32 @@ const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'erro
       assert.deepEqual(await page.evaluate(() => window.__studioSaved), { p_nightly: false, p_night_customers: 150, p_night_usd: 1.5, p_month_usd: null });
       assert.match(await page.locator('#studio').textContent(), /No monthly cap/);
     });
+    await check('Affiliate Studio: before the Discovery update, no Discovery fields and none sent', async () => {
+      assert.equal(await page.locator('#stDisc').count(), 0);
+      assert.doesNotMatch(await page.locator('#studio').textContent(), /nightly Discovery/);
+    });
+    await page.close();
+    // Nightly Discovery (20261125070000): its own switch and limits, modest
+    // by default; the last run shows counts only.
+    const disc = { ...studio, discovery_nightly_enabled: false, discovery_night_creators: 10, discovery_night_max_micros: 1000000,
+      last_discovery: { started_at: '2026-10-06T13:20:00Z', status: 'ok', new: 7, program: 'Coaches' } };
+    page = await suite.open('/v2/billing.html', withCredit(withStudio), { rpc: studioRpc(disc), ready: () => !document.querySelector('#credit .bil-empty') && !document.getElementById('studioCard').hidden });
+    await check('Affiliate Studio: nightly Discovery has its own switch and limits, saved with the rest', async () => {
+      const card = (await page.locator('#studio').textContent()).replace(/\s+/g, ' ');
+      assert.match(card, /Last nightly Discovery\s*Oct 6, 2026 · 7 new · Coaches/);
+      assert.doesNotMatch(card, /provider|multiplier|markup|rate/i);
+      assert.equal(await page.locator('#stDisc').isChecked(), false);
+      assert.equal(await page.locator('#stDiscN').inputValue(), '10');
+      assert.equal(await page.locator('#stDiscUsd').inputValue(), '1');
+      await page.locator('#stDisc').check();
+      await page.locator('#stDiscN').fill('20');
+      await page.locator('#stDiscUsd').fill('2.5');
+      await page.locator('#stSave').click();
+      await page.waitForFunction(() => /limits saved/.test(document.getElementById('status').textContent));
+      assert.deepEqual(await page.evaluate(() => window.__studioSaved), { p_nightly: true, p_night_customers: 300, p_night_usd: 3, p_month_usd: 20,
+        p_discovery: true, p_discovery_creators: 20, p_discovery_usd: 2.5 });
+    });
+    await page.locator('#studioCard').screenshot({ path: path.join(dir, 'billing-affiliate-studio.png') });
     await page.close();
     page = await suite.open('/v2/billing.html', withCredit(withStudio), { rpc: studioRpc({ ...studio, can_edit: false }), ready: () => !document.querySelector('#credit .bil-empty') && !document.getElementById('studioCard').hidden });
     await check('Affiliate Studio: anyone else reads the limits, cannot change them', async () => {

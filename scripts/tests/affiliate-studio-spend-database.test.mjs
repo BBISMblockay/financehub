@@ -23,6 +23,11 @@
 //   STUDIO_SPEND_DB_MUTATION=provider    shadow spend reads the provider's cost, not the customer price
 //   STUDIO_SPEND_DB_MUTATION=authspend   a signed-in user may call the service-only figure
 //   STUDIO_SPEND_DB_MUTATION=norls       the settings table is readable across companies
+//   STUDIO_SPEND_DB_MUTATION=heldcount   a run's spend so far (still held) is left out of its own figure
+//   STUDIO_SPEND_DB_MUTATION=heldall     another run's spend so far counts toward this run
+//   STUDIO_SPEND_DB_MUTATION=discclobber saving the Find limits resets the Discovery ones
+//
+// 20261125070000 (nightly Discovery) is applied after it, both twice, in order.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -55,7 +60,17 @@ create table ai_credit_reservations(
   id uuid primary key default gen_random_uuid(), company_entity_id uuid not null, feature text not null,
   source_ref text, status text not null, enforced boolean not null, outcome text,
   provider_cost_micros numeric, computed_charge_micros bigint, charged_micros bigint not null default 0,
-  settled_at timestamptz);
+  settled_at timestamptz, usage jsonb, rate_id uuid, multiplier_bps integer);
+create table ai_provider_rates(id uuid primary key, web_search_micros_per_request numeric not null default 0);
+-- Stand-ins for the ledger's pricing (20261001120000): searches at the rate,
+-- then the company's multiplier.
+create function ai_credit_provider_cost(p_rate ai_provider_rates, p_usage jsonb) returns numeric language sql as
+  $$ select coalesce((p_usage->>'web_search')::numeric, 0) * p_rate.web_search_micros_per_request $$;
+create function ai_credit_customer_micros(p_provider numeric, p_bps integer) returns bigint language sql as
+  $$ select round(p_provider * p_bps / 10000)::bigint $$;
+create table affiliate_programs(id uuid primary key, name text);
+create table affiliate_discovery_runs(id uuid primary key default gen_random_uuid(), company_entity_id uuid not null, program_id uuid,
+  started_at timestamptz not null default now(), finished_at timestamptz, status text, prospects_new int, cost_usd numeric);
 create table affiliate_customer_scans(id uuid primary key default gen_random_uuid(), company_entity_id uuid not null,
   status text, checked int, found int, filters jsonb not null default '{}', error_message text, cost_usd numeric,
   started_at timestamptz not null default now(), finished_at timestamptz);
@@ -65,14 +80,18 @@ insert into entities values ('${CO_A}'), ('${CO_B}');
 insert into entity_memberships values ('${CO_A}', '${OWNER}'), ('${CO_A}', '${MEMBER}'), ('${CO_B}', '${OWNER}');
 `);
 
-let sql = await readFile(new URL('../../supabase/migrations/20261125040000_affiliate_studio_spend.sql', import.meta.url), 'utf8');
+let sql = await readFile(new URL('../../supabase/migrations/20261125040000_affiliate_studio_spend.sql', import.meta.url), 'utf8')
+  + '\n' + await readFile(new URL('../../supabase/migrations/20261125070000_affiliate_studio_nightly_discovery.sql', import.meta.url), 'utf8');
 function mutate(from, to) {
   assert.ok(sql.includes(from), `mutation ${MUT}: pattern not found`);
   sql = sql.split(from).join(to);
 }
 switch (MUT) {
   case '': break;
-  case 'anongrant': mutate('revoke all on function public.affiliate_studio_set_spend(boolean, integer, numeric, numeric) from public, anon;', ''); break;
+  case 'anongrant': mutate('revoke all on function public.affiliate_studio_set_spend(boolean, integer, numeric, numeric, boolean, integer, numeric) from public, anon;', ''); break;
+  case 'heldcount': mutate('+ (select micros from open_run) end', 'end'); break;
+  case 'heldall': mutate("and x.status = 'held' and x.source_ref = p_scan::text", "and x.status = 'held'"); break;
+  case 'discclobber': mutate('coalesce(p_discovery, cur.discovery_nightly_enabled, false)', 'coalesce(p_discovery, false)'); break;
   case 'noowner': mutate("  if not coalesce(public.is_owner_admin_of_active_company(), false) then\n    raise exception 'Only", "  if false then\n    raise exception 'Only"); break;
   case 'allfeature': mutate(" and x.feature = 'affiliate_research'", ''); break;
   case 'provider': mutate('else coalesce(x.computed_charge_micros, 0) end as micros', 'else coalesce(x.provider_cost_micros, 0) end as micros'); break;
@@ -157,11 +176,11 @@ await test('D: the Billing summary: customer dollars, limits, last night -- neve
 
 await test('E: grants -- anon reaches nothing, the cap-check figure is service-only', async () => {
   const r = (await db.query(`select
-    has_function_privilege('anon', 'public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)', 'execute') a1,
+    has_function_privilege('anon', 'public.affiliate_studio_set_spend(boolean,integer,numeric,numeric,boolean,integer,numeric)', 'execute') a1,
     has_function_privilege('anon', 'public.affiliate_studio_spend_summary()', 'execute') a2,
     has_function_privilege('anon', 'public.affiliate_studio_spend(uuid,uuid)', 'execute') a3,
     has_function_privilege('authenticated', 'public.affiliate_studio_spend(uuid,uuid)', 'execute') u3,
-    has_function_privilege('authenticated', 'public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)', 'execute') u1,
+    has_function_privilege('authenticated', 'public.affiliate_studio_set_spend(boolean,integer,numeric,numeric,boolean,integer,numeric)', 'execute') u1,
     has_function_privilege('service_role', 'public.affiliate_studio_spend(uuid,uuid)', 'execute') s3,
     has_table_privilege('anon', 'public.affiliate_studio_spend_settings', 'select') t1,
     has_table_privilege('authenticated', 'public.affiliate_studio_spend_settings', 'insert') t2`)).rows[0];
@@ -172,6 +191,43 @@ await test('F: a member reads only their own company\'s settings row', async () 
   await as('authenticated', { company: CO_B }, () => setSpend(true, 10, 1, null));
   const rows = (await as('authenticated', { uid: MEMBER, owner: false }, () => db.query('select company_entity_id from affiliate_studio_spend_settings'))).rows;
   assert.deepEqual(rows.map((x) => x.company_entity_id), [CO_A]);
+});
+
+// ── Nightly Discovery (20261125070000) ─────────────────────────────────
+const RUN = '44444444-4444-4444-4444-444444444444';
+const RATE = '55555555-5555-5555-5555-555555555555';
+await test('G: Discovery has its own nightly switch and limits; saving Find alone keeps them', async () => {
+  const s = (await as('authenticated', {}, () => db.query('select public.affiliate_studio_set_spend($1,$2,$3,$4,$5,$6,$7) as s', [false, 300, 3, null, true, 20, 2.5]))).rows[0].s;
+  assert.equal(s.discovery_nightly_enabled, true);
+  assert.equal(s.discovery_night_creators, 20);
+  assert.equal(Number(s.discovery_night_max_micros), 2_500_000);
+  const k = (await as('authenticated', {}, () => setSpend(true, 300, 3, null))).rows[0].s;
+  assert.equal(k.discovery_nightly_enabled, true, 'a save without Discovery fields keeps them');
+  assert.equal(k.discovery_night_creators, 20);
+  assert.ok(await as('authenticated', {}, () => refused(() => db.query('select public.affiliate_studio_set_spend($1,$2,$3,$4,$5,$6,$7)', [false, 300, 3, null, true, 51, 1]))), 'over 50 creators');
+  assert.ok(await as('authenticated', {}, () => refused(() => db.query('select public.affiliate_studio_set_spend($1,$2,$3,$4,$5,$6,$7)', [false, 300, 3, null, true, 10, 0]))), 'a $0 Discovery night');
+  const fresh = await spend(CO_B);
+  assert.deepEqual([fresh.discovery_nightly_enabled, fresh.discovery_night_creators, Number(fresh.discovery_night_max_micros)], [false, 10, 1_000_000], 'off and modest by default');
+});
+
+await test('H: a run still going counts what it has used so far, and only its own', async () => {
+  await db.exec(`insert into ai_provider_rates values ('${RATE}', 900);
+    insert into ai_credit_reservations (company_entity_id, feature, source_ref, status, enforced, usage, rate_id, multiplier_bps) values
+      ('${CO_A}', 'affiliate_research', '${RUN}', 'held', false, '{"web_search": 100}', '${RATE}', 20000),
+      ('${CO_A}', 'affiliate_research', 'another-run', 'held', false, '{"web_search": 999}', '${RATE}', 20000);`);
+  assert.equal(Number((await spend(CO_A, RUN)).scan_micros), 180_000, '100 searches x 900 x 2, still held');
+  assert.equal(Number((await spend(CO_A)).month_micros), 1230, 'the month counts settled spend only');
+});
+
+await test('I: the summary shows the last nightly Discovery, counts only', async () => {
+  await db.exec(`insert into affiliate_programs values ('${SCAN}', 'Coaches');
+    insert into affiliate_discovery_runs (company_entity_id, program_id, status, prospects_new, cost_usd, nightly, started_at) values
+      ('${CO_A}', '${SCAN}', 'ok', 7, 0.77, true, now() - interval '1 hour'),
+      ('${CO_A}', '${SCAN}', 'ok', 40, 9.99, false, now());`);
+  const s = (await as('authenticated', { uid: MEMBER, owner: false }, () => db.query('select public.affiliate_studio_spend_summary() as s'))).rows[0].s;
+  assert.equal(s.last_discovery.new, 7, 'the nightly one, not a press');
+  assert.equal(s.last_discovery.program, 'Coaches');
+  assert.ok(!JSON.stringify(s).includes('0.77'), 'never its cost');
 });
 
 console.log(`\naffiliate-studio-spend-database: ${passed} passed`);

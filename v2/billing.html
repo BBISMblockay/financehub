@@ -580,6 +580,12 @@
       ? `${esc(dateText(n.started_at))} · ${Number(n.checked || 0)} checked · ${Number(n.likely || 0)} Likely${Number(n.to_check) ? ` · ${Number(n.to_check)} to check` : ''}${n.status === 'running' ? ' · running' : ''}`
       : 'No nightly run yet';
     const dis = s.can_edit ? '' : ' disabled';
+    // Discovery fields only once the database carries them (20261125070000).
+    const hasDisc = 'discovery_nightly_enabled' in s;
+    const d = s.last_discovery;
+    const disc = d
+      ? `${esc(dateText(d.started_at))} · ${Number(d.new || 0)} new${d.program ? ` · ${esc(d.program)}` : ''}${d.status === 'running' ? ' · running' : ''}`
+      : 'No nightly run yet';
     el('studio').innerHTML = `<div class="bil-studio">
       <div>
         <div class="bil-studio-facts">
@@ -587,14 +593,20 @@
             <span class="bil-fact-note">${cap ? `of a ${AI.fmtMicros(cap, { exact: true })} cap` : 'No monthly cap'}${_credit?.state === 'preview' ? ' · priced, not deducted' : ''}</span></div>
           <div class="bil-fact"><span class="bil-fact-label">Last nightly Find</span><span class="bil-fact-note" style="font-size:12px;color:var(--bcn-ink-2)">${night}</span>
             ${n?.note ? `<span class="bil-fact-note">${esc(n.note)}</span>` : ''}</div>
+          ${hasDisc ? `<div class="bil-fact"><span class="bil-fact-label">Last nightly Discovery</span><span class="bil-fact-note" style="font-size:12px;color:var(--bcn-ink-2)">${disc}</span></div>` : ''}
         </div>
         ${cap ? `<div class="bil-usage-bar" style="margin-top:12px" role="img" aria-label="${Math.min(100, (used / cap) * 100).toFixed(0)} percent of the monthly cap used"><span style="width:${Math.min(100, (used / cap) * 100)}%"></span></div>` : ''}
-        <p class="bil-note" style="margin-top:12px">One line for everything Affiliate Studio does: finding creators among your customers and discovering new ones. Find stops at whichever limit it reaches first.</p>
+        <p class="bil-note" style="margin-top:12px">One line for everything Affiliate Studio does: finding creators among your customers and discovering new ones. Nightly runs stop at their own limits; every run stops at the monthly cap until it is raised.</p>
       </div>
       <form class="bil-studio-form" id="studioForm">
         <label class="bil-check"><input type="checkbox" id="stNightly"${s.nightly_enabled ? ' checked' : ''}${dis} /> Run Find every night on new customers</label>
         <label>Customers per night<input class="bcn-field" type="number" id="stCust" min="1" max="5000" step="1" value="${Number(s.night_max_customers) || 300}"${dis} /></label>
         <label>Spend per night ($)<input class="bcn-field" type="number" id="stNight" min="0.01" step="0.01" value="${usd(s.night_max_micros) || 3}"${dis} /></label>
+        <span></span>
+        ${hasDisc ? `<label class="bil-check"><input type="checkbox" id="stDisc"${s.discovery_nightly_enabled ? ' checked' : ''}${dis} /> Run Discovery every night for new creators</label>
+        <label>Creators per night<input class="bcn-field" type="number" id="stDiscN" min="1" max="50" step="1" value="${Number(s.discovery_night_creators) || 10}"${dis} /></label>
+        <label>Spend per night ($)<input class="bcn-field" type="number" id="stDiscUsd" min="0.01" step="0.01" value="${usd(s.discovery_night_max_micros) || 1}"${dis} /></label>
+        <span></span>` : ''}
         <label>Monthly cap ($, blank = none)<input class="bcn-field" type="number" id="stMonth" min="0.01" step="0.01" value="${cap ? usd(cap) : ''}"${dis} /></label>
         <div class="bil-save">${s.can_edit ? '<button class="bcn-btn bcn-btn--primary" type="submit" id="stSave">Save limits</button>' : '<span class="bil-fact-note">A workspace owner or admin can change these.</span>'}</div>
       </form>
@@ -607,10 +619,16 @@
     btn.disabled = true;
     try {
       setStatus('Saving Affiliate Studio limits…', 'info');
-      const { data, error } = await sb.rpc('affiliate_studio_set_spend', {
+      const args = {
         p_nightly: el('stNightly').checked, p_night_customers: Math.floor(Number(el('stCust').value)),
         p_night_usd: Number(el('stNight').value), p_month_usd: month === '' ? null : Number(month),
-      });
+      };
+      if (el('stDisc')) {
+        args.p_discovery = el('stDisc').checked;
+        args.p_discovery_creators = Math.floor(Number(el('stDiscN').value));
+        args.p_discovery_usd = Number(el('stDiscUsd').value);
+      }
+      const { data, error } = await sb.rpc('affiliate_studio_set_spend', args);
       if (error) throw new Error(error.message);
       _studio = data;
       renderStudio();
