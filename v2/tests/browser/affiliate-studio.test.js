@@ -80,6 +80,11 @@
  *   AFFILIATE_UI_MUTATION=personprog a program they are already in is offered again
  *   AFFILIATE_UI_MUTATION=affpaged    the creator list is not read paged, so a big program is cut at one page
  *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
+ *   AFFILIATE_UI_MUTATION=findbuttons a search matches a row's button labels
+ *   AFFILIATE_UI_MUTATION=findhits    the search says nothing about the other tabs
+ *   AFFILIATE_UI_MUTATION=findlist    a queue list ignores the search
+ *   AFFILIATE_UI_MUTATION=moneyprog   Money works one program at a time again
+ *   AFFILIATE_UI_MUTATION=exportoneprog  Export claims only the program last picked
  *   AFFILIATE_UI_MUTATION=peoplescope People reads only the program picked
  *   AFFILIATE_UI_MUTATION=peopletwice somebody in two programs is two Discovery cards
  *   AFFILIATE_UI_MUTATION=pickershown the program picker still shows on People
@@ -196,9 +201,14 @@ const MUTATIONS = {
   consentsnap: ['/affiliates/studio.js', "      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));", '      ;'],
   poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
   // People sit above programs (Blake 2026-11-24).
-  peoplescope: ['/affiliates/studio.js', "  const company = peopleScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
+  findbuttons: ['/affiliates/studio.js', "  .replace(/<(button|select)\\b[\\s\\S]*?<\\/\\1>/gi, ' ')\n", ''],
+  findhits: ['/affiliates/studio.js', '  renderProgramPick(company);\n  renderFindHits();\n', '  renderProgramPick(company);\n'],
+  findlist: ['/affiliates/studio.js', "  if (findWords().length) rows = rows.filter((r) => textHits(plainText(renderRow(r))));\n", ''],
+  moneyprog: ['/affiliates/studio.js', "const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);", "const COMPANY_TABS = new Set(['people', 'records', 'overview']);"],
+  exportoneprog: ['/affiliates/studio.js', '    const jobs = companyMulti()\n', '    const jobs = false\n'],
+  peoplescope: ['/affiliates/studio.js', "  const company = companyScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
   peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
-  pickershown: ['/affiliates/index.html', 'id="programSel" aria-label="Program" style="min-width:200px;" hidden>', 'id="programSel" aria-label="Program" style="min-width:200px;">'],
+  pickershown: ['/affiliates/index.html', '    #programSel[hidden] { display: none; }\n', ''],
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
@@ -1358,13 +1368,56 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(file, PA, 'the claimed payout is in the file');
     R.not(file, PB, 'a payout the database did not claim is not in the file');
     R.ok('the fingerprint is recorded against the claimed batch', rpcCalls.some((c) => c[0] === 'fp' && c[1].p_batch === 'batch-1'));
-    await pay.click(`#progPick [data-act="pick-prog"][data-id="${PROG}"]`);
+    // Money is the company's (Blake 2026-11-25: "money - should not be
+    // tabbed at program level...all entity level"): no program picker, and
+    // with two programs each payout names its own.
     await pay.waitForFunction(() => /Pat Trails/.test(document.querySelector('#payoutsBody')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('Money has no program picker', await pay.evaluate(() => { const el = document.getElementById('progPick'); return !el || el.hidden || !el.querySelector('[data-act="pick-prog"]'); }));
+    R.ok('each payout names its program', await pay.evaluate(() => [...document.querySelectorAll('#payoutsBody .af-item--compact')].some((el) => /Creators/.test(el.textContent))));
     await openRecords(pay);
     await recTab(pay, 'money');
     R.has(await text(pay, '#recordsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
     await pay.close();
 
+    // Money is the company's: one Export press sends every program's
+    // approved payouts, one claim and one file per program.
+    {
+      const P1 = '71111111-1111-4111-8111-111111111111'; const P2 = '72222222-2222-4222-8222-222222222222';
+      const PROG2 = '55555555-5555-4555-8555-555555555555';
+      const twoPay = { ...tables, affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROG2, name: 'Beta', slug: 'beta' }], affiliate_payouts: [
+        { id: P1, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'approved', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now, approved_at: now },
+        { id: P2, company_entity_id: CO, program_id: PROG2, affiliate_id: AFF, status: 'approved', amount_cents: 700, currency: 'USD', item_count: 1, created_at: now, approved_at: now },
+        { id: 'pd1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 111, currency: 'USD', item_count: 1, created_at: now },
+        { id: 'pd2', company_entity_id: CO, program_id: PROG2, affiliate_id: AFF, status: 'draft', amount_cents: 222, currency: 'USD', item_count: 1, created_at: now },
+      ] };
+      const tp = await suite.open('/v2/affiliates/index.html', twoPay, { ready, rpc: {
+        can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+        affiliate_claim_payout_export: (args) => { (window.__claims = window.__claims || []).push(args); return { batch_id: `b-${args.p_program}`, payouts: [], skipped: [] }; },
+        affiliate_set_payout_export_fingerprint: () => 1,
+      } });
+      tp.on('pageerror', (e) => errors.push(e.message));
+      await tp.evaluate(() => { window.__names = []; const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) window.__names.push(this.download); return click.call(this); };
+        if (!crypto.subtle) Object.defineProperty(crypto, 'subtle', { configurable: true, value: { digest: async () => new Uint8Array(32).buffer } }); });
+      await closeDialog(tp);
+      await tp.click('#tabs [data-tab="payouts"]');
+      await tp.click('#payoutsBody [data-act="payout-export"]');
+      await tp.click('#payoutsBody [data-act="payout-export"]');
+      await tp.waitForFunction(() => (window.__claims || []).length === 2, null, { timeout: 5000 }).catch(() => {});
+      const claims = await tp.evaluate(() => (window.__claims || []).map((c) => [c.p_program, c.p_payouts]).sort());
+      R.eq(claims, [[PROG2, [P2]], [PROG, [P1]]].sort(), 'one Export claims each program\'s own approved payouts');
+      R.eq((await tp.evaluate(() => window.__names)).map((n) => n.split('-')[1]).sort(), ['beta', 'creators'], 'and downloads one file per program');
+      // The search narrows a tick list too, and Select all with it.
+      await tp.fill('#studioQ', 'beta'); await tp.waitForTimeout(400);
+      R.eq(await tp.evaluate(() => [...document.querySelectorAll('#payoutsBody .af-q-pick')].map((x) => x.dataset.id)), ['pd2'], 'a search narrows the To approve list to the matches');
+      await tp.fill('#studioQ', ''); await tp.waitForTimeout(400);
+      // A button on a company tab works in its row's program, and that is the
+      // program a one-program tab opens on next.
+      await tp.click(`#payoutsBody [data-act="payout-void-open"][data-id="${P2}"]`);
+      await tp.click('#tabs [data-tab="share"]');
+      await tp.waitForSelector('#progPick:not([hidden]) .af-seg-btn.is-on', { timeout: 5000 });
+      R.eq(await tp.evaluate(() => document.querySelector('#progPick .af-seg-btn.is-on')?.textContent), 'Beta', 'a row button works in the program of its row');
+      await tp.close();
+    }
     // ── "why didn't this order count?" answered on the page (Blake 2026-11-18) ──
     {
       const lkTables = { ...tables,
@@ -2726,14 +2779,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       affiliate_balances_v: [...tables.affiliate_balances_v, { ...tables.affiliate_balances_v[0], program_id: PROGB, affiliate_id: AFFB, earned_cents: 1500, unclaimed_cents: 1500 }] };
     const all = await suite.open('/v2/affiliates/index.html', allTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
     all.on('pageerror', (e) => errors.push(e.message));
-    R.ok('there is no program filter at the top of the page', await all.evaluate(() => document.getElementById('programSel')?.hidden === true));
+    R.ok('there is no program filter at the top of the page', await all.evaluate(() => { const el = document.getElementById('programSel'); return el?.hidden === true && getComputedStyle(el).display === 'none'; }));
     R.ok('and none on People', await all.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await toProgram(all);
-    R.ok('the Program tab offers All programs inside the tab', !!(await all.$('#progPick:not([hidden]) [data-act="pick-prog"][data-id="*"]')));
-    await all.click('#progPick [data-act="pick-prog"][data-id="*"]');
+    // Program, People, Money and Records are the company's (Blake
+    // 2026-11-25); only Outreach, Share and Setup pick a program.
+    R.ok('the Program tab has no program picker', await all.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await all.waitForFunction(() => /By program/.test(document.getElementById('overviewBody')?.textContent || ''), null, { timeout: 5000 });
     const allHome = await text(all, '#overviewBody');
-    R.has(allHome, 'Wholesale', 'Home lists every program');
+    R.has(allHome, 'Wholesale', 'the Program tab lists every program');
     R.has(allHome, '$150.00', 'and sums sales across programs');
     R.has(allHome, '$20.00', 'and sums what is owed across programs');
     await closeDialog(all);
@@ -2745,19 +2799,54 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('with a row for each program and its code', allPpl.includes('PAT10') && allPpl.includes('PAT15') && allPpl.includes('Creators') && allPpl.includes('Wholesale'));
     await closeDialog(all);
     await all.click('#tabs [data-tab="payouts"]');
-    await all.waitForFunction(() => !!document.querySelector('#payoutsBody [data-act="pick-program"]'), null, { timeout: 5000 });
-    R.ok('a tab that works one program at a time asks which', /Pick a program/.test(await text(all, '#payoutsBody')));
-    R.ok('and writes nothing while it asks', !(await all.$('#payoutsBody [data-act^="q-"], #payoutsBody [data-act="payout-export"]')));
-    await all.click(`#payoutsBody [data-act="pick-program"][data-id="${PROGB}"]`);
-    await all.waitForFunction((id) => document.getElementById('programSel').value === id, PROGB, { timeout: 5000 });
-    await all.waitForFunction(() => !/Pick a program/.test(document.getElementById('payoutsBody')?.textContent || ''), null, { timeout: 5000 });
-    R.ok('Open switches to that program on the same tab', await all.evaluate(() => !document.querySelector('section[data-panel="payouts"]').hidden));
+    await all.waitForFunction(() => /Ready to pay/.test(document.getElementById('payoutsBody')?.textContent || ''), null, { timeout: 5000 });
+    const allMoney = await text(all, '#payoutsBody');
+    R.ok('Money is every program at once, with no picker', !/Pick a program/.test(allMoney) && await all.evaluate(() => document.getElementById('progPick')?.hidden === true));
+    R.ok('and names the program of each balance', allMoney.includes('Creators') && allMoney.includes('Wholesale'));
+    await openRecords(all);
+    R.ok('Records has no program picker either', await all.evaluate(() => document.getElementById('progPick')?.hidden === true));
+    await all.click('#tabs [data-tab="share"]');
+    await all.waitForSelector('#progPick:not([hidden]) [data-act="pick-prog"]', { timeout: 5000 });
+    R.ok('Share picks its program inside the tab, without All programs', !(await all.$('#progPick [data-act="pick-prog"][data-id="*"]')));
     await all.close();
     // One program only: no All programs option.
     const one = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true } });
     await toProgram(one);
     R.ok('with one program there is nothing to pick', await one.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await one.close();
+
+    // ── One search box on every tab (Blake 2026-11-24) ─────────────────────
+    // It filters the tab in place, and says what matches on the other tabs.
+    {
+      const fq = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      fq.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(fq);
+      const typeFind = async (q) => { await fq.fill('#studioQ', q); await fq.waitForTimeout(400); };
+      R.ok('the search box is at the top of the page', await fq.evaluate(() => !!document.querySelector('.bcn-header #studioQ')?.offsetParent));
+      await toDiscovery(fq);
+      await typeFind('samruns');
+      const disc = await text(fq, '#prospectsBody');
+      R.ok('typing filters the list on the tab you are on', disc.includes('Sam Runs') && !disc.includes('Never Bought'));
+      await typeFind('shortlist');
+      R.ok('a button label is not a match', !(await text(fq, '#prospectsBody')).includes('Sam Runs'));
+      await fq.click('#tabs [data-tab="share"]');
+      await typeFind('pat trails');
+      R.ok('other tabs with matches are offered as jump links', !!(await fq.$('#studioHits:not([hidden]) [data-act="go-tab"][data-t="people"]')));
+      await typeFind('creators');
+      R.ok('and a program whose name matches', !!(await fq.$('#studioHits [data-act="pick-program"]')));
+      await typeFind('pat trails');
+      await fq.click('#studioHits [data-act="go-tab"][data-t="people"]');
+      await fq.waitForFunction(() => document.querySelector('#tabs .bcn-tab--active')?.dataset.tab === 'people', null, { timeout: 5000 });
+      await fq.click('#peopleSubtabs [data-k="affiliates"]');
+      R.ok('the jump keeps the search and lands on the match', (await text(fq, '#affiliatesBody')).includes('Pat Trails') && (await fq.inputValue('#studioQ')) === 'pat trails');
+      await fq.click('#peopleSubtabs [data-k="discovery"]');
+      R.ok('and filters that tab too', !(await text(fq, '#prospectsBody')).includes('Sam Runs'));
+      await fq.focus('#studioQ');
+      await fq.keyboard.press('Escape');
+      await fq.waitForFunction(() => /Sam Runs/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('Escape clears it and the whole list is back', (await fq.inputValue('#studioQ')) === '' && (await text(fq, '#prospectsBody')).includes('Sam Runs'));
+      await fq.close();
+    }
 
     // ── Share: compact, list view, ten most recent ─────────────────────────
     const feed12 = Array.from({ length: 12 }, (_, i) => ({ id: 'fx' + i, company_entity_id: CO, program_id: PROG, kind: 'product', source_id: 'p' + i, title: 'Shared ' + i, image_url: null, product_path: '/products/p' + i, shared_at: new Date(Date.now() - i * 60000).toISOString() }));

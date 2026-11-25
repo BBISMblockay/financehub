@@ -198,7 +198,7 @@ async function autoRefreshCreators(id) {
     // Never under someone's typing: a half-filled form (a payment reference,
     // a prospect by hand) would be redrawn empty. The new photos then show on
     // the next redraw instead.
-    const quiet = () => (company ? peopleScope() : S.programId === id) && !S.creating && S.tab !== 'program' && !formDirty();
+    const quiet = () => (company ? companyScope() : S.programId === id) && !S.creating && S.tab !== 'program' && !formDirty();
     if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && quiet()) {
       await loadPrograms(); await loadProgramData();
       // Checked again AFTER the reads: someone may have started typing while
@@ -396,7 +396,7 @@ const PROSPECT_LIST_CAP = 20;
 // Declared before S, because S.view calls readView() as it is built: a const
 // read before its own initializer throws, and the choice silently reverted.
 const VIEW_KEY = 'silo.affiliates.view';
-const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', find: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
 // program by program). People and Home read across every program; the other
@@ -404,11 +404,25 @@ const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 const ALL = '*';
 const isAll = () => S.programId === ALL && S.programs.length > 1;
 const otherPrograms = () => S.programs.filter((x) => x.id !== S.programId && x.status === 'active');
-// People sit above programs (Blake 2026-11-24: "people is above programs").
-// The People tab always reads every program the person may see, whatever the
-// picker says, and the picker is hidden there. A button on that tab works in
-// the program of the row it sits on (see ctxProgram).
-const peopleScope = () => S.tab === 'people' && S.programs.length > 0;
+// People sit above programs (Blake 2026-11-24: "people is above programs"),
+// and so do Money, Records and the Program numbers (Blake 2026-11-25: "money
+// - should not be tabbed at program level...all entity level. same with
+// records"). Those tabs always read every program the person may see and
+// show no program picker; only Outreach, Share and Setup work one program at
+// a time. A button on a company tab works in the program of the row it sits
+// on (see ctxProgram).
+const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);
+const companyScope = () => COMPANY_TABS.has(S.tab) && S.programs.length > 0;
+// A company tab holding more than one program: no single program describes
+// the page, so its money, rail and currency come from each row's own program.
+const companyMulti = () => !!S.d?.company && S.programs.length > 1;
+// The currency most programs use, for company-wide totals (summed per
+// currency, never across).
+const mainCurrency = () => {
+  const n = {};
+  for (const x of S.programs) { const c = (x.currency || 'USD').toUpperCase(); n[c] = (n[c] || 0) + 1; }
+  return Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || 'USD';
+};
 const progOf = (x) => S.programs.find((p) => p.id === x?.program_id) || null;
 // Programs a person can be added to or searched for: anything not closed.
 const openPrograms = () => S.programs.filter((x) => x.status !== 'closed');
@@ -437,7 +451,7 @@ let loadGen = 0;
 async function loadProgramData() {
   const gen = ++loadGen;
   // People first: it is company-wide in every mode, "All programs" included.
-  const company = peopleScope();
+  const company = companyScope();
   if (!company && isAll()) return loadAllData(gen);
   const p = company ? null : prog();
   if (!p && !company) { S.d = null; return; }
@@ -716,8 +730,11 @@ const OV_DAYS_BACK = 180;
 function loadPaged(table, cols, since, programId) {
   return pagedCollect(async (i) => {
     try {
-      const { data, error } = await db.from(table).select(cols)
-        .eq('company_entity_id', CO).eq('program_id', programId)
+      // No program: the company's rows (a company tab), RLS still deciding
+      // which programs this person may read.
+      let q = db.from(table).select(cols).eq('company_entity_id', CO);
+      if (programId) q = q.eq('program_id', programId);
+      const { data, error } = await q
         .gte('order_day', since)
         .order('order_day', { ascending: false }).order('id', { ascending: true })
         .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
@@ -737,16 +754,16 @@ function ovFloor() {
   const from = w.custom ? String(w.prevFrom || '') : '';
   return ISO_DAY.test(from) && from < base ? from : base;
 }
-const loadOvAttributions = (p) => (p ? loadPaged('affiliate_attributions',
+const loadOvAttributions = (p) => loadPaged('affiliate_attributions',
   'id, affiliate_id, order_id, order_day, basis, gross_subtotal_cents, commissionable_cents, order_currency',
-  ovFloor(), p.id) : null);
-const loadOvLedger = (p) => (p ? loadPaged('affiliate_commission_ledger',
-  'id, affiliate_id, order_day, amount_cents, currency', ovFloor(), p.id) : null);
+  ovFloor(), p?.id || null);
+const loadOvLedger = (p) => loadPaged('affiliate_commission_ledger',
+  'id, affiliate_id, order_day, amount_cents, currency', ovFloor(), p?.id || null);
 // A custom range that reaches past what is loaded re-reads those two, and
 // only those two.
 async function reloadOvWindow() {
-  const p = prog();
-  if (!p || !S.d) return;
+  const p = S.d?.company ? null : prog();
+  if ((!p && !S.d?.company) || !S.d) return;
   const [a, l] = await Promise.all([loadOvAttributions(p), loadOvLedger(p)]);
   S.d.ovAttributions = a; S.d.ovLedger = l; S.ovLoadedFrom = ovFloor();
 }
@@ -777,9 +794,9 @@ async function reload() {
 // Moving onto or off People changes what the page reads (every program, or
 // the one picked), so crossing that line reads again.
 async function goTab(t) {
-  const was = peopleScope();
+  const was = companyScope();
   S.tab = t;
-  if (was !== peopleScope()) { S.sel.clear(); await loadProgramData(); }
+  if (was !== companyScope()) { S.sel.clear(); await loadProgramData(); }
 }
 // The program a People button acts in: the one it names, else the one of the
 // row its id belongs to. Ids are unique across tables.
@@ -788,7 +805,7 @@ function ctxProgram(ds) {
   const id = ds.id; const d = S.d;
   if (!id || !d) return null;
   const hit = d.prospectById?.[id] || d.affById?.[id]
-    || [d.codes, d.links, d.drafts, d.seeds].map((list) => (list || []).find((x) => x.id === id)).find(Boolean);
+    || [d.codes, d.links, d.drafts, d.seeds, d.payouts].map((list) => (list || []).find((x) => x.id === id)).find(Boolean);
   return hit?.program_id || null;
 }
 
@@ -798,15 +815,33 @@ function ctxProgram(ds) {
 const EMPTY_ONLY = /^\s*<div class="bcn-empty">[^<]*<\/div>\s*$/;
 const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
+// ── Search ───────────────────────────────────────────────────────────────
+// One box at the top of every tab (Blake 2026-11-24: "ALL tabs should and
+// need to be searchable"; he chose filter-in-place plus jump links). Every
+// list the page draws goes through table / itemList / queue / shareList, and
+// each keeps only the rows whose visible text holds every word typed.
+// Button and menu labels are not part of a row's text, so "short" never
+// matches a Shortlist button.
+const findWords = () => String(S.find || '').toLowerCase().split(/\s+/).filter(Boolean);
+const plainText = (html) => String(html || '')
+  .replace(/<(button|select)\b[\s\S]*?<\/\1>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .toLowerCase();
+const textHits = (text, words = findWords()) => words.every((w) => text.includes(w));
+const findEmpty = (emptyText) => (findWords().length ? empty(`No matches for "${S.find.trim()}" here.`) : empty(emptyText));
 function table(cols, rows, emptyText = 'Nothing here yet.') {
-  if (!rows.length) return empty(emptyText);
+  if (findWords().length) rows = rows.filter((r) => textHits(plainText(cols.map((c) => c.f(r)).join(' '))));
+  if (!rows.length) return findEmpty(emptyText);
   return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'stack') {
-  if (!rows.length) return empty(emptyText);
+  let html = rows.map(renderRow);
+  if (findWords().length) html = html.filter((h) => textHits(plainText(h)));
+  if (!html.length) return findEmpty(emptyText);
   const cls = layout === 'grid' ? 'af-items af-items--grid' : 'af-items';
-  return `<div class="${cls}" role="list">${rows.map(renderRow).join('')}</div>`;
+  return `<div class="${cls}" role="list">${html.join('')}</div>`;
 }
 // ── Queues ───────────────────────────────────────────────────────────────
 // Blake, 2026-11-17: "selection boxes or approved queues". Tick rows, then
@@ -816,10 +851,12 @@ const QSEL = {}; const QROWS = {};
 const qsel = (k) => (QSEL[k] ||= new Set());
 const subtabs = (label, items, act, current) => `<nav class="bcn-tabs af-subtabs" role="tablist" aria-label="${esc(label)}">${items.map(([k, title, n]) => `<button type="button" class="bcn-tab${k === current ? ' bcn-tab--active' : ''}" role="tab" aria-selected="${k === current}" data-act="${act}" data-k="${esc(k)}">${esc(title)}${n ? ` <span class="af-tab-count">${num(n)}</span>` : ''}</button>`).join('')}</nav>`;
 function queue(k, rows, renderRow, actions, emptyText, opts = {}) {
+  // A search narrows what Select all can tick, too.
+  if (findWords().length) rows = rows.filter((r) => textHits(plainText(renderRow(r))));
   const sel = qsel(k);
   const ids = rows.map((r) => r.id); QROWS[k] = ids;
   for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
-  if (!rows.length) return empty(emptyText);
+  if (!rows.length) return findEmpty(emptyText);
   const can = actions.length > 0;
   const all = ids.every((id) => sel.has(id));
   const bar = can ? `<div class="af-row af-bulk af-q-bar"><label class="af-q-all"><input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} /> Select all ${num(rows.length)}</label>${sel.size ? `<span class="af-mono">${num(sel.size)} selected</span>${actions.map(([label, act, kind = 'surface', opts = {}]) => btn(label, act, { q: k }, kind, opts)).join('')}` : ''}</div>` : '';
@@ -927,7 +964,9 @@ function renderRecords() {
   // The screens these come from draw into their own (hidden) panels, which
   // fills RECORDS; the records themselves are drawn only here.
   renderAffiliates(); renderProspects(); renderOutreach(); renderPayoutsTab({ quiet: true });
-  if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d ? stageCard() : '']);
+  // Who runs Studio is the company's; a program's status belongs to one
+  // program, so it shows only when one program is on the page.
+  if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d && !companyMulti() ? stageCard() : '']);
   const groups = RECORD_GROUPS.map(([key, title, keys]) => ({ key, title, parts: keys.flatMap((k) => RECORDS.get(k) || []) })).filter((g) => g.parts.length);
   if (!groups.some((g) => g.key === S.recTab)) S.recTab = groups[0]?.key || null;
   const g = groups.find((x) => x.key === S.recTab);
@@ -947,7 +986,7 @@ const surface = (title, body, meta = '', id = '') => {
 };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
-const money = (c) => formatMoney(c, prog()?.currency);
+const money = (c) => formatMoney(c, ovCur());
 
 function scrollWorkflowTo(id) {
   requestAnimationFrame(() => {
@@ -1026,19 +1065,45 @@ const PANEL_RENDERERS = {
   records: [renderRecords],
 };
 
+// What the search matches beyond this tab, read from what the page holds,
+// so a person is never left thinking a name is nowhere.
+const objText = (x) => Object.values(x || {}).filter((v) => typeof v === 'string' || typeof v === 'number').join(' ').toLowerCase();
+function renderFindHits() {
+  const el = $('studioHits'); if (!el) return;
+  const words = findWords(); const d = S.d;
+  if (!words.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const codesOf = {};
+  for (const c of d?.codes || []) (codesOf[c.affiliate_id] ||= []).push(c.code);
+  const affHit = (a) => a && textHits(`${objText(a)} ${(codesOf[a.id] || []).join(' ').toLowerCase()}`, words);
+  const n = {
+    people: (d?.affiliates || []).filter(affHit).length + (d?.prospects || []).filter((x) => textHits(objText(x), words)).length,
+    comms: (d?.drafts || []).filter((x) => textHits(objText(x), words)).length,
+    payouts: (d?.payouts || []).filter((x) => affHit(d.affById?.[x.affiliate_id])).length,
+  };
+  const label = { people: 'People', comms: 'Outreach', payouts: 'Money' };
+  const here = PANEL_OF[S.tab] || S.tab;
+  const tabs = Object.keys(n).filter((k) => n[k] > 0 && k !== here)
+    .map((k) => btn(`${label[k]} · ${num(n[k])}`, 'go-tab', { t: k }, 'ghost'));
+  const progs = S.programs.filter((x) => textHits(`${x.name} ${x.slug || ''}`.toLowerCase(), words))
+    .map((x) => btn(`Program: ${x.name}`, 'pick-program', { id: x.id, t: 'program' }, 'ghost'));
+  const all = [...tabs, ...progs];
+  el.hidden = !all.length;
+  el.innerHTML = all.length ? `<span class="af-muted">Also matches</span>${all.join('')}` : '';
+}
+
 function renderProgramPick(company) {
   const el = $('progPick'); if (!el) return;
   const list = S.programs;
   el.hidden = company || list.length < 2 || S.creating;
   if (el.hidden) { el.innerHTML = ''; return; }
-  const opts = [...(S.tab === 'overview' ? [{ id: ALL, name: 'All programs' }] : []), ...list];
+  const opts = list;
   const on = (id) => (id === ALL ? isAll() : S.programId === id);
   el.innerHTML = `<span class="af-muted">Program</span><div class="af-seg" role="radiogroup" aria-label="Program">${opts.map((y) => `<button type="button" class="af-seg-btn${on(y.id) ? ' is-on' : ''}" role="radio" aria-checked="${on(y.id)}" data-act="pick-prog" data-id="${esc(y.id)}">${esc(y.name)}</button>`).join('')}</div>`;
 }
 
 function render() {
   const p = prog();
-  const company = peopleScope();
+  const company = companyScope();
   const main = document.querySelector('.silo-main.af-studio');
   main?.classList.toggle('af-studio--ready', !!p || isAll() || company);
   main?.classList.toggle('af-studio--workflow', (!!p || company) && !['overview', 'program', 'records'].includes(S.tab));
@@ -1048,6 +1113,7 @@ function render() {
   // old dropdown stays in index.html, hidden there, so it never shows even
   // while the page is still loading.
   renderProgramPick(company);
+  renderFindHits();
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   renderPeopleSubtabs();
   renderDialog();
@@ -1066,7 +1132,7 @@ function render() {
   for (const r of (PANEL_RENDERERS[S.tab] || PANEL_RENDERERS.overview)) r();
   const panel = document.querySelector(`[data-panel="${PANEL_OF[S.tab] || 'overview'}"]`);
   const first = $(FIRST_BODY[PANEL_OF[S.tab]] || '');
-  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = empty('Nothing waiting here.');
+  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = findEmpty('Nothing waiting here.');
   renderWorkflowTabCounts();
 }
 
@@ -1810,7 +1876,7 @@ function renderAllHome() {
       { h: 'Sales', num: true, f: (r) => esc(formatMoney(r.sales, r.p.currency)) },
       { h: 'Earned', num: true, f: (r) => esc(formatMoney(r.earned, r.p.currency)) },
       { h: 'Owed', num: true, f: (r) => esc(formatMoney(r.owed, r.p.currency)) },
-      { h: '', f: (r) => btn('Open', 'pick-program', { id: r.p.id, t: 'overview' }, 'surface') },
+      { h: '', f: (r) => btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface') },
     ], perProg, 'No programs yet.'), 'All time'),
   ].join('');
 }
@@ -1821,7 +1887,7 @@ function renderKpis() {
   const p = prog();
   // The workflow rail carries counts when a program is loaded; skip the extra
   // KPI band. People is company-wide and has its own counts.
-  if ((h && p) || peopleScope()) {
+  if ((h && p) || companyScope()) {
     el.innerHTML = '';
     el.classList.add('af-kpis-off');
     return;
@@ -2561,7 +2627,7 @@ async function seedDecide(ids, approve) {
 function seedsCard() {
   // On People the rows are every program's; the program-level switches then
   // read as "any program has it on".
-  const d = S.d; const p = d.company ? null : prog();
+  const d = S.d; const p = companyMulti() ? null : prog();
   const on = p ? !!p.seeding_enabled : S.programs.some((x) => x.seeding_enabled);
   if (!d.seeds || (!d.seeds.length && !on)) return '';
   const order = { requested: 0, approved: 1, code_ready: 2, purchased: 3, earned: 4 };
@@ -2987,7 +3053,10 @@ function shareItem(kind, srcId, title, sub, img, payload) {
 function shareRow(img, title, sub, action, extra = '') {
   return `<div class="af-srow" role="listitem">${img ? `<img class="af-srow-img" src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-srow-img af-srow-noimg"></span>'}<div class="af-srow-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}${extra}</div>${action ? `<div class="af-srow-act">${action}</div>` : ''}</div>`;
 }
-const shareList = (rows, emptyText) => (rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : empty(emptyText));
+const shareList = (rows, emptyText) => {
+  if (findWords().length) rows = rows.filter((h) => textHits(plainText(h)));
+  return rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : findEmpty(emptyText);
+};
 // Share shows the 10 most recent of each list (Blake 2026-11-18: "max
 // pagination at 10 most recent as default"); Show all opens the rest in place.
 const SHARE_CAP = 10;
@@ -3128,8 +3197,9 @@ async function orderLookup(q) {
   S.lookup = { q, loading: true }; renderPayoutsTab({ quiet: true });
   const variants = [q, `#${q}`];
   try {
-    const { data: at, error } = await db.from('affiliate_attributions').select('*').eq('company_entity_id', CO).eq('program_id', p.id)
-      .in('order_number', variants).limit(1);
+    let aq = db.from('affiliate_attributions').select('*').eq('company_entity_id', CO);
+    if (!companyMulti()) aq = aq.eq('program_id', p.id);
+    const { data: at, error } = await aq.in('order_number', variants).limit(1);
     if (error) throw error;
     const attr = (at || [])[0] || null;
     if (!attr) {
@@ -3194,7 +3264,7 @@ function renderPayoutsTab({ quiet = false } = {}) {
   if (!SEES_MONEY) { $('payoutsBody').innerHTML = card('Money', '<p class="af-muted" id="moneyHidden">Earnings and payouts are shown to Affiliate Studio managers and finance.</p>'); return; }
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
   // After the rows are on the page, so a settled attempt redraws over them.
-  if (!quiet && prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
+  if (!quiet && payProgs().some(paysByPaypal)) checkOpenAttemptsOnce();
 }
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
@@ -3300,6 +3370,9 @@ async function checkOpenAttemptsOnce() {
 }
 
 // The payouts "Send all approved" would actually send, in the order shown.
+// The programs Money is about: every one on a company tab, else the one picked.
+const payProgs = () => (companyMulti() ? S.programs : [prog()].filter(Boolean));
+const paysByPaypal = (x) => x?.payout_method === 'paypal_payouts';
 function sendablePayouts() {
   return (S.d.payouts || [])
     .filter((x) => x.method === 'paypal_payouts' && ['approved', 'exported'].includes(x.status))
@@ -3307,7 +3380,11 @@ function sendablePayouts() {
 }
 
 function payoutPayHtml() {
-  const d = S.d; const p = prog();
+  const d = S.d; const multi = companyMulti(); const p = multi ? null : prog();
+  // Each row's own program decides its currency and how it is paid.
+  const progFor = (r) => progOf(r) || p;
+  const curOf = (r) => progFor(r)?.currency;
+  const progTag = (r) => (multi ? ` · ${esc(progName(r.program_id))}` : '');
   const bal = d.balances.map((b) => ({ ...b, a: d.affById[b.affiliate_id] }));
   const act = (x) => {
     const b = [];
@@ -3331,7 +3408,7 @@ function payoutPayHtml() {
         b.push(btn(st.test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
       }
     }
-    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
+    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id, pg: x.program_id }));
     // Void is one quiet button; the reason box opens only once it is pressed
     // (Blake 2026-11-18: no always-on input boxes on Money).
     if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) {
@@ -3343,7 +3420,9 @@ function payoutPayHtml() {
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
-  const paypalRail = p.payout_method === 'paypal_payouts';
+  const paypalRail = payProgs().some(paysByPaypal);
+  const byHand = payProgs().filter((x) => !paysByPaypal(x));
+  const railBtns = (kind) => byHand.map((x) => btn(multi ? `Pay ${x.name} with PayPal` : 'Pay with PayPal instead', 'pp-use-rail', { pg: x.id }, kind, { confirm: true })).join('');
   const sendable = paypalRail ? sendablePayouts() : [];
   const sendTest = S.d.payConn?.environment !== 'live';
   const conn = d.payConn;
@@ -3374,8 +3453,8 @@ function payoutPayHtml() {
     // invisible until then (Blake, first run: "very hidden and bad UI UX").
     if (!paypalRail) {
       return MANAGE
-        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">This program pays by hand.</p>
-          <div class="af-row" style="margin-top:8px;">${btn('Pay with PayPal instead', 'pp-use-rail', {}, 'primary', { confirm: true })}</div>`)
+        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">${multi ? 'Your programs pay by hand.' : 'This program pays by hand.'}</p>
+          <div class="af-row" style="margin-top:8px;">${railBtns('primary')}</div>`)
         : '';
     }
     if (live) {
@@ -3387,7 +3466,8 @@ function payoutPayHtml() {
         : '';
       const state = conn.payouts_enabled === false ? pill('Payouts not enabled', 'warn') : conn.environment === 'live' ? pill('Live', 'pos') : pill('Sandbox', 'warn');
       return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${state}${conn.account_email ? `<span class="af-mono af-muted">${esc(conn.account_email)}</span>` : ''}</div>${sandbox}${warn}
-        <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
+        <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>${
+          multi && byHand.length && MANAGE ? `<p class="af-muted">Paid by hand: ${esc(byHand.map((x) => x.name).join(', '))}</p><div class="af-row">${railBtns('surface')}</div>` : ''}`);
     }
     if (!MONEY) return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><p class="af-muted">Someone who can approve payouts connects it.</p>`);
     // Live only (Blake 2026-11-18): the sandbox choice is gone from setup. A
@@ -3405,7 +3485,8 @@ function payoutPayHtml() {
   };
   const ppChip = (affId) => {
     const em = d.payEmailByAff[affId];
-    if (!paypalRail) return '';
+    const a = d.affById[affId];
+    if (!paysByPaypal(a ? progFor(a) : p)) return '';
     return em ? `<span class="af-pp-chip" title="Paid to this PayPal">${paypalMark('af-pp-chip-logo')}<span class="af-mono">${esc(em)}</span></span>`
       : '<span class="af-pp-chip af-pp-chip--none">No PayPal email yet</span>';
   };
@@ -3415,13 +3496,13 @@ function payoutPayHtml() {
   const balanceRow = (r) => {
     const earned = Number(r.earned_cents) || 0; const paidC = Number(r.paid_cents) || 0;
     const pct = earned > 0 ? Math.min(100, Math.round(paidC / earned * 100)) : 0;
-    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>`
+    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}`
       + `<div class="af-pay-owed"><span class="af-pay-owed-num">${formatMoney(r.unclaimed_cents, r.currency)}</span><span class="af-muted">owed</span></div>`
       + `<div class="af-pay-meter" role="img" aria-label="${pct}% of earnings paid"><i style="width:${pct}%"></i></div>`
       + `<div class="af-muted af-pay-meter-cap">${formatMoney(paidC, r.currency)} paid of ${formatMoney(earned, r.currency)} earned</div>${ppChip(r.affiliate_id)}</div>`
-      + `<div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
+      + `<div class="af-item-foot">${MANAGE && r.currency === curOf(r) && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
   };
-  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)}${progTag(x)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
   return [
   moneyTop(),
   payConnCard(),
@@ -3435,7 +3516,7 @@ function payoutPayHtml() {
       // the page, not in the payment -- so nothing about sending twice changes.
       MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
     }${approved.length ? btn(`Export ${plural(approved.length, 'approved payout')}`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
-  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
+  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}${progTag(r)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === curOf(r) ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
   ].join('');
 }
 
@@ -3481,7 +3562,7 @@ const outreachVars = (x, p = progOf(x) || prog()) => {
 // ovPerAffiliate, ovReachOut and friends); this half only draws it, and only
 // from rows the page has already read under RLS.
 const OV_WEEKS = 12;
-const ovCur = () => (prog()?.currency || 'USD').toUpperCase();
+const ovCur = () => (companyMulti() ? mainCurrency() : (prog()?.currency || 'USD').toUpperCase());
 const ovDay = (back) => dayShift(today(), back);
 // 30 / 90 / any two dates. The same control heads Home, Money and Records, so
 // one choice follows you between them.
@@ -3685,28 +3766,29 @@ const PAYPAL_MARK = 'https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-co
 const shopifyMark = (cls = '') => `<svg class="af-flow-shopify ${cls}" viewBox="0 0 24 24" aria-hidden="true"><use href="../../assets/landing/integration-icons.svg#icon-shopify"></use></svg>`;
 const paypalMark = (cls = '') => `<img class="af-flow-paypal ${cls}" src="${PAYPAL_MARK}" alt="PayPal" width="74" height="20" loading="lazy" />`;
 function moneyTop() {
-  const d = S.d; const p = prog();
-  if (!d || !p || !Array.isArray(d.ovLedger)) return '';
+  const d = S.d; const multi = companyMulti(); const p = multi ? null : prog();
+  if (!d || (!p && !multi) || !Array.isArray(d.ovLedger)) return '';
+  const cur = ovCur();
   const w = ovWindows();
   const sales = Array.isArray(d.ovAttributions) ? ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() }) : null;
   const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const owed = ovUnpaid(d.balances, p.currency);
-  const toPay = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const owed = ovUnpaid(d.balances, cur);
+  const toPay = (d.balances || []).filter((b) => b.currency === cur && Number(b.unclaimed_cents) > 0).length;
   // Paid is counted over the SAME window as sales and commission, custom
   // range included -- not over a rolling N days of its own.
-  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === p.currency
+  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === cur
     && x.marked_paid_at && String(x.marked_paid_at).slice(0, 10) >= w.from && String(x.marked_paid_at).slice(0, 10) <= w.to);
   const paid = paidRows.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === p.currency);
+  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === cur);
   const flightCents = inFlight.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const viaPaypal = p.payout_method === 'paypal_payouts';
+  const viaPaypal = multi ? S.programs.every(paysByPaypal) : paysByPaypal(p);
   const stage = (mark, label, value, sub, tone = '') => `<div class="af-flow-step${tone ? ` af-flow-step--${tone}` : ''}"><div class="af-flow-mark">${mark}</div><div class="af-flow-lab">${esc(label)}</div><div class="af-flow-val">${value}</div><div class="af-flow-sub">${sub}</div></div>`;
   const arrow = '<div class="af-flow-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>';
   const icon = (path) => `<svg class="af-flow-ico" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
   return `<section class="af-flow" aria-label="Where the money is, last ${num(w.days)} days">
     ${stage(shopifyMark(), 'Sales from codes', sales ? esc(moneyRound(sales.sales)) : '—', sales ? `${esc(ovPlural(sales.orders, 'order'))} in Shopify` : 'Shopify')}
     ${arrow}
-    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(rateShort(p)), 'pos')}
+    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(multi ? `${num(S.programs.length)} programs` : rateShort(p)), 'pos')}
     ${arrow}
     ${stage(icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'), 'Owed now', esc(money(owed + 0)), `${esc(ovPlural(toPay, 'affiliate'))}${inFlight.length ? ` · ${esc(money(flightCents))} in ${esc(plural(inFlight.length, 'payout'))}` : ''}`, owed > 0 ? 'warn' : '')}
     ${arrow}
@@ -3764,6 +3846,7 @@ function firstInviteCard(d, p) {
   return `<div id="firstInvite">${card('Get to your first invite', `<div class="af-steps">${steps.map(row).join('')}</div>`, `${num(steps.filter((x) => x.done).length)} of ${num(steps.length)} done`)}</div>`;
 }
 function renderOverview() {
+  if (companyMulti()) { renderAllHome(); return; }
   const el = $('overviewBody'); const d = S.d; const p = prog();
   if (!el || !d || !p) return;
   if (d.ovAttributions === null || d.ovLedger === null) {
@@ -4838,18 +4921,28 @@ const A = {
   // Everything the file needs is captured BEFORE the first await: switching
   // program while the claim is in flight must not label program A's payouts
   // with program B's name and affiliates (review cycle 2).
+  // On a company tab every program's approved payouts go out at once: one
+  // claim and one file per program, since a claim, its batch and its
+  // checksum belong to one program.
   'payout-export': async () => {
-    const programId = S.programId; const slug = prog().slug; const affById = S.d.affById;
-    const ids = S.d.payouts.filter((x) => x.status === 'approved').map((x) => x.id);
-    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
-    const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
-    download(`payouts-${slug}-${today()}.csv`, csv);
-    const skipped = (r.skipped || []).length;
-    const done = `Exported ${(r.payouts || []).length}${skipped ? ` (${skipped} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
-    // The payouts are already exported and the file is downloaded; a missing
-    // fingerprint only loses the file's checksum, so say so rather than fail.
-    try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { return `${done} The file's checksum was not saved (${e.message}).`; }
-    return done;
+    const approved = S.d.payouts.filter((x) => x.status === 'approved');
+    const jobs = companyMulti()
+      ? [...new Set(approved.map((x) => x.program_id))].map((id) => ({ programId: id, slug: S.programs.find((y) => y.id === id)?.slug || 'program', ids: approved.filter((x) => x.program_id === id).map((x) => x.id) }))
+      : [{ programId: S.programId, slug: prog().slug, ids: approved.map((x) => x.id) }];
+    const affById = S.d.affById;
+    let n = 0; let skippedN = 0; const notes = [];
+    for (const { programId, slug, ids } of jobs) {
+      const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
+      const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
+      download(`payouts-${slug}-${today()}.csv`, csv);
+      n += (r.payouts || []).length; skippedN += (r.skipped || []).length;
+      // The payouts are already exported and the file is downloaded; a missing
+      // fingerprint only loses the file's checksum, so say so rather than fail.
+      try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { notes.push(`The file's checksum was not saved (${e.message}).`); }
+    }
+    const files = jobs.length > 1 ? ` in ${num(jobs.length)} files, one per program` : '';
+    const done = `Exported ${n}${files}${skippedN ? ` (${skippedN} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
+    return notes.length ? `${done} ${notes[0]}` : done;
   },
   // Download a claimed export again (a lost or blocked download). Nothing is
   // re-marked; the payouts still waiting to be paid in that batch come back.
@@ -4916,7 +5009,7 @@ document.addEventListener('click', async (ev) => {
   const fn = A[b.dataset.act]; if (!fn) return;
   // People lists every program at once, so a button there works in the
   // program of the row it sits on. Later steps (a dialog's Save) keep it.
-  if (peopleScope()) {
+  if (companyScope()) {
     const pg = ctxProgram(b.dataset);
     if (pg && pg !== S.programId) { S.programId = pg; if ($('programSel')) $('programSel').value = pg; }
   }
@@ -4972,6 +5065,15 @@ $('afDialog')?.addEventListener('click', (ev) => { if (ev.target === $('afDialog
 async function setProgram(id) { await flushProgramSave(); S.programId = id; if ($('programSel')) $('programSel').value = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); }
 $('programSel').addEventListener('change', (e) => setProgram(e.target.value));
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
+// Typing redraws the tab a beat after the last key; Escape clears it.
+let findTimer = null;
+$('studioQ')?.addEventListener('input', (e) => {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(() => { S.find = e.target.value; render(); }, 150);
+});
+$('studioQ')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && e.target.value) { e.target.value = ''; clearTimeout(findTimer); S.find = ''; render(); }
+});
 
 try {
   const { data: ent } = await db.from('entities').select('title').eq('id', CO).maybeSingle();
