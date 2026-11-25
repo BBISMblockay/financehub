@@ -44,11 +44,27 @@
     .af-set-tags span { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bcn-sunken); color: var(--bcn-ink-2); }
     .af-progpick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .af-progpick[hidden] { display: none; }
-    .af-find { flex: 1; display: flex; justify-content: center; min-width: 0; padding: 0 16px; }
-    .af-find #studioQ { width: 100%; max-width: 420px; }
-    .af-find-hits { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+    .af-find { flex: 1; display: flex; justify-content: center; align-self: center; min-width: 0; padding: 0 16px; }
+    .af-find-box { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 440px; height: 38px; padding: 0 10px 0 12px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-sunken); cursor: text; transition: border-color .12s, background .12s; }
+    .af-find-box:focus-within { border-color: var(--bcn-accent); background: var(--bcn-surface); }
+    .af-find-ico { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: var(--bcn-ink-3); stroke-width: 2; stroke-linecap: round; }
+    .af-find-box #studioQ { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; color: var(--bcn-ink); }
+    .af-find-box #studioQ::-webkit-search-cancel-button { display: none; }
+    .af-find-x { border: 0; background: transparent; color: var(--bcn-ink-3); font-size: 18px; line-height: 1; padding: 2px 4px; cursor: pointer; border-radius: 6px; }
+    .af-find-x:hover { color: var(--bcn-ink); background: var(--bcn-surface); }
+    .af-find-x[hidden] { display: none; }
+    .af-find-hits { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 18px 0; }
     .af-find-hits[hidden] { display: none; }
-    @media (max-width: 720px) { .af-studio .bcn-header { flex-wrap: wrap; } .af-find { order: 3; flex-basis: 100%; padding: 8px 0 0; } .af-find #studioQ { max-width: none; } }
+    .af-find-q { font-size: 13px; font-weight: 600; color: var(--bcn-ink-2); }
+    .af-find-hits .af-seg-btn:disabled { cursor: default; }
+    .af-progpick { padding: 10px 18px 0; }
+    .af-dfilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 10px 0 4px; }
+    .af-dfilter { display: flex; align-items: center; gap: 6px; }
+    .af-dfilter > .af-muted { font-size: 12px; }
+    .af-th-sort { font: inherit; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+    .af-th-sort > span { color: var(--bcn-ink-3); font-size: 11px; }
+    .af-th-sort.is-on > span, .af-th-sort:hover > span { color: var(--bcn-accent); }
+    @media (max-width: 720px) { .af-studio .bcn-header { flex-wrap: wrap; } .af-find { order: 3; flex-basis: 100%; padding: 8px 0 0; } .af-find-box { max-width: none; } }
     /* .bcn-field sets display, which beats the hidden attribute. */
     #programSel[hidden] { display: none; }
     .af-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 10px; background: var(--bcn-sunken); border: 1px solid var(--bcn-border); }
@@ -878,7 +894,11 @@
       <!-- One search for every tab (Blake 2026-11-24). It filters the tab in
            place; #studioHits under the tabs says what matches elsewhere. -->
       <div class="af-find">
-        <input type="search" class="bcn-field" id="studioQ" placeholder="Search people, codes, programs" aria-label="Search Affiliate Studio" autocomplete="off" />
+        <label class="af-find-box">
+          <svg class="af-find-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="studioQ" placeholder="Search people, codes, programs" aria-label="Search Affiliate Studio" autocomplete="off" />
+          <button type="button" class="af-find-x" id="studioQx" aria-label="Clear search" hidden>&times;</button>
+        </label>
       </div>
       <div class="bcn-header-actions">
         <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;" hidden></select>

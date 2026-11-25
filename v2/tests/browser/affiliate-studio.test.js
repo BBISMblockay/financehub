@@ -83,6 +83,8 @@
  *   AFFILIATE_UI_MUTATION=findbuttons a search matches a row's button labels
  *   AFFILIATE_UI_MUTATION=findhits    the search says nothing about the other tabs
  *   AFFILIATE_UI_MUTATION=findlist    a queue list ignores the search
+ *   AFFILIATE_UI_MUTATION=dsortnone   Discovery's sort headers do nothing
+ *   AFFILIATE_UI_MUTATION=dfiltnone   Discovery's Has email filter does nothing
  *   AFFILIATE_UI_MUTATION=moneyprog   Money works one program at a time again
  *   AFFILIATE_UI_MUTATION=exportoneprog  Export claims only the program last picked
  *   AFFILIATE_UI_MUTATION=peoplescope People reads only the program picked
@@ -202,19 +204,21 @@ const MUTATIONS = {
   poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
   // People sit above programs (Blake 2026-11-24).
   findbuttons: ['/affiliates/studio.js', "  .replace(/<(button|select)\\b[\\s\\S]*?<\\/\\1>/gi, ' ')\n", ''],
-  findhits: ['/affiliates/studio.js', '  renderProgramPick(company);\n  renderFindHits();\n', '  renderProgramPick(company);\n'],
+  findhits: ['/affiliates/studio.js', "findEmpty('Nothing waiting here.');\n  renderFindHits();", "findEmpty('Nothing waiting here.');"],
   findlist: ['/affiliates/studio.js', "  if (findWords().length) rows = rows.filter((r) => textHits(plainText(renderRow(r))));\n", ''],
+  dsortnone: ['/affiliates/studio.js', '  if (ds && SORT[ds.k]) {', '  if (false) {'],
+  dfiltnone: ['/affiliates/studio.js', "    && (!F.email || !!emailOf(g))\n", '\n'],
   moneyprog: ['/affiliates/studio.js', "const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);", "const COMPANY_TABS = new Set(['people', 'records', 'overview']);"],
   exportoneprog: ['/affiliates/studio.js', '    const jobs = companyMulti()\n', '    const jobs = false\n'],
   peoplescope: ['/affiliates/studio.js', "  const company = companyScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
-  peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
+  peopletwice: ['/affiliates/studio.js', '  const allPeople = groupPeople(d.prospects, d.suppressions);', '  const allPeople = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
   pickershown: ['/affiliates/index.html', '    #programSel[hidden] { display: none; }\n', ''],
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
   supoffer: ['/affiliates/studio.js', '    if (!MANAGE || g.suppressed || d.supUnknown) return \'\';', '    if (!MANAGE || d.supUnknown) return \'\';'],
   loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
-  supignored: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = groupPeople(d.prospects);'],
+  supignored: ['/affiliates/studio.js', '  const allPeople = groupPeople(d.prospects, d.suppressions);', '  const allPeople = groupPeople(d.prospects);'],
   supfailopen: ['/affiliates/studio.js', '  d.supUnknown = !supRead;', '  d.supUnknown = false;'],
   suppaged: ['/affiliates/studio.js', "      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)\n        .order('created_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", "      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)\n        .order('created_at', { ascending: false }).order('id', { ascending: true });"],
   prospaged: ['/affiliates/studio.js', ".order('collected_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", ".order('collected_at', { ascending: false }).limit(2000);"],
@@ -2846,6 +2850,43 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await fq.waitForFunction(() => /Sam Runs/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       R.ok('Escape clears it and the whole list is back', (await fq.inputValue('#studioQ')) === '' && (await text(fq, '#prospectsBody')).includes('Sam Runs'));
       await fq.close();
+    }
+
+    // ── Discovery: sortable headers and one filter row (Blake 2026-11-25) ──
+    {
+      const pr = (id, name, platform, followers, email) => ({ id, company_entity_id: CO, program_id: PROG, display_name: name, platform, handle: `@${id}`, profile_url: `https://${platform}.com/@${id}`, contact_email: email, source: 'research', status: 'new', collected_at: now, evidence: { followers } });
+      const st = await suite.open('/v2/affiliates/index.html', { ...tables, affiliate_prospects: [
+        pr('sa', 'Ava Small', 'tiktok', 800, null), pr('sb', 'Bo Big', 'youtube', 250000, 'bo@x.invalid'), pr('sc', 'Cy Mid', 'tiktok', 20000, 'cy@x.invalid')] },
+      { ready, rpc: { can_manage_affiliate_programs: true } });
+      st.on('pageerror', (e) => errors.push(e.message));
+      const prevView = await st.evaluate(() => localStorage.getItem('silo.affiliates.view'));
+      await st.evaluate(() => localStorage.setItem('silo.affiliates.view', 'list'));
+      await st.reload();
+      await st.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
+      await closeDialog(st);
+      await toDiscovery(st);
+      const names = () => st.evaluate(() => [...document.querySelectorAll('#prospectsBody table.bcn-table tbody tr')].map((tr) => (tr.textContent.match(/Ava Small|Bo Big|Cy Mid/) || [''])[0]));
+      await st.click('#prospectsBody [data-act="d-sort"][data-k="followers"]');
+      R.eq(await names(), ['Bo Big', 'Cy Mid', 'Ava Small'], 'a header sorts: Followers, biggest first');
+      await st.click('#prospectsBody [data-act="d-sort"][data-k="followers"]');
+      R.eq(await names(), ['Ava Small', 'Cy Mid', 'Bo Big'], 'and a second press flips it');
+      await st.click('#prospectsBody [data-act="d-filter"][data-key="email"][data-v="true"]');
+      R.eq((await names()).sort(), ['Bo Big', 'Cy Mid'], 'Has email keeps only creators with an email');
+      await st.click('#prospectsBody [data-act="d-filter"][data-key="plat"][data-v="tiktok"]');
+      R.eq(await names(), ['Cy Mid'], 'and a platform narrows it further');
+      R.has(await text(st, '#prospectsBody .af-filter-bar'), 'To review 1', 'the status chips count what the filters leave');
+      await st.click('#prospectsBody [data-act="d-filter-clear"]');
+      await st.click('#prospectsBody [data-act="d-filter"][data-key="minF"][data-v="10000"]');
+      R.eq((await names()).sort(), ['Bo Big', 'Cy Mid'], 'a follower floor drops smaller creators');
+      // The search strip says how many are on this tab, and × clears it.
+      await st.fill('#studioQ', 'cy'); await st.waitForTimeout(400);
+      R.has(await text(st, '#studioHits'), 'This tab · 1', 'the search says how many match on this tab');
+      if (process.env.FIND_SHOT) { await st.setViewportSize({ width: 1280, height: 900 }); await st.screenshot({ path: process.env.FIND_SHOT }); }
+      R.ok('a clear button shows while there is a search', await st.evaluate(() => !document.getElementById('studioQx').hidden));
+      await st.click('#studioQx');
+      R.ok('and clears it', (await st.inputValue('#studioQ')) === '' && await st.evaluate(() => document.getElementById('studioHits').hidden));
+      await st.evaluate((v) => { if (v === null) localStorage.removeItem('silo.affiliates.view'); else localStorage.setItem('silo.affiliates.view', v); }, prevView);
+      await st.close();
     }
 
     // ── Share: compact, list view, ten most recent ─────────────────────────
