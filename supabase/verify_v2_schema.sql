@@ -7002,6 +7002,17 @@ select 'Card paydown match' as check_name,
    then 'CRITICAL: anon can reach the card paydown match'
   when position('status = ''excluded''' in coalesce(pg_get_functiondef(to_regprocedure('public.link_card_payment_match(uuid,uuid)')), '')) = 0
    then 'STALE — re-run 20261125020000_card_payment_match.sql: matching no longer excludes the card row, so the paydown would post twice'
+  when to_regprocedure('public.card_payment_match_proposals(uuid[],integer)') is null
+    or to_regprocedure('public.card_payment_posting_treatment(text)') is null
+   then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql'
+  when not exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'card_payment_matches' and column_name = 'payer_prior')
+   then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql: without payer_prior an undo cannot put the paying row back'
+  when coalesce(public.card_payment_posting_treatment('Credit Card'), '') <> 'card_payment'
+    or public.card_payment_posting_treatment('Expense') is not null
+   then 'CRITICAL: the paying row''s treatment no longer follows the account type, so a match could code what approval refuses'
+  when has_function_privilege('anon', 'public.card_payment_match_proposals(uuid[],integer)', 'execute')
+   then 'CRITICAL: anon can reach the card paydown proposals'
   else 'ok' end as status;
 -- End card paydown match checks.
 
