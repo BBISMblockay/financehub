@@ -3861,7 +3861,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await toDiscovery(nosup);
       await nosup.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]').catch(() => {});
       await nosup.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
-      R.ok('an unread do-not-contact list offers nobody to another program', !(await nosup.$('#prospectsBody select.af-addto')));
+      // Add to program lives in the More menu now, so that is where the
+      // unread-list rule has to hold.
+      await openProspectMore(nosup, 'pb1');
+      R.ok('an unread do-not-contact list offers nobody to another program',
+        !(await nosup.$('#prospectsBody select.af-addto')) && !(await nosup.$('#afDialogBody select.af-addto')));
+      await closeDialog(nosup);
       await nosup.close();
     }
 
