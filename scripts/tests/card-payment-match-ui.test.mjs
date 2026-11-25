@@ -33,8 +33,9 @@ const siblings = await Promise.all(['transaction-filters', 'transaction-dates', 
 
 const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
 
-const EXPOSE = ['paymentMatchSection', 'renderPaydownOffers', 'confirmableRows', 'ensureProposals',
-  'applyMatchToRow', 'proposalCache', 'proposalAsked', 'matchCache', 'reviewDateRows'].join(', ');
+const EXPOSE = ['accountingStateLine', 'paymentMatchSection', 'renderPaydownOffers', 'confirmableRows', 'ensureProposals',
+  'applyMatchToRow', 'proposalCache', 'proposalAsked', 'matchCache', 'reviewDateRows',
+  'matchCell', 'matchArgs', 'viewingBank', 'paydownCandidate'].join(', ');
 
 function harness({ rows = [], batch = null, sources = [], proposals = [], rpcError = null, linkResult = {} } = {}) {
   const nodes = new Map();
@@ -49,13 +50,13 @@ function harness({ rows = [], batch = null, sources = [], proposals = [], rpcErr
   const db = {
     from() {
       const q = {};
-      for (const m of ['select', 'gte', 'lte', 'order', 'limit', 'range', 'maybeSingle', 'update', 'insert', 'delete', 'eq', 'in']) q[m] = () => q;
+      for (const m of ['select', 'gte', 'lte', 'order', 'limit', 'range', 'maybeSingle', 'update', 'insert', 'delete', 'eq', 'in', 'or']) q[m] = () => q;
       q.then = (res, rej) => Promise.resolve({ data: [], error: null }).then(res, rej);
       return q;
     },
     rpc: (name, args) => {
       calls.rpc.push({ name, args });
-      if (name === 'card_payment_match_proposals') return Promise.resolve({ data: proposals, error: rpcError });
+      if (name === 'card_payment_match_offers') return Promise.resolve({ data: proposals, error: rpcError });
       if (name === 'link_card_payment_match') return Promise.resolve({ data: linkResult, error: rpcError });
       return Promise.resolve({ data: 0, error: null });
     },
@@ -91,30 +92,33 @@ function harness({ rows = [], batch = null, sources = [], proposals = [], rpcErr
   return { api: sandbox.window.subject, node, calls, nodes };
 }
 
-const CARD = { id: 's1', source_type: 'card', display_name: 'Company card', posting_enabled: true, qbo_connection_id: 'c1' };
+const CARD = { id: 's1', source_type: 'card', display_name: 'Company card', posting_enabled: true, qbo_connection_id: 'c1',
+  credit_qbo_account_type: 'Credit Card' };
+const BANK = { id: 's2', source_type: 'bank', display_name: 'Operating checking', posting_enabled: true, qbo_connection_id: 'c1',
+  credit_qbo_account_type: 'Bank' };
 const BATCH = { id: 'b1', company_entity_id: 'co', source_id: 's1', source_name: 'Company card', label: '2026-10 card',
   status: 'draft', period_start: '2026-10-01', period_end: '2026-10-31', txn_count: 3, uncoded_count: 0,
   excluded_count: 0, coded_amount: 0, posting_status: null, source_posting_enabled: true };
 const paydown = (over = {}) => ({ id: 'p1', batch_id: 'b1', txn_date: '2026-10-10', amount: -5412.01, status: 'coded',
   description: 'AUTOPAY PYMT', merchant: 'AUTOPAY PYMT', coding_source: 'manual', qbo_account_id: 'clearing',
   qbo_account_name: 'Clearing', origin: 'csv', ...over });
-const offer = (over = {}) => ({ transaction_id: 'p1', candidate_count: 1, bank_transaction_id: 'bank-1',
-  bank_txn_date: '2026-10-09', bank_amount: 5412.01, bank_source_name: 'Operating checking',
-  bank_description: 'CARD AUTOPAY', ...over });
+const offer = (over = {}) => ({ transaction_id: 'p1', side: 'paydown', candidate_count: 1, other_transaction_id: 'bank-1',
+  other_txn_date: '2026-10-09', other_amount: 5412.01, other_source_name: 'Operating checking',
+  other_description: 'CARD AUTOPAY', ...over });
 
 test('every paydown on screen is asked about in one call, and only paydowns', async () => {
   const rows = [paydown(), paydown({ id: 'p2', amount: -100 }), paydown({ id: 'spend', amount: 42.5 })];
   const h = harness({ rows, batch: BATCH, sources: [CARD], proposals: [offer()] });
   h.api.ensureProposals(rows);
   await settle();
-  const asked = h.calls.rpc.filter((c) => c.name === 'card_payment_match_proposals');
+  const asked = h.calls.rpc.filter((c) => c.name === 'card_payment_match_offers');
   assert.equal(asked.length, 1, 'one call for the screen, not one per row');
   assert.deepEqual(asked[0].args.p_transaction_ids, ['p1', 'p2'],
     'money arriving on a card is a paydown; a purchase is not');
 
   h.api.ensureProposals(rows);
   await settle();
-  assert.equal(h.calls.rpc.filter((c) => c.name === 'card_payment_match_proposals').length, 1,
+  assert.equal(h.calls.rpc.filter((c) => c.name === 'card_payment_match_offers').length, 1,
     'and the answer is kept, so redrawing the table does not re-ask');
 });
 
@@ -129,10 +133,10 @@ test('the row offers the payment to confirm, and offers no pick when there are t
   assert.match(html, /data-link-match="bank-1"/, 'confirming is one press, with the payment already chosen');
   assert.match(html, /Pick a different payment/, 'and the old search is still there when the offer is wrong');
 
-  h.api.proposalCache.set('p1', offer({ candidate_count: 2, bank_transaction_id: null }));
+  h.api.proposalCache.set('p1', offer({ candidate_count: 2, other_transaction_id: null }));
   const two = h.api.paymentMatchSection(paydown());
   assert.doesNotMatch(two, /data-link-match/, 'two payments of the same amount is a judgement, not an offer');
-  assert.match(two, /2 bank payments/);
+  assert.match(two, /2 payments/);
 });
 
 test('the strip above the table counts what can be confirmed, and separates what cannot', () => {
@@ -141,13 +145,13 @@ test('the strip above the table counts what can be confirmed, and separates what
   for (const id of ['p1', 'p2', 'p3']) h.api.matchCache.set(id, null);
   h.api.proposalCache.set('p1', offer());
   h.api.proposalCache.set('p2', offer({ transaction_id: 'p2' }));
-  h.api.proposalCache.set('p3', offer({ transaction_id: 'p3', candidate_count: 3, bank_transaction_id: null }));
+  h.api.proposalCache.set('p3', offer({ transaction_id: 'p3', candidate_count: 3, other_transaction_id: null }));
   h.api.renderPaydownOffers(rows);
   const strip = h.node('codePaydowns');
   assert.equal(strip.hidden, false);
   assert.match(strip.innerHTML, /2 paydowns match a bank payment/);
   assert.match(strip.innerHTML, /Confirm all 2/);
-  assert.match(strip.innerHTML, /1 other paydown has more than one payment/);
+  assert.match(strip.innerHTML, /1 other paydown has more than one row of the same amount/);
   assert.match(strip.innerHTML, /codes the payment on the bank side/,
     'the strip must say the paying side gets coded, because that half is not visible from here');
 
@@ -179,4 +183,55 @@ test('a confirmed match lands on the row and on the page’s copy of the import'
   assert.equal(h.api.matchCache.get('p1').bank_transaction_id, 'bank-1');
   assert.equal(h.api.proposalCache.has('p1'), false, 'a settled row is no longer offered');
   assert.equal(h.api.confirmableRows([row]).length, 0);
+});
+
+test('the same pair can be confirmed from the bank side, and the arguments follow the side', () => {
+  const payment = { id: 'b1', batch_id: 'b1', txn_date: '2026-10-09', amount: 5412.01, status: 'uncoded',
+    description: 'CARD AUTOPAY', merchant: 'CARD AUTOPAY', origin: 'csv', qbo_account_id: null, qbo_account_name: null };
+  const bankBatch = { ...BATCH, source_id: 's2', source_name: 'Operating checking', label: '2026-10 bank' };
+  const h = harness({ rows: [payment], batch: bankBatch, sources: [BANK] });
+  assert.equal(h.api.viewingBank(), true);
+  assert.equal(h.api.paydownCandidate(payment), true, 'money out of a bank account could be a payment');
+
+  h.api.matchCache.set('b1', null);
+  h.api.proposalCache.set('b1', { transaction_id: 'b1', side: 'payment', candidate_count: 1,
+    other_transaction_id: 'card-1', other_txn_date: '2026-10-10', other_amount: -5412.01,
+    other_source_name: 'Company card', other_description: 'AUTOPAY PYMT' });
+  const html = h.api.paymentMatchSection(payment);
+  assert.match(html, /Looks like the paydown/);
+  assert.match(html, /Company card/);
+  assert.match(html, /data-link-match="card-1"/);
+
+  // The RPC always takes (the row that leaves the entry, the row that posts).
+  const args = h.api.matchArgs(payment, 'card-1');
+  assert.equal(args.p_card_transaction_id, 'card-1');
+  assert.equal(args.p_bank_transaction_id, 'b1');
+
+  h.api.applyMatchToRow(payment, { bank_coded: true, bank_qbo_account_name: 'Capital One',
+    bank_accounting_treatment: 'card_payment' }, 'card-1');
+  assert.equal(payment.status, 'coded', 'the paying row is the side that posts, so it is coded, never excluded');
+  assert.equal(payment.qbo_account_name, 'Capital One');
+  assert.equal(payment.accounting_treatment, 'card_payment');
+  assert.equal(h.api.matchCache.get('b1').card_transaction_id, 'card-1');
+});
+
+test('the row itself carries the offer, and a matched row does not read as unused', () => {
+  const row = paydown();
+  const h = harness({ rows: [row], batch: BATCH, sources: [CARD] });
+  h.api.matchCache.set('p1', null);
+  h.api.proposalCache.set('p1', offer());
+  const cell = h.api.matchCell(row);
+  assert.match(cell, /Matches Operating checking/);
+  assert.match(cell, /data-link-match="bank-1"/, 'confirming never needs the row opened');
+
+  h.api.applyMatchToRow(row, { exclude_reason: 'Paid by Operating checking on 2026-10-09', bank_transaction_id: 'bank-1' }, 'bank-1');
+  assert.match(h.api.matchCell(row), /Matched/);
+  const line = h.api.accountingStateLine(row);
+  assert.match(line, /^Matched to the payment that posts it/, 'a matched row is kept out on purpose, not unused');
+  assert.doesNotMatch(line, /^Excluded/);
+
+  // A row excluded for any other reason still says so.
+  const dupe = paydown({ id: 'p9', status: 'excluded', exclude_reason: 'Duplicate' });
+  h.api.matchCache.set('p9', null);
+  assert.match(h.api.accountingStateLine(dupe), /^Excluded/);
 });

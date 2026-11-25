@@ -507,6 +507,7 @@
                 <select class="bcn-field" id="bulkEntity" aria-label="Set vendor or customer on selected"></select>
               </span>
               <button class="bcn-btn" id="btnBulkAccept" title="Save the prepared category on each selected row that has one">Use suggestions</button>
+              <button class="bcn-btn" id="btnBulkMatch" hidden title="Confirm the matching payment on each selected row that has exactly one">Confirm matches</button>
               <button class="bcn-btn" id="btnBulkExclude">Exclude</button>
               <button class="bcn-btn" id="btnBulkInclude">Include</button>
               <button class="bcn-btn cc-bulk-clear" id="btnBulkClear" aria-label="Clear selection" title="Clear selection">×</button>
@@ -2163,6 +2164,13 @@
   }
 
   function accountingStateLine(t) {
+    /* A matched row is kept out of this entry ON PURPOSE, because the other
+       side posts it. Calling that "excluded" reads as a row nobody used, which
+       is the opposite of what happened. A row excluded for any other reason
+       still says excluded. */
+    if (t.status === 'excluded' && matchFor(t)) {
+      return `Matched to the payment that posts it — kept out of this import’s journal so it is recorded once`;
+    }
     if (t.status === 'excluded') return 'Excluded from this import’s journal';
     if (t.origin === 'plaid' && filterCtx().isBankPending(t)) return 'Pending at bank — not editable until posted';
     if (t.status === 'uncoded') return 'Needs categorizing in SILO (not in ledger until coded and saved)';
@@ -2356,11 +2364,22 @@
      case work: the paying account is usually days ahead of the card review, so
      its row is often already coded, approved or posted, and anything that had
      to change it could not settle this side at all. */
-  const paydownCandidate = (t) => batchSource()?.source_type === 'card' && Number(t.amount) < 0;
-  const matchCache = new Map();   // card transaction id -> match row, or null for "none"
+  /* Which side of a pair this row could be, decided by the ACCOUNT TYPE behind
+     the account being viewed rather than by the word "card": an account whose
+     QuickBooks account is a Bank account pays, anything else is paid. So the
+     same pair can be confirmed from the bank screen or from the card screen. */
+  const viewingBank = () => (batchSource()?.credit_qbo_account_type || '') === 'Bank';
+  const paydownCandidate = (t) => {
+    if (!batchSource()) return false;
+    return viewingBank() ? Number(t.amount) > 0 && t.status !== 'excluded' : Number(t.amount) < 0;
+  };
+  const matchCache = new Map();   // transaction id (either side) -> match row, or null for "none"
   const matchLoading = new Set();
   let matchSearch = null;         // { id, days, rows, busy, error }
   const matchFor = (t) => (matchCache.has(t.id) ? matchCache.get(t.id) : undefined);
+  // The counterpart of a matched row, from the row's own point of view.
+  const matchOtherId = (t) => { const m = matchFor(t); if (!m) return null;
+    return m.card_transaction_id === t.id ? m.bank_transaction_id : m.card_transaction_id; };
 
   /* Read for every paydown on screen, not only the one open: the bulk actions
      and the row list must know a matched row before anybody clicks it. */
@@ -2369,30 +2388,36 @@
       .map((t) => t.id);
     if (!want.length) return;
     for (const id of want) matchLoading.add(id);
+    const ids = want.slice(0, 200);
+    const list = ids.map((id) => `"${id}"`).join(',');
     sb.from('card_payment_matches').select('card_transaction_id,bank_transaction_id,note,matched_at')
-      .in('card_transaction_id', want.slice(0, 200))
+      .or(`card_transaction_id.in.(${list}),bank_transaction_id.in.(${list})`)
       .then(({ data, error }) => {
         for (const id of want) matchLoading.delete(id);
         // A failed read stays unknown rather than claiming there is no match.
         if (error) return;
-        const byId = new Map((data || []).map((m) => [m.card_transaction_id, m]));
-        for (const id of want.slice(0, 200)) matchCache.set(id, byId.get(id) || null);
-        if (expandedTransaction && byId.size >= 0) renderTxnDetailDrawer();
+        const byId = new Map();
+        for (const m of data || []) { byId.set(m.card_transaction_id, m); byId.set(m.bank_transaction_id, m); }
+        for (const id of ids) matchCache.set(id, byId.get(id) || null);
+        renderPaydownOffers(reviewDateRows());
+        if (expandedTransaction) renderTxnDetailDrawer();
       }, () => { for (const id of want) matchLoading.delete(id); });
   }
 
-  /* Offered, not hunted: every paydown on screen is asked about in one call,
-     so the page can say "this looks like the payment" and the person confirms.
-     A row with two candidates carries the count and no pick -- choosing
-     between two payments of the same amount is the judgement this keeps. */
-  const proposalCache = new Map();   // card transaction id -> proposal, or null
+  /* Offered, not hunted: every row on screen that could be one side of a pair
+     is asked about in one call, so the page can say "this looks like the
+     payment" and the person confirms. A row with two candidates carries the
+     count and no pick -- choosing between two payments of the same amount is
+     the judgement this keeps. Asked from whichever side is on screen; the
+     answer names the counterpart either way. */
+  const proposalCache = new Map();   // transaction id -> proposal, or null
   const proposalAsked = new Set();
   function ensureProposals(rows) {
     const want = (rows || []).filter((t) => paydownCandidate(t) && !matchFor(t) && !proposalAsked.has(t.id))
-      .map((t) => t.id).slice(0, 200);
+      .map((t) => t.id).slice(0, 150);
     if (!want.length) return;
     for (const id of want) proposalAsked.add(id);
-    sb.rpc('card_payment_match_proposals', { p_transaction_ids: want, p_days: 7 })
+    sb.rpc('card_payment_match_offers', { p_transaction_ids: want, p_days: 7 })
       .then(({ data, error }) => {
         // A failed read offers nothing rather than claiming there is nothing.
         if (error) { for (const id of want) proposalAsked.delete(id); return; }
@@ -2403,21 +2428,38 @@
       }, () => { for (const id of want) proposalAsked.delete(id); });
   }
   const proposalFor = (t) => (paydownCandidate(t) && !matchFor(t) ? proposalCache.get(t.id) || null : null);
+  /* link_card_payment_match always takes (the row that leaves the entry, the
+     row that posts). Which of those the person is standing on is what the
+     proposal's side says. */
+  const matchArgs = (t, otherId) => (viewingBank()
+    ? { p_card_transaction_id: otherId, p_bank_transaction_id: t.id }
+    : { p_card_transaction_id: t.id, p_bank_transaction_id: otherId });
   const confirmableRows = (rows) => (rows || []).filter((t) => rowEditable(t) && !state.dirty.has(t.id)
-    && proposalFor(t)?.bank_transaction_id);
+    && proposalFor(t)?.other_transaction_id);
 
   /* One place where a confirmed match lands on the row in front of the
      reader, so the drawer and the bulk confirm cannot drift apart. */
-  function applyMatchToRow(t, data) {
+  function applyMatchToRow(t, data, otherId) {
     const reason = data?.exclude_reason || 'Matched to the bank payment';
-    t.status = 'excluded';
-    t.exclude_reason = reason;
+    /* What a match does to the row depends on which side it is. The side that
+       is paid leaves the entry; the side that pays is coded to the account it
+       settles -- which is the whole point of matching from here. */
+    const fields = viewingBank()
+      ? { status: 'coded', qbo_account_name: data?.bank_qbo_account_name || t.qbo_account_name,
+          accounting_treatment: data?.bank_accounting_treatment || t.accounting_treatment,
+          coding_source: 'manual', coding_conflict: null }
+      : { status: 'excluded', exclude_reason: reason };
+    if (viewingBank() && !data?.bank_coded) delete fields.status;   // nothing was written to it
+    Object.assign(t, fields);
     state.dirty.delete(t.id);
     if (dateBrowse && state.batch) {
-      state.txns = state.txns.map((x) => (x.id === t.id ? { ...x, status: 'excluded', exclude_reason: reason } : x));
+      state.txns = state.txns.map((x) => (x.id === t.id ? { ...x, ...fields } : x));
     }
-    matchCache.set(t.id, { card_transaction_id: t.id, bank_transaction_id: data?.bank_transaction_id,
-      note: reason, matched_at: new Date().toISOString() });
+    const record = viewingBank()
+      ? { card_transaction_id: otherId, bank_transaction_id: t.id, note: reason, matched_at: new Date().toISOString() }
+      : { card_transaction_id: t.id, bank_transaction_id: data?.bank_transaction_id || otherId,
+          note: reason, matched_at: new Date().toISOString() };
+    matchCache.set(t.id, record);
     proposalCache.delete(t.id);
     proposalAsked.delete(t.id);
   }
@@ -2427,31 +2469,42 @@
 
   function paymentMatchSection(t) {
     if (!paydownCandidate(t)) return '';
-    const head = '<section><h3>Card paydown</h3><p class="cc-note">The bank account that paid this card is what posts this payment. Match it here and this row stays out of the entry, so the paydown is recorded once.</p>';
+    const bankSide = viewingBank();
+    const head = bankSide
+      ? '<section><h3>Card paydown</h3><p class="cc-note">If this payment paid down a card, a line of credit or another account SILO tracks, match it here: that account\u2019s own row leaves its entry and this row is coded to it, so the paydown is recorded once.</p>'
+      : '<section><h3>Card paydown</h3><p class="cc-note">The bank account that paid this card is what posts this payment. Match it here and this row stays out of the entry, so the paydown is recorded once.</p>';
     const m = matchFor(t);
-    if (m === undefined) return `${head}<p class="cc-note">Checking for a match…</p></section>`;
+    if (m === undefined) return `${head}<p class="cc-note">Checking for a match\u2026</p></section>`;
     if (m) {
-      return `${head}<p class="txn-qbo-state"><b>Matched</b> ${esc(m.note || 'Matched to a bank payment')}</p>`
+      const line = bankSide ? 'Matched \u2014 this payment settles a paydown, and is coded to the account it paid'
+        : (m.note || 'Matched to a bank payment');
+      return `${head}<p class="txn-qbo-state"><b>Matched</b> ${esc(line)}</p>`
         + `<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-unlink-match>Unmatch</button></div></section>`;
     }
     const offer = proposalFor(t);
     const search = matchSearch && matchSearch.id === t.id ? matchSearch : null;
-    if (offer?.bank_transaction_id && !search) {
-      return `${head}<p class="txn-qbo-state"><b>Looks like the payment</b> ${esc(offer.bank_source_name || 'bank account')}`
-        + ` on ${esc(offer.bank_txn_date || '')} · ${esc(money(Math.abs(Number(offer.bank_amount))))}`
-        + `${offer.bank_description ? ` · ${esc(offer.bank_description)}` : ''}</p>`
-        + `<div class="txn-detail-actions"><button class="bcn-btn bcn-btn--primary" type="button" data-link-match="${esc(offer.bank_transaction_id)}">Confirm match</button>`
-        + `<button class="bcn-btn" type="button" data-find-match="7">Pick a different payment</button></div></section>`;
+    const otherWord = bankSide ? 'paydown' : 'payment';
+    if (offer?.other_transaction_id && !search) {
+      return `${head}<p class="txn-qbo-state"><b>Looks like the ${otherWord}</b> ${esc(offer.other_source_name || 'another account')}`
+        + ` on ${esc(offer.other_txn_date || '')} \u00b7 ${esc(money(Math.abs(Number(offer.other_amount))))}`
+        + `${offer.other_description ? ` \u00b7 ${esc(offer.other_description)}` : ''}</p>`
+        + `<div class="txn-detail-actions"><button class="bcn-btn bcn-btn--primary" type="button" data-link-match="${esc(offer.other_transaction_id)}">Confirm match</button>`
+        + (bankSide ? '' : '<button class="bcn-btn" type="button" data-find-match="7">Pick a different payment</button>')
+        + '</div></section>';
     }
     let body = '';
-    if (offer && !offer.bank_transaction_id && !search) {
-      body = `<p class="cc-note">${offer.candidate_count} bank payments of this amount are within 7 days, so pick the one that paid this.</p>`;
+    if (offer && !offer.other_transaction_id && !search) {
+      body = `<p class="cc-note">${offer.candidate_count} ${otherWord}s of this amount are within 7 days, so pick the one that belongs to this.</p>`;
     }
-    if (search?.busy) body = '<p class="cc-note">Looking for a matching bank payment…</p>';
+    /* Searching by hand stays a card-side tool. From the bank side the row
+       that would change is somebody else's screen, and the proposal already
+       answers the case this is for. */
+    if (bankSide) return offer ? `${head}${body}</section>` : '';
+    if (search?.busy) body = '<p class="cc-note">Looking for a matching bank payment\u2026</p>';
     else if (search?.error) body = `<p class="cc-note">${esc(search.error)}</p>`;
     else if (search && !search.rows.length) {
       body = `<p class="cc-note">No unmatched bank payment of ${esc(money(Math.abs(Number(t.amount))))} within ${search.days} days of ${esc(t.txn_date || 'this date')}.</p>`
-        + (search.days < 30 ? '<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-find-match="30">Search ±30 days</button></div>' : '');
+        + (search.days < 30 ? '<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-find-match="30">Search \u00b130 days</button></div>' : '');
     } else if (search) {
       body = `<table class="bcn-table"><thead><tr><th>Date</th><th>Account</th><th class="bcn-num">Amount</th><th>State</th><th></th></tr></thead><tbody>`
         + search.rows.map((r) => `<tr><td class="bcn-mono">${esc(r.txn_date || '')}</td>`
@@ -2462,6 +2515,27 @@
         + '</tbody></table>';
     }
     return `${head}<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-find-match="7"${search?.busy ? ' disabled' : ''}>Find matching bank payment</button></div>${body}</section>`;
+  }
+
+  /* The same offer in the row itself, in the category cell: a paydown you
+     never open is exactly the one that doubles, and opening each row to press
+     a button was the work this is meant to remove. */
+  function matchCell(t) {
+    const m = matchFor(t);
+    if (m) {
+      return `<div class="cc-note"><b>Matched</b><br>${esc(viewingBank()
+        ? 'Settles a paydown on another account'
+        : (m.note || 'Matched to a bank payment'))}</div>`;
+    }
+    const offer = proposalFor(t);
+    if (!offer) return '';
+    if (!offer.other_transaction_id) {
+      return `<div class="cc-note"><b>${offer.candidate_count} possible matches</b><br>Open the row to pick one.</div>`;
+    }
+    const locked = !rowEditable(t) || state.dirty.has(t.id) ? 'disabled' : '';
+    return `<div class="cc-note"><b>Matches ${esc(offer.other_source_name || 'another account')}</b><br>`
+      + `${esc(offer.other_txn_date || '')} \u00b7 ${esc(money(Math.abs(Number(offer.other_amount))))}</div>`
+      + `<button class="bcn-btn" type="button" data-link-match="${esc(offer.other_transaction_id)}" ${locked}>Confirm match</button>`;
   }
 
   async function onPaymentMatchClick(e) {
@@ -2489,40 +2563,50 @@
     if (!requireEditable() || !rowEditable(t)) return;
     if (state.dirty.has(t.id)) return setStatus('Save or discard your edits on this row before matching it.', 'neg', 6000);
 
-    const applied = (status, reason) => {
-      t.status = status;
-      t.exclude_reason = reason || null;
-      state.dirty.delete(t.id);
-      if (dateBrowse && state.batch) {
-        state.txns = state.txns.map((x) => (x.id === t.id ? { ...x, status, exclude_reason: reason || null } : x));
-      }
-      matchSearch = null;
-      renderCoding();
-      renderEntry();
-    };
+    const redraw = () => { matchSearch = null; renderCoding(); renderEntry(); };
 
     if (link) {
-      const { data, error } = await sb.rpc('link_card_payment_match',
-        { p_card_transaction_id: t.id, p_bank_transaction_id: link.dataset.linkMatch });
+      const otherId = link.dataset.linkMatch;
+      const { data, error } = await sb.rpc('link_card_payment_match', matchArgs(t, otherId));
       if (error) {
         // The offer was made from data that has since moved on.
         proposalCache.delete(t.id); proposalAsked.delete(t.id);
         return setStatus(`Could not match it — ${error.message}`, 'neg', 12000);
       }
-      applyMatchToRow(t, data);
-      applied('excluded', data?.exclude_reason || 'Matched to the bank payment');
-      setStatus(data?.bank_coded
-        ? `Matched. This row is out of the entry, and the payment on ${data.bank_source_name || 'the bank account'} is coded to ${data.bank_qbo_account_name || 'the paid account'} — the paydown is recorded once.`
-        : 'Matched to the bank payment. This row is out of the entry, so the paydown is recorded once.', 'pos', 9000);
+      applyMatchToRow(t, data, otherId);
+      redraw();
+      setStatus(viewingBank()
+        ? `Matched. This payment is coded to ${data?.bank_qbo_account_name || 'the account it paid'}, and that account's own row is out of its entry — the paydown is recorded once.`
+        : data?.bank_coded
+          ? `Matched. This row is out of the entry, and the payment on ${data.bank_source_name || 'the bank account'} is coded to ${data.bank_qbo_account_name || 'the paid account'} — the paydown is recorded once.`
+          : 'Matched to the bank payment. This row is out of the entry, so the paydown is recorded once.', 'pos', 9000);
       return;
     }
 
-    const { data, error } = await sb.rpc('unlink_card_payment_match', { p_card_transaction_id: t.id });
+    const settled = viewingBank() ? matchOtherId(t) : t.id;
+    const { data, error } = await sb.rpc('unlink_card_payment_match', { p_card_transaction_id: settled });
     if (error) return setStatus(`Could not undo the match — ${error.message}`, 'neg', 12000);
     matchCache.set(t.id, null);
     proposalCache.delete(t.id); proposalAsked.delete(t.id);
-    applied(data?.status || 'uncoded', data?.exclude_reason || null);
-    setStatus('Match removed. This row is back in the import — code it or exclude it.', 'info', 8000);
+    if (viewingBank()) {
+      /* The undo put this row back to whatever it was before the match coded
+         it, which only the database knows, so the row is read again rather
+         than guessed at. */
+      const { data: fresh } = await sb.from('card_transactions').select('*')
+        .eq('id', t.id).eq('company_entity_id', _co.id).maybeSingle();
+      if (fresh) {
+        Object.assign(t, fresh);
+        if (dateBrowse && state.batch) state.txns = state.txns.map((x) => (x.id === t.id ? { ...x, ...fresh } : x));
+      }
+    } else {
+      Object.assign(t, { status: data?.status || 'uncoded', exclude_reason: data?.exclude_reason || null });
+      if (dateBrowse && state.batch) state.txns = state.txns.map((x) => (x.id === t.id
+        ? { ...x, status: data?.status || 'uncoded', exclude_reason: data?.exclude_reason || null } : x));
+    }
+    redraw();
+    setStatus(viewingBank()
+      ? 'Match removed. This payment is back as it was, and the paydown is back in its own entry.'
+      : 'Match removed. This row is back in the import — code it or exclude it.', 'info', 8000);
   }
 
   function transactionDetailInner(t) {
@@ -2643,45 +2727,62 @@
     const box = el('codePaydowns');
     if (!box) return;
     const ready = confirmableRows(rows);
-    const ambiguous = (rows || []).filter((t) => proposalFor(t) && !proposalFor(t).bank_transaction_id);
+    const ambiguous = (rows || []).filter((t) => proposalFor(t) && !proposalFor(t).other_transaction_id);
     if (!ready.length && !ambiguous.length) { box.hidden = true; box.innerHTML = ''; return; }
     const parts = [];
     if (ready.length) {
-      parts.push(`<div><b>${ready.length} paydown${ready.length === 1 ? '' : 's'} match${ready.length === 1 ? 'es' : ''} a bank payment</b>`
-        + ' — confirming keeps this row out of the entry and codes the payment on the bank side, so it is recorded once.'
+      parts.push(`<div><b>${ready.length} ${viewingBank() ? 'payment' : 'paydown'}${ready.length === 1 ? '' : 's'} match${ready.length === 1 ? 'es' : ''} ${viewingBank() ? 'a paydown on another account' : 'a bank payment'}</b>`
+        + (viewingBank()
+          ? ' — confirming codes this row to the account it paid and keeps that account\u2019s own row out of its entry, so it is recorded once.'
+          : ' — confirming keeps this row out of the entry and codes the payment on the bank side, so it is recorded once.')
         + ` <button class="bcn-btn bcn-btn--primary" type="button" data-paydown-confirm>Confirm ${ready.length === 1 ? 'it' : `all ${ready.length}`}</button></div>`);
     }
     if (ambiguous.length) {
-      parts.push(`<div>${ambiguous.length} other paydown${ambiguous.length === 1 ? ' has' : 's have'} more than one payment of the same amount`
+      parts.push(`<div>${ambiguous.length} other ${viewingBank() ? 'payment' : 'paydown'}${ambiguous.length === 1 ? ' has' : 's have'} more than one row of the same amount`
         + ' — open the row to pick which one paid it.</div>');
     }
     box.innerHTML = parts.join('');
     box.hidden = false;
   }
 
-  el('codePaydowns').addEventListener('click', async (e) => {
-    const go = e.target.closest('[data-paydown-confirm]');
-    if (!go || !requireEditable()) return;
-    const rows = confirmableRows(reviewDateRows());
+  /* One confirm path for the strip above the table and for the selection, so
+     neither can drift from the other. */
+  async function confirmMatches(rows, button) {
     if (!rows.length) return;
-    go.disabled = true;
-    setStatus(`Confirming ${rows.length} match${rows.length === 1 ? '' : 'es'}…`, 'info', 0);
+    if (button) button.disabled = true;
+    setStatus(`Confirming ${rows.length} match${rows.length === 1 ? '' : 'es'}\u2026`, 'info', 0);
     let done = 0; let failed = 0; let coded = 0; let lastError = '';
     for (const t of rows) {
       const offer = proposalFor(t);
-      const { data, error } = await sb.rpc('link_card_payment_match',
-        { p_card_transaction_id: t.id, p_bank_transaction_id: offer.bank_transaction_id });
+      if (!offer?.other_transaction_id) continue;
+      const { data, error } = await sb.rpc('link_card_payment_match', matchArgs(t, offer.other_transaction_id));
       if (error) { failed++; lastError = error.message; proposalCache.delete(t.id); proposalAsked.delete(t.id); continue; }
       done++;
-      if (data?.bank_coded) coded++;
-      applyMatchToRow(t, data);
+      if (viewingBank() || data?.bank_coded) coded++;
+      applyMatchToRow(t, data, offer.other_transaction_id);
     }
+    state.selected.clear();
     renderCoding();
     renderEntry();
-    const bits = [`${done} matched and out of the entry`];
-    if (coded) bits.push(`${coded} bank payment${coded === 1 ? '' : 's'} coded on the paying account`);
-    if (failed) bits.push(`${failed} could not be matched — ${lastError}`);
-    setStatus(bits.join(' · '), failed ? 'neg' : 'pos', failed ? 12000 : 9000);
+    const bits = [viewingBank()
+      ? `${done} payment${done === 1 ? '' : 's'} matched to a paydown`
+      : `${done} matched and out of the entry`];
+    if (coded) bits.push(viewingBank()
+      ? `coded to the account${coded === 1 ? '' : 's'} paid`
+      : `${coded} bank payment${coded === 1 ? '' : 's'} coded on the paying account`);
+    if (failed) bits.push(`${failed} could not be matched \u2014 ${lastError}`);
+    setStatus(bits.join(' \u00b7 '), failed ? 'neg' : 'pos', failed ? 12000 : 9000);
+  }
+
+  el('codePaydowns').addEventListener('click', async (e) => {
+    const go = e.target.closest('[data-paydown-confirm]');
+    if (!go || !requireEditable()) return;
+    await confirmMatches(confirmableRows(reviewDateRows()), go);
+  });
+
+  el('btnBulkMatch').addEventListener('click', async () => {
+    if (!requireEditable()) return;
+    await confirmMatches(confirmableRows(selectedTxns()), el('btnBulkMatch'));
   });
 
   el('codeBlockers').addEventListener('click', (e) => {
@@ -2844,11 +2945,11 @@
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txnDetailDrawer">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?esc(entityMissing):t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?(matchFor(t)?'Matched':'Excluded'):entityMissing?esc(entityMissing):t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-treatment" data-cell="treatment">${treatmentCell(t)}</td>
-        <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-category" data-cell="account">${(m => m || (suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')))(matchCell(t))}</td>
         <td class="txn-location" data-cell="location">${locationColumn(t)}</td>
         <td class="txn-entity" data-cell="entity">${entityColumn(t)}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close detail panel':'Open detail panel for'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txnDetailDrawer">${expanded?'−':'↗'}</button></td>
@@ -3434,6 +3535,12 @@
     for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity', 'btnBulkInclude', 'btnBulkExclude']) el(id).disabled = !editable();
     if (!n) return;
     el('bulkCount').textContent = `${n} selected`;
+    /* Confirming matches is offered on the selection, not only in the strip
+       above the table: picking the rows you mean is how everything else here
+       is done in bulk. */
+    const matchable = confirmableRows(selectedTxns());
+    el('btnBulkMatch').hidden = !matchable.length;
+    el('btnBulkMatch').textContent = `Confirm ${matchable.length} match${matchable.length === 1 ? '' : 'es'}`;
     if (!el('bulkAccount').options.length) {
       el('bulkAccount').innerHTML = `<option value="">Category…</option>${_acctOptions}`;
       el('bulkLocation').innerHTML = `<option value="">Location…</option>${_locOptions}`;
@@ -3735,6 +3842,7 @@
     renderCoding();
     renderEntry();
   }
+  el('tblCoding').addEventListener('click', onPaymentMatchClick);
   el('tblCoding').addEventListener('click', onTxnTableClick);
   el('txnDetailBody').addEventListener('click', onPaymentMatchClick);
   el('txnDetailBody').addEventListener('click', onTxnTableClick);
