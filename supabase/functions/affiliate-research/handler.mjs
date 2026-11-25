@@ -274,7 +274,10 @@ export function createResearchHandler({
     await service.from('affiliate_discovery_runs').update({ ...patch, finished_at: now().toISOString() }).eq('id', id);
   }
 
-  async function research({ company, program, body, callerId }) {
+  // nightly = { max } when the schedule started it (nightlyDiscovery): it
+  // stops at that dollar figure while it runs. A press has no nightly limit;
+  // every run, nightly or pressed, stops at the monthly cap.
+  async function research({ company, program, body, callerId, nightly = null }) {
     if (program.status !== 'active') return reply({ error: 'Set the program to active to research creators.' }, 409);
     if (!apiKey) return reply({ error: 'AI research is not set up yet.' }, 503);
 
@@ -297,6 +300,7 @@ export function createResearchHandler({
     const { data: row, error: rErr } = await service.from('affiliate_discovery_runs').insert({
       company_entity_id: company, program_id: program.id, source_id: null, run_id: runId, provider: RESEARCH_PROVIDER,
       query: focus || program.niche || 'AI research', started_at: now().toISOString(), status: 'running',
+      ...(nightly ? { nightly: true } : {}),
     }).select('id').single();
     if (rErr) return reply({ error: 'Could not start research.' }, 500);
 
@@ -313,6 +317,7 @@ export function createResearchHandler({
     }
 
     const startedAt = now().getTime();
+    let limitHit = null;
     const work = (async () => {
       let usages = []; let outcome = 'failed';
       try {
@@ -351,7 +356,13 @@ export function createResearchHandler({
           usages = u;
           if (RUN_BUDGET_MS - (now().getTime() - startedAt) < ROUND_MIN_MS) return false;
           const s = await meter.step({ usage: addUsage(u.map(usageFromResponse)), estInput: estimateInputTokens(next) + HOLD_INPUT_TOKENS, maxOutput: MAX_OUTPUT_TOKENS, maxWeb: WEB_SEARCH_USES });
-          return s.ok !== false;
+          if (s.ok === false) return false;
+          // The company's limits, against the usage just recorded: this run's
+          // own spend so far (nightly), and the month's (every run). Reached =
+          // no more investigating; the model writes up what it has.
+          const hit = studioLimitHit(await studioSpend(company, nightly ? row.id : null), { nightly: !!nightly, nightMax: nightly?.max });
+          if (hit) { limitHit = hit; return false; }
+          return true;
         };
         const wanted = clampCount(body?.count);
         const collectedAt = now().toISOString();
@@ -367,16 +378,20 @@ export function createResearchHandler({
         const ytUrls = candidates.filter((c) => channelRef(c.profile_url)).map((c) => c.profile_url);
         if (ytUrls.length) await statsFor({ company: program.company_entity_id, program, urls: ytUrls, deadline: Date.now() + STATS_RUN_MS }).catch(() => {});
         outcome = stats.kept > 0 ? 'succeeded' : 'failed';
+        const limitNote = limitHit ? ` ${STUDIO_LIMIT_NOTE[limitHit]}` : '';
         await finishRun(row.id, {
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
           error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.topped_up || stats.known || stats.kept < wanted || g.leads.length
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.known ? `, ${stats.known} already known` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} ${g.youtube ? `leads checked (${g.youtube} from YouTube)` : 'Google leads checked'}` : ''}${lean ? ', shortlist mode' : ''}`
-            : null,
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.known ? `, ${stats.known} already known` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} ${g.youtube ? `leads checked (${g.youtube} from YouTube)` : 'Google leads checked'}` : ''}${lean ? ', shortlist mode' : ''}${limitNote}`
+            : (limitNote.trim() || null),
         });
       } catch (err) {
-        await finishRun(row.id, { status: 'error', error: String(err?.message || err).slice(0, 500) }).catch(() => {});
+        // Stopped by the company's own limit before anything was recorded:
+        // say which limit, not a failure.
+        await finishRun(row.id, limitHit ? { status: 'ok', error: STUDIO_LIMIT_NOTE[limitHit] }
+          : { status: 'error', error: String(err?.message || err).slice(0, 500) }).catch(() => {});
       } finally {
         await meter.settle({ usage: addUsage(usages.map(usageFromResponse)), outcome, error: outcome === 'succeeded' ? null : 'no_creators_kept' }).catch(() => {});
       }
@@ -1014,6 +1029,33 @@ export function createResearchHandler({
     // twice; the usual never-scan rules apply.
     return customerScan({ company, body: { filters: { sort: 'orders', minOrders: 2, consent: 'any' } }, callerId: null, authHeader, nightly: true });
   }
+  // The nightly Discovery: ONE company per call, only when its own setting is
+  // on, and modest by design (Blake: "modest amount if nightly ... bigger on
+  // demand"): its own creators-per-night and dollars-per-night, one program a
+  // night, the one researched longest ago (nightly), so every active program
+  // takes its turn. A program already researching is left alone (429).
+  async function nightlyDiscovery({ body }) {
+    const company = String(body?.company || '');
+    if (!UUID_RE.test(company)) return reply({ error: 'Name the company.' }, 400);
+    const spend = await studioSpend(company);
+    if (!spend) return reply({ error: 'Affiliate Studio limits need a database update first.' }, 503);
+    if (spend.discovery_nightly_enabled !== true) return reply({ skipped: 'off' });
+    if (studioLimitHit(spend) === 'month') {
+      return reply({ error: "This month's Affiliate Studio limit is reached.", limit_reached: true }, 402);
+    }
+    const { data: programs, error: pErr } = await service.from('affiliate_programs')
+      .select('id, company_entity_id, name, niche, audience_notes, platforms, geographies, status')
+      .eq('company_entity_id', company).eq('status', 'active').order('created_at', { ascending: true }).limit(200);
+    if (pErr) return reply({ error: 'Could not load the programs.' }, 500);
+    if (!programs?.length) return reply({ skipped: 'no_active_program' });
+    const { data: past } = await service.from('affiliate_discovery_runs').select('program_id, started_at')
+      .eq('company_entity_id', company).eq('nightly', true).order('started_at', { ascending: false }).limit(500);
+    const lastAt = new Map();
+    for (const r of past || []) if (!lastAt.has(r.program_id)) lastAt.set(r.program_id, new Date(r.started_at).getTime());
+    const program = [...programs].sort((a, b) => (lastAt.get(a.id) ?? 0) - (lastAt.get(b.id) ?? 0))[0];
+    return research({ company, program, body: { count: Number(spend.discovery_night_creators) || 10 }, callerId: null,
+      nightly: { max: Number(spend.discovery_night_max_micros) || 1000000 } });
+  }
   const claimedRole = (token) => {
     try {
       const part = token.split('.')[1]; if (!part) return null;
@@ -1041,6 +1083,7 @@ export function createResearchHandler({
       let nb;
       try { nb = await req.json(); } catch { return reply({ error: 'Invalid JSON' }, 400); }
       if (nb?.action === 'nightly_scan' || (nb?.action === 'customer_scan' && nb?.continue_scan !== undefined)) return nightly({ body: nb, authHeader });
+      if (nb?.action === 'nightly_discovery') return nightlyDiscovery({ body: nb });
       return reply({ error: 'Unknown action.' }, 400);
     }
 

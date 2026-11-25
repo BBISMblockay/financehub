@@ -255,7 +255,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=1f8c055e7ca4" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=c65d2afbce71" />
   <link rel="stylesheet" href="accounting-suite.css?v=1fd0aab8e88a" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -379,9 +379,8 @@
             <div class="wsec">
               <p class="wsec-lbl">Account
                 <span class="wsec-meta" id="workspaceAccountMeta"></span>
-                <button type="button" class="wsec-expand" id="workspaceAccountExpand" aria-expanded="false" hidden>Show all</button>
               </p>
-              <div class="wtiles" id="workspaceTiles" role="radiogroup" aria-label="Account"></div>
+              <div id="workspaceTiles"></div>
             </div>
             <form class="txn-dates" id="dateForm">
               <div class="txn-presets" aria-label="Date shortcuts">
@@ -737,7 +736,7 @@
 <script src="bank-workspace.js?v=1849f7cf443d"></script>
 <script src="transaction-dates.js?v=72614f733dd3"></script>
 <script src="coding-suggestions.js?v=08bc45603fb5"></script>
-<script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
+<script src="transactions-tiles.js?v=c1e35fda3cad"></script>
 <script src="card-splits.js?v=36d70b144fb9"></script>
 <script src="transaction-filters.js?v=a8673de28371"></script>
 <script>

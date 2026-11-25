@@ -19951,6 +19951,9 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125040000: Affiliate Studio spend -- one bill line (Find + Discovery),
 -- each company's own nightly Find switch and limits, owner/admin-only edits.
 \i migrations/20261125040000_affiliate_studio_spend.sql
+-- 20261125100000: nightly Discovery -- its own switch and limits beside nightly
+-- Find; a running run's spend so far counts toward its own limit.
+\i migrations/20261125100000_affiliate_studio_nightly_discovery.sql
 -- 20261125130000: saved rules categorize at bank sync without a page (only rows
 -- no person has saved, only switched-on accounts), and an entry made by hand in
 -- QuickBooks can be marked so no page can send it a second time.
