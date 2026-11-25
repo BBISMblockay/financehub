@@ -2290,19 +2290,22 @@ function pickedProspectRows(s) {
   return [...new Set(ids)];
 }
 // Every action a creator row offers, in the order they are used. The row
-// shows the first two; More shows them all.
+// shows the first; More shows them all.
 function prospectActions(x) {
   const d = S.d;
   if (!MANAGE || !d) return [];
   const live = new Set(d.drafts.filter((y) => ['draft', 'approved', 'exported'].includes(y.state)).map((y) => y.prospect_id));
   const contacted = new Set(d.drafts.filter((y) => y.state === 'sent').map((y) => y.prospect_id));
   const b = [];
+  // The step that moves this person along comes first, because the row shows
+  // the first button and More holds the rest: for somebody already
+  // shortlisted that is the message or the invite, never "Not a fit".
   if (['new', 'qualified', 'rejected'].includes(x.status)) b.push(btn('Shortlist', 'prospect-status', { id: x.id, s: 'approved' }, 'primary'));
+  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
+  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
+  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
   if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' }));
   if (x.status === 'rejected') b.push(prospectPill('rejected'));
-  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
-  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
-  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
   if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
   if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
   return b;
@@ -2500,7 +2503,7 @@ function renderProspects() {
     const x = g.x;
     const st = creatorStats(x.evidence);
     const bits = [
-      filter === 'all' || g.suppressed ? headPill(g) : '',
+      g.suppressed || shownRow(g).status !== PROSPECT_GROUPS[filter]?.[0] ? headPill(g) : '',
       customerPill(x),
       st?.rate != null ? pill(`${(st.rate * 100).toFixed(1)}% eng`) : '',
       x.contact_email ? `<span class="bcn-pill" title="${esc(x.contact_email)}">email</span>` : '',

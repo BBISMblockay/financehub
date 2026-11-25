@@ -917,6 +917,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { id: 'p-app2', company_entity_id: CO, program_id: PROG, display_name: 'Bo Bounce', platform: 'instagram', handle: '@bo', profile_url: 'https://www.instagram.com/bo', contact_email: 'bo@creator.invalid', source: 'applied', collected_at: now, evidence: {}, status: 'rejected' },
         { id: 'p-srch', company_entity_id: CO, program_id: PROG, display_name: 'Sky Search', platform: 'tiktok', handle: '@sky', profile_url: 'https://www.tiktok.com/@sky', contact_email: null, source: 'serp', collected_at: now, evidence: {}, status: 'new' },
         { id: 'p-man', company_entity_id: CO, program_id: PROG, display_name: 'Quin Hand', platform: 'tiktok', handle: '@quin', profile_url: 'https://www.tiktok.com/@quin', contact_email: 'quin@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited' },
+        { id: 'p-appr', company_entity_id: CO, program_id: PROG, display_name: 'Ray Ready', platform: 'tiktok', handle: '@ray', profile_url: 'https://www.tiktok.com/@ray', contact_email: 'ray@creator.invalid', source: 'serp', collected_at: now, evidence: {}, status: 'approved' },
       ] };
       const inv = await suite.open('/v2/affiliates/index.html', inviteTables, { ready, rpc: { can_manage_affiliate_programs: true } });
       inv.on('pageerror', (e) => errors.push(e.message));
@@ -947,6 +948,23 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await inv.waitForFunction(() => !!document.querySelector('[data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
       R.has(await text(inv, '[data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
       await closeDialog(inv);
+      // One button and one Signal cell must still tell a shortlisted person
+      // apart from one already invited, and must offer the next step rather
+      // than the rejection (review of #1395).
+      await toDiscovery(inv);
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="approved"]');
+      await inv.click('#prospectsBody [data-act="view-set"][data-v="list"]');
+      await inv.waitForFunction(() => document.querySelector('#prospectsBody [data-act="prospect-filter"][data-f="approved"]')?.getAttribute('aria-checked') === 'true'
+        && !!document.querySelector('#prospectsBody [data-act="prospect-more"][data-id="p-appr"]'), null, { timeout: 5000 });
+      const shortRows = await inv.evaluate(() => ['p-appr', 'p-man'].map((id) => {
+        const el = document.querySelector(`#prospectsBody [data-act="prospect-more"][data-id="${id}"]`)?.closest('tr, article');
+        return { id, pills: [...(el?.querySelectorAll('.bcn-pill') || [])].map((b) => b.textContent.trim()), btns: [...(el?.querySelectorAll('button') || [])].map((b) => b.textContent.trim()) };
+      }));
+      const [apprRow, invRow] = shortRows;
+      R.ok('Shortlisted still says who has already been invited', invRow.pills.includes('invited'));
+      R.ok('and does not repeat the state everybody in the group shares', !apprRow.pills.includes('approved'));
+      R.ok('a shortlisted row offers the next step, not the rejection', !apprRow.btns.includes('Not a fit') && apprRow.btns.some((t) => /invite|Draft message|Signup link/i.test(t)));
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="new"]');
       await openProspectMore(inv, 'p1');
       R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('[data-act="invite-send"][data-id="p1"]')));
       await closeDialog(inv);
