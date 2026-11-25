@@ -36,7 +36,7 @@
 --     po_status_history row, which this stamps with the approving person and
 --     "Via <app>" rather than leaving the trigger's defaults.
 --
--- 20261125230000.
+-- 20261125234500.
 
 -- -- 1. The po_status:write scope ---------------------------------------------
 -- Re-stated from 20261117220000 (production matches it) with ONE line
@@ -62,7 +62,7 @@ declare
   -- receiving:write since 20261117220000: reading a purchase order's lines so
   -- the person's own AI can record a shipment receipt against them, as a DRAFT
   -- a person confirms in SILO. Its own box; never implied by another scope.
-  -- po_status:write since 20261125230000: moving a purchase order to one of
+  -- po_status:write since 20261125234500: moving a purchase order to one of
   -- the steps this company allows an AI to set, applied when the person says
   -- so in their own AI client. Its own box; never implied by receiving:write,
   -- and it can never set a step that needs a delivery confirmed.
@@ -220,7 +220,7 @@ end;
 $$;
 
 comment on function public.silo_api_consent(text, text[]) is
-  'Writes the SILO grant row for an approved application: aal2 required, scopes from the allowlist (reports:read, data:read, work:write, outreach:send, codes:create, receiving:write, po_status:write) and a scope outside it is REFUSED rather than dropped, up to silo_api_app_connection_limit() live connections per person per application in numbered slots. 20261020030000; app_key 20261102180000; slots 20261104020000; work:write 20261104230000; strict scopes 20261104234500; outreach:send 20261110093000; codes:create 20261110160000; receiving:write 20261117220000; po_status:write 20261125230000.';
+  'Writes the SILO grant row for an approved application: aal2 required, scopes from the allowlist (reports:read, data:read, work:write, outreach:send, codes:create, receiving:write, po_status:write) and a scope outside it is REFUSED rather than dropped, up to silo_api_app_connection_limit() live connections per person per application in numbered slots. 20261020030000; app_key 20261102180000; slots 20261104020000; work:write 20261104230000; strict scopes 20261104234500; outreach:send 20261110093000; codes:create 20261110160000; receiving:write 20261117220000; po_status:write 20261125234500.';
 
 revoke all on function public.silo_api_consent(text, text[]) from public, anon;
 grant execute on function public.silo_api_consent(text, text[]) to authenticated;
@@ -250,7 +250,7 @@ returns boolean language sql stable set search_path = '' as $$
 $$;
 
 comment on function public.silo_api_path_allowed() is
-  'True when a third-party OAuth request is on one of the paths the developer platform exposes: running and listing reports (reports:read), describing tables, running a read-only query and reading published connections (data:read), opening a task (work:write), reading this connection''s own scopes and recording a handshake or a failure (no scope needed), claiming approved affiliate outreach and marking it sent (outreach:send), reading affiliate codes waiting for Shopify and recording one as created (codes:create), listing the purchase orders awaiting a delivery, reading one''s lines and recording a DRAFT shipment receipt against it (receiving:write), and reading the steps a purchase order can be moved to, listing the purchase orders that can be moved and setting one''s step (po_status:write). Every other path is refused by silo_check_request(). 20261030050000; query 20261030110000; connections 20261103210000; create_task 20261104230000; scopes 20261104234500; outreach 20261110093000; codes 20261110160000; connect and failures 20261112030000; receiving 20261117220000; po status 20261125230000.';
+  'True when a third-party OAuth request is on one of the paths the developer platform exposes: running and listing reports (reports:read), describing tables, running a read-only query and reading published connections (data:read), opening a task (work:write), reading this connection''s own scopes and recording a handshake or a failure (no scope needed), claiming approved affiliate outreach and marking it sent (outreach:send), reading affiliate codes waiting for Shopify and recording one as created (codes:create), listing the purchase orders awaiting a delivery, reading one''s lines and recording a DRAFT shipment receipt against it (receiving:write), and reading the steps a purchase order can be moved to, listing the purchase orders that can be moved and setting one''s step (po_status:write). Every other path is refused by silo_check_request(). 20261030050000; query 20261030110000; connections 20261103210000; create_task 20261104230000; scopes 20261104234500; outreach 20261110093000; codes 20261110160000; connect and failures 20261112030000; receiving 20261117220000; po status 20261125234500.';
 
 -- One more kind of write against the connection's daily cap.
 alter table public.silo_api_writes drop constraint if exists silo_api_writes_kind_check;
@@ -299,7 +299,7 @@ create index if not exists po_status_options_company_idx
   on public.po_status_options (company_entity_id, sort_order);
 
 comment on table public.po_status_options is
-  'The steps a purchase order can be at, per company: the list PO Builder offers, which of them count as an open order (is_open), which a connected AI may set itself (ai_settable), which mean units arrived and so must go through a confirmed delivery instead (needs_receipt) and which are the end of the line (is_final). Company DATA: renaming or withdrawing a step is an update here, not a deploy. Seeded from SILO''s default list for every company that has purchase orders. 20261125230000.';
+  'The steps a purchase order can be at, per company: the list PO Builder offers, which of them count as an open order (is_open), which a connected AI may set itself (ai_settable), which mean units arrived and so must go through a confirmed delivery instead (needs_receipt) and which are the end of the line (is_final). Company DATA: renaming or withdrawing a step is an update here, not a deploy. Seeded from SILO''s default list for every company that has purchase orders. 20261125234500.';
 
 alter table public.po_status_options enable row level security;
 
@@ -347,7 +347,7 @@ as $$
 $$;
 
 comment on function public.po_status_default_options() is
-  'SILO''s default purchase-order steps, with which count as open, which a connected AI may set, which need a confirmed delivery and which are the end of the line. The product''s own list: seeded into po_status_options per company, never read in place of it. 20261125230000.';
+  'SILO''s default purchase-order steps, with which count as open, which a connected AI may set, which need a confirmed delivery and which are the end of the line. The product''s own list: seeded into po_status_options per company, never read in place of it. 20261125234500.';
 
 -- Seed every company that has purchase orders: the default list, plus any
 -- status its POs already carry that the default list does not name (as an
@@ -393,7 +393,7 @@ end;
 $$;
 
 comment on function public.po_status_options_ensure(uuid) is
-  'Seeds one company''s purchase-order steps from po_status_default_options() if it has none yet -- for a workspace that had no POs when 20261125230000 was applied. Does nothing once the company has a list of its own, so an edited list is never restored. Internal. 20261125230000.';
+  'Seeds one company''s purchase-order steps from po_status_default_options() if it has none yet -- for a workspace that had no POs when 20261125234500 was applied. Does nothing once the company has a list of its own, so an edited list is never restored. Internal. 20261125234500.';
 
 revoke all on function public.po_status_options_ensure(uuid)
   from public, anon, authenticated, silo_integration, silo_revoked;
@@ -414,7 +414,7 @@ end;
 $$;
 
 comment on function public.po_status_options_ensure() is
-  'Seeds the ACTIVE company''s purchase-order steps if it has none yet. What PO Builder calls before reading the list, so a workspace whose first PO has not been created yet still has a status dropdown. 20261125230000.';
+  'Seeds the ACTIVE company''s purchase-order steps if it has none yet. What PO Builder calls before reading the list, so a workspace whose first PO has not been created yet still has a status dropdown. 20261125234500.';
 
 revoke all on function public.po_status_options_ensure() from public, anon, silo_integration, silo_revoked;
 grant execute on function public.po_status_options_ensure() to authenticated;
@@ -450,7 +450,7 @@ create index if not exists po_status_changes_company_idx
   on public.po_status_changes (company_entity_id, created_at desc);
 
 comment on table public.po_status_changes is
-  'Every purchase-order step a connected AI set through po_status:write: the PO, the step it came from and went to, the reason the AI gave, the document it read (label and link), the application, the person whose connection it was and the idempotency key. The transition itself is in po_status_history; this is why it happened and on whose authority. 20261125230000.';
+  'Every purchase-order step a connected AI set through po_status:write: the PO, the step it came from and went to, the reason the AI gave, the document it read (label and link), the application, the person whose connection it was and the idempotency key. The transition itself is in po_status_history; this is why it happened and on whose authority. 20261125234500.';
 
 alter table public.po_status_changes enable row level security;
 
@@ -512,7 +512,7 @@ end;
 $$;
 
 comment on function public.silo_api_po_status_grant() is
-  'The shared fence of the po_status:write tools: scope, a live unpaused grant bound to a company, and the approver still an active member of it. Internal. 20261125230000.';
+  'The shared fence of the po_status:write tools: scope, a live unpaused grant bound to a company, and the approver still an active member of it. Internal. 20261125234500.';
 
 revoke all on function public.silo_api_po_status_grant()
   from public, anon, authenticated, silo_integration, silo_revoked;
@@ -545,7 +545,7 @@ as $$
 $$;
 
 comment on function public.silo_api_may_set_po_status(uuid, uuid, uuid) is
-  'True when that person may change that purchase order''s step in that company -- admin of the company, or the PO''s creator -- which is what po_headers'' UPDATE policy allows. Judged against the grant''s company, never a session''s. Internal. 20261125230000.';
+  'True when that person may change that purchase order''s step in that company -- admin of the company, or the PO''s creator -- which is what po_headers'' UPDATE policy allows. Judged against the grant''s company, never a session''s. Internal. 20261125234500.';
 
 revoke all on function public.silo_api_may_set_po_status(uuid, uuid, uuid)
   from public, anon, authenticated, silo_integration, silo_revoked;
@@ -590,7 +590,7 @@ end;
 $$;
 
 comment on function public.silo_api_po_status_options() is
-  'MCP / developer API tool (po_status:write): this company''s purchase-order steps in order, with which count as an open order, which a connection may set, which need a confirmed delivery instead and which are the end of the line. Reads only. 20261125230000.';
+  'MCP / developer API tool (po_status:write): this company''s purchase-order steps in order, with which count as an open order, which a connection may set, which need a confirmed delivery instead and which are the end of the line. Reads only. 20261125234500.';
 
 revoke all on function public.silo_api_po_status_options()
   from public, anon, authenticated, silo_revoked;
@@ -659,7 +659,7 @@ end;
 $$;
 
 comment on function public.silo_api_pos_for_status(text, integer) is
-  'MCP / developer API tool (po_status:write): the purchase orders whose step can still move -- everything except the steps this company marks final -- with the current step, the factory, the line count and whether the connection''s own person may move that PO. Reads only. 20261125230000.';
+  'MCP / developer API tool (po_status:write): the purchase orders whose step can still move -- everything except the steps this company marks final -- with the current step, the factory, the line count and whether the connection''s own person may move that PO. Reads only. 20261125234500.';
 
 revoke all on function public.silo_api_pos_for_status(text, integer)
   from public, anon, authenticated, silo_revoked;
@@ -851,7 +851,7 @@ end;
 $$;
 
 comment on function public.silo_api_set_po_status(uuid, text, text, text, text, text) is
-  'MCP / developer API tool (po_status:write): moves one purchase order to one of the steps this company marks ai_settable, applied immediately -- there is no second confirmation in SILO, so the person must have asked for it. Refuses a step that needs a confirmed delivery (use record_shipment_receipt), a step a person keeps, and a PO the approving person may not change in SILO. Records the reason, the document and the app in po_status_changes and stamps the PO''s po_status_history row with the approving person and "Via <app>". One write against silo_api_write_cap(); the same idempotency_key returns the first change. 20261125230000.';
+  'MCP / developer API tool (po_status:write): moves one purchase order to one of the steps this company marks ai_settable, applied immediately -- there is no second confirmation in SILO, so the person must have asked for it. Refuses a step that needs a confirmed delivery (use record_shipment_receipt), a step a person keeps, and a PO the approving person may not change in SILO. Records the reason, the document and the app in po_status_changes and stamps the PO''s po_status_history row with the approving person and "Via <app>". One write against silo_api_write_cap(); the same idempotency_key returns the first change. 20261125234500.';
 
 revoke all on function public.silo_api_set_po_status(uuid, text, text, text, text, text)
   from public, anon, authenticated, silo_revoked;
@@ -905,7 +905,7 @@ end;
 $$;
 
 comment on function public.log_po_status_change() is
-  'Records every purchase-order status change in po_status_history: who MADE the change (auth.uid(), falling back to the PO''s creator where there is no session, as a sync script has none) and the PO''s own company, not the session''s active one. Until 20261125230000 it stamped the PO''s creator for every change, so history named the wrong person.';
+  'Records every purchase-order status change in po_status_history: who MADE the change (auth.uid(), falling back to the PO''s creator where there is no session, as a sync script has none) and the PO''s own company, not the session''s active one. Until 20261125234500 it stamped the PO''s creator for every change, so history named the wrong person.';
 
 -- -- 9. What PO Report shows ---------------------------------------------------
 -- The steps connected apps set lately, for the card in PO Report. The
@@ -931,7 +931,7 @@ as $$
 $$;
 
 comment on function public.silo_po_status_changes_recent(integer, integer) is
-  'PO Report: the purchase-order steps connected AI applications have set lately, with the reason, the document and who approved the connection. SECURITY INVOKER, so a person sees only their own company''s. 20261125230000.';
+  'PO Report: the purchase-order steps connected AI applications have set lately, with the reason, the document and who approved the connection. SECURITY INVOKER, so a person sees only their own company''s. 20261125234500.';
 
 revoke all on function public.silo_po_status_changes_recent(integer, integer)
   from public, anon, silo_integration, silo_revoked;

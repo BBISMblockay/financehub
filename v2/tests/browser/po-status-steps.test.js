@@ -1,5 +1,5 @@
 /* A purchase order's steps are company DATA (po_status_options,
- * 20261125230000): the real /v2/po-builder.html builds its status dropdown
+ * 20261125234500): the real /v2/po-builder.html builds its status dropdown
  * from that table instead of the array that used to live in the page -- and
  * when the read fails, the array is still there, because an empty status
  * dropdown would stop every PO being edited.

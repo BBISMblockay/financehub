@@ -7109,7 +7109,7 @@ select 'Affiliate customer review' as check_name,
   else 'ok' end as status;
 -- End affiliate customer review checks.
 
--- Content offers and post numbers (20261125230000): an offer is a payment
+-- Content offers and post numbers (20261125234500): an offer is a payment
 -- once accepted, so only a payout approver makes one; only the affiliate's own
 -- portal link answers it.
 select 'Affiliate content offers' as check_name,
@@ -7117,10 +7117,10 @@ select 'Affiliate content offers' as check_name,
         or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_content_submissions' and column_name = 'view_count')
         or to_regprocedure('public.affiliate_content_offer(uuid,bigint)') is null
         or to_regprocedure('public.affiliate_portal_content_answer(text,uuid,boolean,bigint)') is null
-   then 'MISSING — run 20261125230000_affiliate_content_offers_stats.sql'
+   then 'MISSING — run 20261125234500_affiliate_content_offers_stats.sql'
   when not exists (select 1 from pg_constraint where conname = 'affiliate_content_offer_shape')
         or not exists (select 1 from pg_constraint where conname = 'affiliate_content_stats_shape')
-   then 'STALE — re-run 20261125230000_affiliate_content_offers_stats.sql: a check is missing'
+   then 'STALE — re-run 20261125234500_affiliate_content_offers_stats.sql: a check is missing'
   when has_function_privilege('anon', 'public.affiliate_content_offer(uuid,bigint)', 'execute')
    then 'CRITICAL: anon can make content offers'
   when has_function_privilege('anon', 'public.affiliate_portal_content_answer(text,uuid,boolean,bigint)', 'execute')
@@ -7129,7 +7129,7 @@ select 'Affiliate content offers' as check_name,
   when position('can_approve_affiliate_commissions' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_content_offer(uuid,bigint)')), '')) = 0
    then 'CRITICAL: a content offer does not need payout approval'
   when position('offer_state' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_portal_content(text)')), '')) = 0
-   then 'STALE — re-run 20261125230000_affiliate_content_offers_stats.sql: the portal does not show offers'
+   then 'STALE — re-run 20261125234500_affiliate_content_offers_stats.sql: the portal does not show offers'
   else 'ok' end as status;
 -- End affiliate content offer checks.
 
@@ -11073,7 +11073,7 @@ select 'QuickBooks ledger mirror' as check_name,
   end as status;
 
 -- A purchase order's step set by a connected AI (po_status:write,
--- 20261125230000): the scope is grantable and on its own path, the steps are
+-- 20261125234500): the scope is grantable and on its own path, the steps are
 -- COMPANY DATA rather than a list in code, a step that means units arrived
 -- cannot be set without a confirmed delivery, the authority is the approving
 -- person's, and no browser role can call the connection's tools.
@@ -11085,7 +11085,7 @@ select 'PO step set by AI' as check_name,
       or to_regprocedure('public.silo_api_may_set_po_status(uuid,uuid,uuid)') is null
       or to_regclass('public.po_status_options') is null
       or to_regclass('public.po_status_changes') is null
-      then 'MISSING — run 20261125230000_po_status_write_scope.sql'
+      then 'MISSING — run 20261125234500_po_status_write_scope.sql'
     when position('po_status:write' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
       then 'BROKEN — the consent screen cannot grant po_status:write'
     when position('/rpc/silo_api_set_po_status' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0

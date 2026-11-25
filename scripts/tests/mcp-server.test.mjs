@@ -885,7 +885,7 @@ test('the read side forwards a PO id and a search, and refuses anything else', a
   assert.equal(badLimit.result.isError, true);
 });
 
-// ── 7b. po_status:write: moving a PO's step (20261125230000) ───────────────
+// ── 7b. po_status:write: moving a PO's step (20261125234500) ───────────────
 
 const STEP_OK = { applied: true, changed: true, po_name: 'Incotexco-900',
   old_status: 'Draft', new_status: 'Sent to Factory' };

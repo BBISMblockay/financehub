@@ -164,7 +164,7 @@
      shipment is the confirming person's. */
   const RECEIVING_SCOPE = 'receiving:write';
 
-  /* Its own box too (20261125230000), and the first write a connection APPLIES
+  /* Its own box too (20261125234500), and the first write a connection APPLIES
      rather than drafts: moving a PO to one of the steps the company marks
      ai_settable. Blake, 2026-11-25 -- "if they approve in their llm to mark as
      something, it shouldn't require them to then go into silo to approve

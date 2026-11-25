@@ -90,7 +90,7 @@ jobs:
             fi
           done
 
-      # 20261125230000: a PO's steps are company data, and the builder reads
+      # 20261125234500: a PO's steps are company data, and the builder reads
       # them -- with its own list only as the fallback, because an empty status
       # dropdown would stop every PO being edited.
       - name: PO Builder reads this company's steps

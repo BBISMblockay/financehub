@@ -221,7 +221,7 @@
             <div class="bcn-card-body" id="receiptBody"></div>
           </section>
 
-          <!-- Steps a connected AI set itself (po_status:write, 20261125230000).
+          <!-- Steps a connected AI set itself (po_status:write, 20261125234500).
                Applied with no confirmation in SILO, so this card is the record
                a person reads afterwards. Hidden until there is one. -->
           <section class="bcn-card po-receipt-card hidden-safe" id="stepCard">
@@ -1229,7 +1229,7 @@
         quantityBasis: !assignments.length ? 'unassigned' : unknown ? 'unknown' : inferred ? 'includes full PO line defaults' : 'assigned', inferred };
     }
 
-    /* Steps a connected AI set through po_status:write (20261125230000).
+    /* Steps a connected AI set through po_status:write (20261125234500).
        Nobody confirms those in SILO -- the person approved them in their own
        AI client -- so this is where SILO says what was set, by which app, on
        whose connection and why. Fail-soft: a database without the function

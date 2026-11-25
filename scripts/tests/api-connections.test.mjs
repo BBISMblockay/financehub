@@ -206,7 +206,7 @@ test('the write scope is added only by the tick box, and is not a read scope', (
   assert.match(CONSENT, /const RECEIVING = \(K && K\.RECEIVING_SCOPE\) \|\| 'receiving:write'/);
   assert.ok(/draft/i.test(K.SCOPE_COPY['receiving:write']) && /confirm/i.test(K.SCOPE_COPY['receiving:write']),
     'and the person is told the draft changes nothing until someone confirms it');
-  // po_status:write (20261125230000) is its own tick box, and the only one
+  // po_status:write (20261125234500) is its own tick box, and the only one
   // that changes something that already exists -- so the copy has to say that
   // it applies with no second approval, and the page's "it cannot" line has to
   // stop claiming nothing existing can change.

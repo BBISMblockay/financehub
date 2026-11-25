@@ -3106,7 +3106,7 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
-      # The opt-in po_status:write scope (20261125230000): the person approves
+      # The opt-in po_status:write scope (20261125234500): the person approves
       # a step in their own AI client and SILO applies it immediately, so every
       # fence is in the database. Proves the steps are company data, that
       # arrival still needs a confirmed delivery, and that the authority is the

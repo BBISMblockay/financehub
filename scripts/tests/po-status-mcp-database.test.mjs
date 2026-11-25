@@ -1,6 +1,6 @@
 // scripts/tests/po-status-mcp-database.test.mjs
 //
-// po_status:write (20261125230000) on real PostgreSQL (PGlite): the person's
+// po_status:write (20261125234500) on real PostgreSQL (PGlite): the person's
 // own AI moves a purchase order to one of the steps their company allows, and
 // SILO applies it THERE AND THEN -- Blake, 2026-11-25: "if they approve in
 // their llm to mark as something, it shouldn't require them to then go into
@@ -266,7 +266,7 @@ insert into po_lines(id, po_header_id, title_snapshot, sku_snapshot, qty, compan
   ('60000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 'Hoodie', 'BB-YS-Hoodie', 160, '${A}');
 `);
 
-let sql = await readFile(new URL('../../supabase/migrations/20261125230000_po_status_write_scope.sql', import.meta.url), 'utf8');
+let sql = await readFile(new URL('../../supabase/migrations/20261125234500_po_status_write_scope.sql', import.meta.url), 'utf8');
 const mut = (from, to) => {
   assert.ok(sql.includes(from), `mutation ${MUT}: pattern not found`);
   sql = sql.split(from).join(to);

@@ -115,7 +115,7 @@ if (process.env.PO_RECEIPT_MUTATION) {
          made two of these cases test nothing at all. */
       const mode = new URLSearchParams(location.search).get('fixture') || '';
       window.drafts = mode === 'empty' ? [] : [draft];
-      /* Steps a connected AI SET (po_status:write, 20261125230000). Nobody
+      /* Steps a connected AI SET (po_status:write, 20261125234500). Nobody
          confirms these, so the card is the record a person reads afterwards --
          the shape silo_po_status_changes_recent() returns. */
       window.stepChanges = mode === 'empty' ? [] : [{
