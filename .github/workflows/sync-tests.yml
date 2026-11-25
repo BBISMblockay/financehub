@@ -2173,7 +2173,8 @@ jobs:
       # batch's posting payload), a draft batch contributing nothing, the
       # period derivation (including the UUID-shaped ref that must not parse
       # as one), each source branch, and both tie-outs shown to fail when the
-      # thing they guard breaks.
+      # thing they guard breaks. Also 20261125140000: a day of QuickBooks
+      # history imported more than once is counted once, from its newest import.
       - name: Execute journal drill-down regressions
         run: node scripts/tests/journal-drilldown-database.test.mjs
 

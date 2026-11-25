@@ -7715,6 +7715,25 @@ select 'Ledger cut-over is derived, not hardcoded' as check_name,
  when (select d from def) not like '%active_company_id()%'
    then 'BROKEN: accounting_ledger_v does not scope its settings read by company'
  else 'ok' end as status;
+-- 20261125140000: a day of history imported more than once is counted ONCE.
+-- Imports are immutable, so a re-import leaves both copies in the table; the
+-- view must pick the newest import per day, and the tie-out that compares
+-- raw lines with the ledger must apply the same rule or it reads red on a
+-- correct ledger.
+with def as (select pg_get_viewdef(to_regclass('public.accounting_ledger_v'), true) as d)
+select 'Ledger counts each imported day once' as check_name,
+ case when (select d from def) is null
+   then 'MISSING: accounting_ledger_v'
+ when (select d from def) not like '%qbo_history_imports%'
+   or (select d from def) not like '%period_start%'
+   or (select d from def) not like '%qbo_connection_id%'
+   then 'BROKEN: accounting_ledger_v sums every import of a period -- run 20261125140000_ledger_history_one_import_per_day.sql'
+ when exists (select 1 from public.silo_report_tieouts t
+               where t.report_id='c7000000-0000-4000-a000-000000000005' and t.enabled
+                 and t.name='No imported history is hidden by the cut-over'
+                 and t.check_sql not like '%qbo_history_imports%')
+   then 'BROKEN: the cut-over tie-out still counts every import -- run 20261125140000_ledger_history_one_import_per_day.sql'
+ else 'ok' end as status;
 
 
 -- ── Card import approval: entity KIND on AR/AP lines (20261007180000) ──────

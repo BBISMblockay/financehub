@@ -16,7 +16,11 @@
 //   * accounting_source is recovered from the two unambiguous context
 //     prefixes, and NOT from the ambiguous 'accounting-export:' one;
 //   * both tie-outs pass, and each FAILS when the thing it guards breaks;
-//   * the migration is idempotent.
+//   * the migration is idempotent;
+//   * (20261125140000) a day of imported history that sits in more than one
+//     import is counted once, from the newest import of the same QuickBooks
+//     connection that covers it -- and an older import still supplies the
+//     days no newer one reaches.
 //
 // Which rows a person may see is NOT tested here: both views are
 // security_invoker over RLS tables, and that boundary is production's own.
@@ -56,6 +60,12 @@ const JE_AMBIG     = '30000000-0000-4000-a000-000000000006'; // NULL source, 'ac
 const B_SNAP       = '40000000-0000-4000-a000-000000000001'; // approved, snapshot
 const B_OLD        = '40000000-0000-4000-a000-000000000002'; // posted, no snapshot
 const B_DRAFT      = '40000000-0000-4000-a000-000000000003'; // draft, neither
+// History imports. Every fixture line belongs to IMP_CURRENT unless it says otherwise.
+const IMP_CURRENT  = '60000000-0000-4000-a000-000000000005';
+const IMP_OLDER    = '60000000-0000-4000-a000-000000000001'; // same connection, wider, imported earlier
+const IMP_TIED     = '60000000-0000-4000-a000-000000000009'; // same connection, same instant
+const IMP_OTHER    = '60000000-0000-4000-a000-000000000007'; // another QuickBooks company file
+const CONN_OTHER   = '00000000-0000-4000-c000-000000000002';
 
 await db.exec(`
 create role authenticated;
@@ -153,8 +163,12 @@ create table fixed_asset_depreciation_v(fixed_asset_id uuid, company_entity_id u
 
 create table accounting_settings(company_entity_id uuid primary key, accounting_start_date date,
   silo_takeover_on date, bookkeeping_mode text, books_authority text);
+-- Production's import_id is NOT NULL with a foreign key; the default stands in
+-- for it so every fixture line belongs to the one import written below.
+create table qbo_history_imports(id uuid primary key, company_entity_id uuid, qbo_connection_id uuid,
+  period_start date, period_end date, created_at timestamptz);
 create table qbo_history_lines(id uuid primary key default gen_random_uuid(), company_entity_id uuid,
-  import_id uuid, row_no integer, row_kind text, qbo_account_id text, account_name text,
+  import_id uuid default '${IMP_CURRENT}', row_no integer, row_kind text, qbo_account_id text, account_name text,
   account_type text, transaction_date date, qbo_transaction_id text, transaction_type text,
   document_number text, counterparty text, memo text, split_account_id text, split_account_name text,
   natural_amount numeric, natural_balance numeric, raw_row jsonb);
@@ -250,8 +264,43 @@ insert into fixed_asset_depreciation_v values
    '2026-09-01', '2026-09-30', 3, 36, 36000, 300);
 `);
 
-const MIGRATION = readFileSync(
+const DRILLDOWN = readFileSync(
   new URL('../../supabase/migrations/20261113200000_accounting_journal_drilldown.sql', import.meta.url), 'utf8');
+// 20261125140000 replaces the ledger view and one of its tie-outs, so the two
+// files are always applied together, in order -- as production has them.
+let ONE_IMPORT = readFileSync(
+  new URL('../../supabase/migrations/20261125140000_ledger_history_one_import_per_day.sql', import.meta.url), 'utf8');
+// Mutation testing: LEDGER_IMPORT_MUTATION=<name> breaks one part of the rule
+// in the SQL before it is applied, and the suite must then fail.
+const MUTATIONS = {
+  // the view shows every import again
+  'view-all-imports': [`       and (o.created_at, o.id) > (i.created_at, i.id)\n  );`,
+                       `       and (o.created_at, o.id) > (i.created_at, i.id) and false\n  );`],
+  // imports that share an instant both survive
+  'view-no-tiebreak': [`       and (o.created_at, o.id) > (i.created_at, i.id)\n  );`,
+                       `       and o.created_at > i.created_at\n  );`],
+  // another QuickBooks company file replaces this one
+  'view-any-connection': [`       and o.qbo_connection_id = i.qbo_connection_id\n       and h.transaction_date between`,
+                          `       and h.transaction_date between`],
+  // the newest import wins everywhere, even outside its own period
+  'view-ignore-period': [`       and h.transaction_date between o.period_start and o.period_end\n       and (o.created_at`,
+                         `       and (o.created_at`],
+  // the oldest import wins instead of the newest
+  'view-oldest-wins': [`       and (o.created_at, o.id) > (i.created_at, i.id)\n  );`,
+                       `       and (o.created_at, o.id) < (i.created_at, i.id)\n  );`],
+  // the tie-out goes back to counting raw lines
+  'tieout-raw-count': [`|| 'and (o.created_at, o.id) > (i.created_at, i.id)))::numeric end as left_value, '`,
+                       `|| 'and false))::numeric end as left_value, '`],
+};
+const MUTATION = process.env.LEDGER_IMPORT_MUTATION || '';
+if (MUTATION) {
+  const m = MUTATIONS[MUTATION];
+  if (!m) throw new Error(`unknown LEDGER_IMPORT_MUTATION ${MUTATION}`);
+  if (ONE_IMPORT.split(m[0]).length !== 2) throw new Error(`mutation ${MUTATION} no longer matches the migration`);
+  ONE_IMPORT = ONE_IMPORT.replace(m[0], m[1]);
+  console.log(`# mutation ${MUTATION} applied`);
+}
+const MIGRATION = `${DRILLDOWN}\n${ONE_IMPORT}`;
 await db.exec(MIGRATION);
 
 // Supabase's `alter default privileges` hands every new object in `public`
@@ -563,6 +612,9 @@ insert into accounting_settings(company_entity_id, accounting_start_date, silo_t
                                 bookkeeping_mode, books_authority)
 values ('${CO}', '2026-08-01', null, 'silo', 'qbo');
 
+insert into qbo_history_imports values
+  ('${IMP_CURRENT}', '${CO}', '${CONN}', '2026-07-01', '2026-07-31', '2026-09-15 05:00:00+00');
+
 insert into qbo_history_lines(company_entity_id, row_no, row_kind, qbo_account_id, account_name,
   account_type, transaction_date, qbo_transaction_id, transaction_type, document_number,
   counterparty, memo, split_account_name, natural_amount) values
@@ -801,6 +853,100 @@ await test('imported history reaching past the cut-over fails rather than vanish
   await db.exec(`delete from qbo_history_lines where qbo_transaction_id = 'H-D'`);
 });
 
+// ── One import per day (20261125140000) ────────────────────────────────────
+// Imports are immutable, so importing a period again leaves both copies in
+// the table. The ledger used to add them together.
+const historyRows = async () => (await q(
+  `select entry_date::text d, qbo_account_name a, signed_amount::text amt, transaction_ref ref
+     from accounting_ledger_v where origin = 'qbo_history' order by entry_date, transaction_ref, qbo_account_name`))
+  .map((r) => `${r.d} ${r.ref} ${r.a} ${r.amt}`);
+const JULY_ONCE = [
+  '2026-07-15 H-A Rent Expense 500.00', '2026-07-15 H-A Visa -500.00',
+  '2026-07-20 H-B Checking 300.00',     '2026-07-20 H-B Sales -300.00',
+];
+const copyJuly = (importId, rent) => `
+  insert into qbo_history_lines(company_entity_id, import_id, row_no, row_kind, qbo_account_id, account_name,
+    account_type, transaction_date, qbo_transaction_id, natural_amount) values
+    ('${CO}', '${importId}', 1, 'transaction', '900', 'Rent Expense', 'Expense',     '2026-07-15', 'H-A', ${rent}),
+    ('${CO}', '${importId}', 2, 'transaction', '901', 'Visa',         'Credit Card', '2026-07-15', 'H-A', ${rent}),
+    ('${CO}', '${importId}', 3, 'transaction', '902', 'Sales',        'Income',      '2026-07-20', 'H-B', 300),
+    ('${CO}', '${importId}', 4, 'transaction', '903', 'Checking',     'Bank',        '2026-07-20', 'H-B', 300);`;
+const dropImport = (importId) => db.exec(`delete from qbo_history_lines where import_id = '${importId}';
+                                           delete from qbo_history_imports where id = '${importId}'`);
+
+await test('a period imported twice is counted once, from the newer import', async () => {
+  // The older import is July as QuickBooks had it BEFORE an edit (rent 450),
+  // plus March, which the newer import does not reach.
+  await db.exec(`insert into qbo_history_imports values
+      ('${IMP_OLDER}', '${CO}', '${CONN}', '2026-01-01', '2026-07-31', '2026-09-15 03:00:00+00');
+    ${copyJuly(IMP_OLDER, 450)}
+    insert into qbo_history_lines(company_entity_id, import_id, row_no, row_kind, qbo_account_id, account_name,
+      account_type, transaction_date, qbo_transaction_id, natural_amount) values
+      ('${CO}', '${IMP_OLDER}', 5, 'transaction', '900', 'Rent Expense', 'Expense',     '2026-03-10', 'H-M', 200),
+      ('${CO}', '${IMP_OLDER}', 6, 'transaction', '901', 'Visa',         'Credit Card', '2026-03-10', 'H-M', 200);`);
+  assert.deepEqual(await historyRows(), [
+    // March: only the older import covers it, so it is still there.
+    '2026-03-10 H-M Rent Expense 200.00', '2026-03-10 H-M Visa -200.00',
+    // July: once, and at the newer import's figure (500, not 450, not 950).
+    ...JULY_ONCE,
+  ]);
+  const checks = await tieouts(GL_REPORT);
+  assert.ok(checks.every((r) => r.pass), JSON.stringify(checks));
+  const hidden = checks.find((r) => r.name === 'No imported history is hidden by the cut-over');
+  assert.equal(hidden.left, 6);
+  assert.equal(hidden.right, 6);
+});
+
+await test('the cut-over check still goes red with a re-import present', async () => {
+  // The rule on the tie-out's left side must not swallow the case it exists
+  // for: a newest-import line dated past the cut-over is still hidden.
+  await db.exec(`insert into qbo_history_lines(company_entity_id, row_no, row_kind, qbo_account_id,
+    account_name, account_type, transaction_date, qbo_transaction_id, natural_amount)
+    values ('${CO}', 8, 'transaction', '900', 'Rent Expense', 'Expense', '2026-09-15', 'H-D', 500)`);
+  const hidden = (await tieouts(GL_REPORT)).find((r) => r.name === 'No imported history is hidden by the cut-over');
+  assert.equal(hidden.pass, false);
+  assert.equal(hidden.left, 7);
+  assert.equal(hidden.right, 6);
+  await db.exec(`delete from qbo_history_lines where qbo_transaction_id = 'H-D'`);
+  await dropImport(IMP_OLDER);
+  assert.deepEqual(await historyRows(), JULY_ONCE);
+});
+
+await test('two imports made at the same instant still count once', async () => {
+  await db.exec(`insert into qbo_history_imports values
+      ('${IMP_TIED}', '${CO}', '${CONN}', '2026-07-01', '2026-07-31', '2026-09-15 05:00:00+00');
+    ${copyJuly(IMP_TIED, 500)}`);
+  assert.deepEqual(await historyRows(), JULY_ONCE);
+  await dropImport(IMP_TIED);
+});
+
+await test('another QuickBooks company file is added, never replaced', async () => {
+  // A different connection is a different set of books. Newer, and covering
+  // the same days, it still must not hide this connection's history.
+  await db.exec(`insert into qbo_history_imports values
+      ('${IMP_OTHER}', '${CO}', '${CONN_OTHER}', '2026-07-01', '2026-07-31', '2026-09-16 00:00:00+00');
+    insert into qbo_history_lines(company_entity_id, import_id, row_no, row_kind, qbo_account_id, account_name,
+      account_type, transaction_date, qbo_transaction_id, natural_amount) values
+      ('${CO}', '${IMP_OTHER}', 1, 'transaction', '900', 'Rent Expense', 'Expense',     '2026-07-15', 'X-A', 70),
+      ('${CO}', '${IMP_OTHER}', 2, 'transaction', '901', 'Visa',         'Credit Card', '2026-07-15', 'X-A', 70);`);
+  assert.deepEqual(await historyRows(), [
+    '2026-07-15 H-A Rent Expense 500.00', '2026-07-15 H-A Visa -500.00',
+    '2026-07-15 X-A Rent Expense 70.00',  '2026-07-15 X-A Visa -70.00',
+    '2026-07-20 H-B Checking 300.00',     '2026-07-20 H-B Sales -300.00',
+  ]);
+  await dropImport(IMP_OTHER);
+});
+
+await test('a newer import does not hide days outside its own period', async () => {
+  // Newest overall, but it only covers June: July must still come from the
+  // July import rather than disappear.
+  await db.exec(`insert into qbo_history_imports values
+      ('${IMP_OLDER}', '${CO}', '${CONN}', '2026-06-01', '2026-06-30', '2026-09-20 00:00:00+00');`);
+  assert.deepEqual(await historyRows(), JULY_ONCE);
+  await dropImport(IMP_OLDER);
+  assert.ok((await tieouts(GL_REPORT)).every((r) => r.pass));
+});
+
 await test('every enabled tie-out carries its report\'s current fingerprint', async () => {
   // The invariant verify_v2_schema.sql asserts on production: a tie-out that
   // does not embed the md5 of the report it guards reads as one left behind
@@ -824,6 +970,37 @@ await test('the cut-over stays derived: no date literal, no company id in the vi
   assert.equal(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(d), false,
     'a company id in shared code');
   assert.ok(d.includes('active_company_id()'), 'the settings read must be company-scoped');
+});
+
+await test('the migration leaves its transaction to the applier', async () => {
+  // auto-apply-migrations sends the file and its schema_migrations row as one
+  // request. A file that commits itself is applied before its version is
+  // recorded, so a lost connection there would apply it twice. Function
+  // bodies and comments are stripped first: a plpgsql `begin ... end` is not
+  // a transaction.
+  const original = readFileSync(
+    new URL('../../supabase/migrations/20261125140000_ledger_history_one_import_per_day.sql', import.meta.url), 'utf8');
+  const bare = original.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1?\$/g, ' $BODY$ ').replace(/'(?:[^']|'')*'/g, " '' ");
+  assert.equal(/(^|;)\s*(begin|start\s+transaction|commit|rollback)\b/i.test(bare), false,
+    'the migration carries its own transaction control');
+  assert.match(bare, /create or replace view public\.accounting_ledger_v/);
+});
+
+await test('verify reports ok on the fixed ledger and BROKEN on the old one', async () => {
+  // The production check itself, lifted from verify_v2_schema.sql by name.
+  const verify = readFileSync(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const at = verify.indexOf(`select 'Ledger counts each imported day once' as check_name`);
+  assert.ok(at > 0, 'the verify check is gone');
+  const start = verify.lastIndexOf('with def as', at);
+  const check = verify.slice(start, verify.indexOf('as status;', at) + 'as status;'.length);
+  if (!MUTATION) assert.deepEqual((await q(check)).map((r) => r.status), ['ok']);
+  // Put the pre-fix view and tie-out back: both halves must be named.
+  await db.exec(DRILLDOWN);
+  const [{ status }] = await q(check);
+  assert.match(status, /^BROKEN: accounting_ledger_v sums every import/);
+  await db.exec(MIGRATION);
+  if (!MUTATION) assert.deepEqual((await q(check)).map((r) => r.status), ['ok']);
 });
 
 await test('a changed GL report definition turns its tie-outs to NO DATA', async () => {
