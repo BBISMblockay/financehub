@@ -1,0 +1,41 @@
+name: QuickBooks ledger read-back
+
+# Keeps SILO's books in step with QuickBooks. Each night it reads QuickBooks'
+# general ledger for the months that are due (the two newest every night, older
+# ones weekly, the last twelve on a first run) and replaces SILO's copy of each
+# month -- so an entry edited or added in QuickBooks shows up in SILO's books
+# the next morning, with nothing for anyone to press.
+#
+# READ ONLY toward QuickBooks. Nothing is posted, edited or voided here.
+#
+# Which company-months are due is derived from the database on every call
+# (quickbooks_ledger_mirror_due), so a missed run leaves nothing to reconcile:
+# the next one finds the same work. No concurrency group: a dropped run costs
+# nothing, and two overlapping runs are safe (each month is replaced under a
+# lock, in one transaction).
+
+on:
+  schedule:
+    # 12:23 UTC, about 4:23 AM Pacific: after the night's bank and card work,
+    # before anyone opens the books.
+    - cron: '23 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  read-back:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read QuickBooks' ledger for the months that are due
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: node scripts/quickbooks-ledger-mirror.mjs

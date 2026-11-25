@@ -10958,3 +10958,54 @@ select 'Saved rules auto-apply and entered by hand' as check_name,
       then 'CRITICAL: by-hand marks or another company''s month contents are readable without the finance gate'
     else 'ok'
   end as status;
+
+-- QuickBooks ledger mirror (20261125150000): SILO's books read QuickBooks back each night.
+-- The mirror is written by one function that keeps the last good read whenever it refuses a
+-- report, so that function must be the scheduler's alone and must keep its three checks
+-- (sections tie, the month balances, every account has a side). The books view must take a
+-- read month from the mirror ONLY -- reading it from the ledger as well counts it twice.
+-- to_regprocedure / to_regclass throughout: a cast would abort this script where it is absent.
+select 'QuickBooks ledger mirror' as check_name,
+  case
+    when to_regclass('public.quickbooks_ledger_mirror_periods') is null
+      or to_regclass('public.quickbooks_ledger_mirror_lines') is null
+      or to_regclass('public.silo_books_ledger_v') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_failed(uuid,uuid,date,text)') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_due(integer,integer)') is null
+      then 'MISSING — run 20261125150000_quickbooks_ledger_mirror.sql'
+    when exists (select 1 from pg_proc p
+                  where p.oid in (to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)'),
+                                  to_regprocedure('public.quickbooks_ledger_mirror_failed(uuid,uuid,date,text)'),
+                                  to_regprocedure('public.quickbooks_ledger_mirror_due(integer,integer)'))
+                    and (has_function_privilege('anon', p.oid, 'execute')
+                      or has_function_privilege('authenticated', p.oid, 'execute')))
+      then 'CRITICAL: a browser can write or steer the QuickBooks ledger mirror'
+    when exists (select 1 from pg_class c
+                  where c.oid in (to_regclass('public.quickbooks_ledger_mirror_periods'),
+                                  to_regclass('public.quickbooks_ledger_mirror_lines'))
+                    and (not c.relrowsecurity
+                      or has_table_privilege('anon', c.oid, 'SELECT')
+                      or has_table_privilege('authenticated', c.oid, 'INSERT,UPDATE,DELETE')))
+      then 'CRITICAL: the QuickBooks ledger mirror is open (RLS off, readable by anon, or writable by a browser)'
+    when (select count(*) from pg_policy
+           where polrelid in (to_regclass('public.quickbooks_ledger_mirror_periods'),
+                              to_regclass('public.quickbooks_ledger_mirror_lines'))
+             and pg_get_expr(polqual, polrelid) like '%active_company_id()%'
+             and pg_get_expr(polqual, polrelid) like '%can_manage_journal_entries()%') <> 2
+      then 'CRITICAL: the QuickBooks ledger mirror is not limited to the company''s finance users'
+    when position('do not add up to its total' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)'))) = 0
+      or position('the month does not balance' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)'))) = 0
+      or position('has no known debit or credit side' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)'))) = 0
+      then 'BROKEN — a QuickBooks report that does not tie out could replace a good month'
+    when not exists (select 1 from pg_class c where c.oid = to_regclass('public.silo_books_ledger_v')
+                      and c.reloptions @> array['security_invoker=true'])
+      or has_table_privilege('anon', to_regclass('public.silo_books_ledger_v'), 'SELECT')
+      then 'CRITICAL: silo_books_ledger_v is not security_invoker, or anon can read it'
+    when pg_get_viewdef(to_regclass('public.silo_books_ledger_v'), true) not like '%read_through%'
+      or pg_get_viewdef(to_regclass('public.silo_books_ledger_v'), true) not like '%NOT (EXISTS%'
+      then 'BROKEN — silo_books_ledger_v would count a month SILO has read back twice'
+    when pg_get_viewdef(to_regclass('public.silo_books_ledger_v'), true) ~* '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+      then 'CRITICAL: silo_books_ledger_v names a company id'
+    else 'ok'
+  end as status;

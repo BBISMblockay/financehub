@@ -345,6 +345,10 @@ on:
       - 'v2/quickbooks-sync.js'
       - 'v2/quickbooks-sync.html'
       - 'supabase/migrations/*rules_auto_apply_and_entered_by_hand.sql'
+      - 'supabase/migrations/*quickbooks_ledger_mirror.sql'
+      - 'supabase/functions/quickbooks-ledger-mirror-scheduled/**'
+      - 'scripts/quickbooks-ledger-mirror.mjs'
+      - '.github/workflows/quickbooks-ledger-mirror.yml'
       - 'scripts/tests/quickbooks-sync.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
@@ -945,6 +949,12 @@ jobs:
           node --import ./scripts/tests/plaid-oidc/register.mjs --test scripts/tests/card-coding-prepare-scheduled.test.mjs
           node --test scripts/tests/card-coding-prepare.test.mjs
 
+      # QuickBooks ledger read-back: only its own workflow on main may call it,
+      # the caller names nothing, QuickBooks is only ever read, and every
+      # failed read is recorded so the runner cannot spin on one month.
+      - name: Scheduled QuickBooks ledger read-back identity, read-only and runner
+        run: node --import ./scripts/tests/plaid-oidc/register.mjs --test scripts/tests/quickbooks-ledger-mirror-scheduled.test.mjs
+
       # A manual 730-day backfill once finished GREEN in two minutes having
       # written nothing (run #354, 2026-09-09): Shopify refused with HTTP 200
       # and the rate limit inside the GraphQL errors array, ~100 already-fetched
@@ -1492,6 +1502,7 @@ jobs:
         run: |
           npx --yes deno@2.9.6 check --config supabase/functions/plaid-scheduled-sync/deno.json supabase/functions/plaid-scheduled-sync/index.ts
           npx --yes deno@2.9.6 check --config supabase/functions/card-coding-prepare-scheduled/deno.json supabase/functions/card-coding-prepare-scheduled/index.ts
+          npx --yes deno@2.9.6 check --config supabase/functions/quickbooks-ledger-mirror-scheduled/deno.json supabase/functions/quickbooks-ledger-mirror-scheduled/index.ts
           npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
           for fn in stripe-webhook stripe-connect stripe-invoice stripe-billing customer-onboarding; do
             npx --yes deno@2.9.6 check --config "supabase/functions/$fn/deno.json" "supabase/functions/$fn/index.ts"
@@ -1881,6 +1892,19 @@ jobs:
           node scripts/tests/card-rules-auto-apply-database.test.mjs
           for m in touched-rows auto-off unknown-type any-chart limit-on-seen browser-callable guard-off stale-mark-blocks unknown-content-sends mark-keeps-old fingerprint-no-coding fingerprint-no-text fingerprint-no-uncoded list-any-role mark-after-send mark-any-role infer-drift; do
             if CARD_RULES_AUTO_MUTATION=$m node scripts/tests/card-rules-auto-apply-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+          done
+
+      # QuickBooks ledger mirror (20261125150000): a month is replaced only by
+      # a report that ties out and balances, a refusal keeps the last good
+      # read, and the books view takes a read month from the mirror and labels
+      # where each line came from. Every mutation must fail.
+      - name: Execute QuickBooks ledger mirror regressions
+        run: |
+          node scripts/tests/quickbooks-ledger-mirror-database.test.mjs
+          for m in accept-untied-section accept-unbalanced accept-unknown-type append-not-replace no-sign-flip stale-chart-first accept-wrong-start accept-wrong-end refusal-forgets-error any-connection view-double-count view-match-by-number view-ignore-edits due-no-backoff failure-clears-read browser-can-fail browser-can-store; do
+            if LEDGER_MIRROR_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
           done
