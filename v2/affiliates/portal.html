@@ -136,6 +136,7 @@
     .af-seeds { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
     .af-seed { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
     .af-seed .af-row { justify-content: space-between; }
+    .af-offer { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--bcn-sunken); flex-wrap: wrap; }
     .af-pay-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .af-pay-mark { display: block; height: 24px; width: auto; }
     .af-pay-acct { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-sunken); }
@@ -753,7 +754,14 @@ function contentCard() {
     const [label, tone] = CONTENT_PILL[c.state] || [c.state, ''];
     const what = c.kind === 'link' ? `<a href="${esc(c.link_url)}" target="_blank" rel="noopener noreferrer">${esc(linkLabel(c.link_url))}</a>` : esc(/^video\//.test(c.file_type || '') ? 'Video' : 'Photo');
     const bonus = c.state === 'used' && c.bonus_cents ? `<span class="af-num">+${esc(formatMoney(c.bonus_cents, c.currency))}</span>` : '';
-    return `<div class="af-seed"><div class="af-row"><strong>${what}</strong><span class="bcn-pill${tone ? ` bcn-pill--${tone}` : ''}">${esc(label)}</span>${bonus}</div>${c.caption ? `<span class="af-muted">${esc(c.caption)}</span>` : ''}</div>`;
+    // An offer for this one post (20261125230000): nothing is owed until they
+    // say yes, and then it pays with their next payout like any earning.
+    const offer = c.offer_state === 'open' && c.offer_cents
+      ? `<div class="af-row af-offer"><span>${esc(BRAND)} offers <strong class="af-num">${esc(formatMoney(c.offer_cents, c.offer_currency))}</strong> to use this post.</span>
+          <button class="bcn-btn bcn-btn--primary" type="button" data-offer="${esc(c.id)}" data-cents="${esc(String(c.offer_cents))}" data-yes="1">Accept</button>
+          <button class="bcn-btn bcn-btn--ghost" type="button" data-offer="${esc(c.id)}" data-cents="${esc(String(c.offer_cents))}" data-yes="0">No thanks</button></div>`
+      : c.offer_state === 'declined' ? '<span class="af-muted">You said no to the offer for this post.</span>' : '';
+    return `<div class="af-seed"><div class="af-row"><strong>${what}</strong><span class="bcn-pill${tone ? ` bcn-pill--${tone}` : ''}">${esc(label)}</span>${bonus}</div>${c.caption ? `<span class="af-muted">${esc(c.caption)}</span>` : ''}${offer}</div>`;
   };
   const terms = CONTENT.bonus_cents ? `<p class="af-muted">Picked content earns ${esc(m(CONTENT.bonus_cents))}</p>` : '';
   return `<div id="contentCard">${card('Your content', `${terms}<div class="af-form" id="ctForm">
@@ -774,6 +782,21 @@ async function contentRefresh(msg) {
   setStatus(msg, 'pos');
 }
 function wireContent() {
+  $('contentCard')?.addEventListener('click', async (ev) => {
+    const b = ev.target.closest('button[data-offer]');
+    if (!b || b.disabled) return;
+    const yes = b.dataset.yes === '1';
+    for (const x of $('contentCard').querySelectorAll('button[data-offer]')) x.disabled = true;
+    try {
+      await call('content_answer', { token, id: b.dataset.offer, accept: yes, offer_cents: Number(b.dataset.cents) });
+      await contentRefresh(yes ? `Accepted. It is added to your next payout from ${BRAND}.` : 'Declined. Nothing changes.');
+    } catch (e) {
+      // The brand may have changed the price: show the one that stands now.
+      try { await contentRefresh(''); } catch { /* the message below still says why */ }
+      setStatus(e.message, 'neg');
+      for (const x of $('contentCard').querySelectorAll('button[data-offer]')) x.disabled = false;
+    }
+  });
   $('ctLinkGo')?.addEventListener('click', async () => {
     const link = $('ctLink').value.trim();
     if (!/^https:\/\//.test(link)) { setStatus('Paste a link that starts with https://', 'neg'); return; }

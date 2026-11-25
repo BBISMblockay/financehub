@@ -702,7 +702,7 @@ test('marketing and launch questions select marketing', () => {
 });
 test('a mixed question selects both, in a fixed order', () => {
   eq(pick([user('How did the Sonic launch do in Google search and on Meta ads?')]), ['marketing', 'seo'], 'mixed');
-  eq(GUIDANCE_ORDER, ['marketing', 'seo'], 'render order');
+  eq(GUIDANCE_ORDER, ['marketing', 'seo', 'affiliates'], 'render order');
 });
 test('"simplify that" keeps the previous turn\'s guidance', () => {
   eq(pick([
@@ -795,8 +795,23 @@ test('the handler decides tools from authorization, never from selected guidance
   has(SRC, "const conceptsEnabled = activeWorkflow === 'product_concept' || actingOnConcept;", 'index.ts');
   const toolsLine = SRC.split('\n').find((l) => l.includes('const tools = '));
   assert(!/guidance/.test(toolsLine), 'the tools line reads the guidance selection');
-  // selectGuidance only receives the flag the authorization check produced.
-  has(SRC, 'const guidance = selectGuidance({ history, conceptsEnabled });', 'index.ts');
+  // selectGuidance only receives the flag the authorization check produced,
+  // and where the question was asked (text, never a tool).
+  has(SRC, 'const guidance = selectGuidance({ history, conceptsEnabled, workflow: activeWorkflow });', 'index.ts');
+});
+
+test('Affiliate Studio guidance comes from where it was asked, never from wording, and adds no tool', () => {
+  eq(selectGuidance({ history: [user('who should we shortlist for the launch?')], workflow: 'affiliate_studio' }), ['marketing', 'affiliates'], 'from Studio');
+  eq(selectGuidance({ history: [user('which affiliates sold the most?')] }), [], 'the same words elsewhere select nothing new');
+  eq(selectGuidance({ history: [user('top affiliates')], workflow: 'toString' }), [], 'an inherited key is not a workflow');
+  eq(selectGuidance({ history: [user('top affiliates')], workflow: 'product_concept' }), [], 'the concept workflow is not this one');
+  const sys = buildSystemPrompt({ guidance: ['affiliates'] });
+  has(sys, 'AFFILIATE STUDIO -- this question was asked from Affiliate Studio');
+  has(sys, 'silo-people');
+  has(sys, 'never invent, shorten or guess one');
+  has(sys, 'must never say you did');
+  lacks(buildSystemPrompt({ guidance: [] }), 'AFFILIATE STUDIO', 'only when asked from Studio');
+  has(SRC, "feature: activeWorkflow === 'affiliate_studio' ? 'affiliate_research' : 'ask_silo',", 'index.ts bills it on the Studio line');
 });
 
 console.log('\n-- concept mode keeps its controls --');

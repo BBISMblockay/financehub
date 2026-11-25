@@ -1503,7 +1503,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // prompt is byte-identical across rounds. It selects TEXT only: the tool
     // list on the next line is decided by conceptsEnabled (authorization) and
     // nothing else, so no wording of a question can make a write available.
-    const guidance = selectGuidance({ history, conceptsEnabled });
+    const guidance = selectGuidance({ history, conceptsEnabled, workflow: activeWorkflow });
     const systemPrompt = buildSystemBlocks({
       notes: (notes ?? []) as Note[],
       schemaSection: schemaSlice.text,
@@ -1901,7 +1901,9 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       requestId: requestId!,
       companyId: companyAtStart.companyId,
       userId: userData.user.id,
-      feature: 'ask_silo',
+      // Asked from Affiliate Studio's own box: billed on the Affiliate Studio
+      // line and counted in its monthly spend (20261125230000).
+      feature: activeWorkflow === 'affiliate_studio' ? 'affiliate_research' : 'ask_silo',
       model: MODEL,
     });
     {

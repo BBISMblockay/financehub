@@ -19972,4 +19972,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
 -- not contact), so worked finds leave Affiliate Studio's working lists.
 \i migrations/20261125210000_affiliate_customer_review.sql
+-- 20261125230000: a price offered for one affiliate post (accepted in their
+-- portal), and the views / engagement SILO reads for a YouTube post link.
+\i migrations/20261125230000_affiliate_content_offers_stats.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

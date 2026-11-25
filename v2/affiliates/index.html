@@ -912,11 +912,50 @@
     @media (max-width: 640px) {
       .af-studio .af-q--grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
     }
+    /* Posts from affiliates as a content view (20261125230000): bigger
+       portrait tiles, the length on the picture, the numbers SILO measured,
+       and Buy / Offer under each one. */
+    .af-studio .af-q--grid:has(.af-ctile-acts), .af-studio .af-q--grid:has(.af-ctile-nums) { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+    .af-studio .af-q--grid .af-ctile-media { aspect-ratio: 4 / 5; }
+    .af-studio .af-ctile-media { position: relative; overflow: hidden; }
+    .af-studio .af-ctile-dur { position: absolute; right: 6px; bottom: 6px; padding: 1px 5px; border-radius: var(--bcn-radius); font-size: 10px; color: var(--bcn-surface); background: color-mix(in srgb, var(--bcn-ink) 72%, transparent); }
+    .af-studio .af-ctile-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--bcn-surface); background: color-mix(in srgb, var(--bcn-ink) 55%, transparent); pointer-events: none; }
+    .af-studio .af-ctile-nums { font-size: 11px; color: var(--bcn-ink-2); min-height: 15px; }
+    .af-studio .af-ctile-acts { display: flex; gap: 6px; margin-top: 4px; }
+    .af-studio .af-ctile-acts .bcn-btn { flex: 1; justify-content: center; padding: 4px 6px; font-size: 12px; }
+    .af-studio .af-ctile--row .af-ctile-media { width: 44px; height: 55px; aspect-ratio: auto; }
+    .af-studio .af-ctile--row .af-ctile-play { width: 18px; height: 18px; font-size: 8px; }
+    .af-studio .af-ctile--row .af-ctile-dur { display: none; }
+    .af-studio .af-row-acts { display: inline-flex; gap: 6px; justify-content: flex-end; }
+    .af-studio .af-filter-gap { flex: 1; }
+    .af-studio .af-content-sort { width: auto; min-width: 150px; }
+    .af-studio .af-offer-box { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius); }
+    .af-studio .af-offer-box .af-row { align-items: flex-end; flex-wrap: wrap; }
+    .af-studio .af-copen-media .af-ctile-media { width: 100%; max-width: 420px; aspect-ratio: 16 / 9; }
+    /* Ask SILO bar (20261125230000). */
+    .af-studio .af-ask { margin: 6px 18px 4px; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius); background: var(--bcn-surface); }
+    .af-studio .af-ask-form { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+    .af-studio .af-ask-form .bcn-field { flex: 1; border: 0; box-shadow: none; background: transparent; min-width: 0; }
+    .af-studio .af-ask-mark { color: var(--bcn-accent); font-size: 14px; padding-left: 4px; }
+    .af-studio .af-ask-body { border-top: 1px solid var(--bcn-border); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+    .af-studio .af-ask-answer p { margin: 0 0 6px; font-size: 13px; line-height: 1.5; }
+    .af-studio .af-ask-answer ul { margin: 0 0 6px 18px; padding: 0; font-size: 13px; }
+    .af-studio .af-ask-rows { display: flex; flex-direction: column; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius); }
+    .af-studio .af-ask-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-top: 1px solid var(--bcn-border); }
+    .af-studio .af-ask-row:first-child { border-top: 0; }
+    .af-studio .af-ask-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
+    .af-studio .af-ask-who .af-muted { font-size: 11px; }
+    .af-studio .af-ask-why { font-size: 12px; color: var(--bcn-ink-2); }
+    .af-studio .af-ask-src { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+    .af-studio .af-ask-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+    @media (max-width: 640px) { .af-studio .af-ask { margin: 6px 12px 4px; } .af-studio .af-ask-row { flex-wrap: wrap; } }
     /* The tile is a button now, so it must not look or size like one. */
     .af-studio button.af-ctile-media { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); padding: 0; cursor: pointer; }
     /* One post, opened: as big as the dialog allows, never bigger. */
     .af-copen-media { display: grid; place-items: center; background: var(--bcn-bg); border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius); overflow: hidden; }
     .af-copen-media > img, .af-copen-media > video { max-width: 100%; max-height: 56vh; width: auto; height: auto; display: block; }
+    /* The opened post is always bigger than its tile, a small file included. */
+    .af-copen-media > img { height: min(56vh, 460px); max-height: none; object-fit: contain; }
     /* Dashboard: the four figures and the chart fit above the fold. */
     .af-ov { gap: 10px; }
     .af-ov-metrics { gap: 10px; }
@@ -956,6 +995,18 @@
     </header>
 
     <div class="bcn-status" id="status" hidden></div>
+
+    <!-- Ask SILO, from here (20261125230000): the same Ask SILO, knowing it is
+         on affiliates. People it names come back as rows with this page's own
+         buttons; it never changes anything itself. -->
+    <section class="af-ask" id="askBar" aria-label="Ask SILO">
+      <form class="af-ask-form" id="askForm" autocomplete="off">
+        <span class="af-ask-mark" aria-hidden="true">✦</span>
+        <input class="bcn-field" id="askQ" maxlength="1000" placeholder="Ask SILO: who should we invite for the next launch? Which affiliates sold most last month?" aria-label="Ask SILO about your creators, affiliates and customers" />
+        <button class="bcn-btn bcn-btn--dark" type="submit" id="askGo">Ask</button>
+      </form>
+      <div class="af-ask-body" id="askBody" hidden></div>
+    </section>
 
     <div class="bcn-kpi-band" id="kpis"></div>
 
