@@ -161,12 +161,16 @@ grant execute on function public.apply_saved_card_coding_rules(integer) to servi
 -- One row per entry a person says they entered in QuickBooks by hand. The key
 -- is the one a sending claim carries (quickbooks_journal_postings.source and
 -- source_ref), so the guard below is an exact match, not an inference.
+-- `snapshot` is WHAT was marked: the mark speaks for that content only. Once
+-- the entry changes (a late bank row, a recoding, a new approval) the mark no
+-- longer counts and a person has to decide again -- otherwise the new content
+-- would be shown as synced and never reach QuickBooks.
 create table if not exists public.quickbooks_entered_by_hand (
   id uuid primary key default gen_random_uuid(),
   company_entity_id uuid not null references public.entities(id) on delete cascade,
   source text not null,
   source_ref text not null,
-  approval_hash text,
+  snapshot text not null,
   created_at timestamptz not null default now(),
   created_by uuid references auth.users(id) on delete set null,
   unique (company_entity_id, source, source_ref)
@@ -194,6 +198,24 @@ returns void language sql security definer set search_path = public, pg_temp as 
 $$;
 revoke all on function public.quickbooks_entry_lock(uuid, text, text) from public, anon, authenticated;
 
+-- What a card or bank month would send, as one value: every coded line (the
+-- same card_coding_effective_lines approval builds the entry from) plus how
+-- many rows are still uncategorized. It does not depend on the month's status,
+-- so approving an unchanged month does not disturb a mark.
+create or replace function public.card_import_content_fingerprint(p_company uuid, p_batch uuid)
+returns text language sql stable security definer set search_path = public, pg_temp as $$
+  select md5(
+    coalesce((select string_agg(concat_ws('|', e.transaction_id::text, e.line_no::text, round(e.amount, 2)::text,
+        e.txn_date::text, coalesce(e.qbo_account_id, ''), coalesce(e.qbo_location_id, ''),
+        coalesce(e.entity_type, ''), coalesce(e.entity_qbo_id, '')), E'\n'
+        order by e.transaction_id, e.line_no)
+      from public.card_coding_effective_lines e
+      where e.batch_id = p_batch and e.company_entity_id = p_company), '')
+    || E'\nuncoded:' || (select count(*) from public.card_transactions t
+      where t.batch_id = p_batch and t.company_entity_id = p_company and t.status = 'uncoded')::text)
+$$;
+revoke all on function public.card_import_content_fingerprint(uuid, uuid) from public, anon, authenticated;
+
 -- p_kind 'batch' (a card or bank month) or 'adjustment' (a journal entry).
 -- p_marked true marks it, false takes the mark off again.
 create or replace function public.set_entry_entered_in_quickbooks(p_kind text, p_id uuid, p_marked boolean)
@@ -212,7 +234,7 @@ begin
     raise exception 'Name one entry to mark';
   end if;
   if p_kind = 'batch' then
-    select 'card_import', i.id::text, i.status, i.approval_hash into v_source, v_ref, v_status, v_hash
+    select 'card_import', i.id::text, i.status into v_source, v_ref, v_status
       from public.card_import_batches i where i.id = p_id and i.company_entity_id = v_company;
   else
     select coalesce(a.accounting_source, 'journal_adjustment'), coalesce(a.accounting_source_ref, a.id::text), a.status, a.approval_hash
@@ -229,8 +251,9 @@ begin
   -- Read again under the lock: a send that began before it is visible now.
   if p_kind = 'batch' then
     select i.status into v_status from public.card_import_batches i where i.id = p_id;
+    v_hash := public.card_import_content_fingerprint(v_company, p_id);
   else
-    select a.status into v_status from public.journal_adjustments a where a.id = p_id;
+    select a.status, a.approval_hash into v_status, v_hash from public.journal_adjustments a where a.id = p_id;
   end if;
   if v_status is distinct from 'draft' and v_status is distinct from 'categorized' and v_status is distinct from 'approved' then
     raise exception 'SILO already sent this entry, or it was voided, so it cannot be marked as entered by hand';
@@ -240,25 +263,68 @@ begin
         and p.status in ('submitting', 'unknown', 'posted')) then
     raise exception 'SILO has a send on record for this entry. Resolve that first';
   end if;
-  insert into public.quickbooks_entered_by_hand(company_entity_id, source, source_ref, approval_hash, created_by)
+  if p_kind = 'adjustment' and (v_status <> 'approved' or v_hash is null) then
+    raise exception 'Approve this entry first, so SILO knows exactly what was entered by hand';
+  end if;
+  -- Marking again after a change is a fresh decision about the new content.
+  insert into public.quickbooks_entered_by_hand(company_entity_id, source, source_ref, snapshot, created_by)
     values (v_company, v_source, v_ref, v_hash, auth.uid())
-    on conflict (company_entity_id, source, source_ref) do nothing;
+    on conflict (company_entity_id, source, source_ref) do update
+      set snapshot = excluded.snapshot, created_by = excluded.created_by, created_at = now()
+      where quickbooks_entered_by_hand.snapshot is distinct from excluded.snapshot;
   return jsonb_build_object('marked', true);
 end $$;
 revoke all on function public.set_entry_entered_in_quickbooks(text, uuid, boolean) from public, anon;
 grant execute on function public.set_entry_entered_in_quickbooks(text, uuid, boolean) to authenticated;
 
--- A claim to send an entry that is marked is refused, whichever page asked.
+-- What the Sync page reads: each mark, with what a marked card or bank month
+-- holds NOW (`current`), so the page can tell a mark that still speaks for the
+-- entry from one the entry has moved past. A journal entry's own approval hash
+-- is already on the page, so `current` is null for those.
+create or replace function public.quickbooks_entered_by_hand_list()
+returns table (source text, source_ref text, snapshot text, current text)
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_company uuid := public.active_company_id();
+begin
+  if auth.uid() is null or v_company is null
+     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then
+    raise exception 'Finance access required' using errcode = '42501';
+  end if;
+  return query
+    select h.source, h.source_ref, h.snapshot,
+      case when h.source = 'card_import' and h.source_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then public.card_import_content_fingerprint(v_company, h.source_ref::uuid) end
+    from public.quickbooks_entered_by_hand h
+    where h.company_entity_id = v_company
+    order by h.created_at desc limit 5000;
+end $$;
+revoke all on function public.quickbooks_entered_by_hand_list() from public, anon;
+grant execute on function public.quickbooks_entered_by_hand_list() to authenticated;
+
+-- A claim to send an entry that is marked is refused, whichever page asked --
+-- while the mark still speaks for what is being sent. A claim carries the
+-- approval hash of its content (payload_hash); a month is compared by its
+-- content fingerprint. A mark the entry has moved past does not block: the new
+-- content was never entered by hand. Anything that cannot be compared refuses.
 -- Only a row ENTERING 'submitting' is judged, like the other claim guards, so
 -- a receipt or a recovery update is never slowed or refused.
 create or replace function public.quickbooks_entered_by_hand_claim_guard()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_snapshot text; v_now text;
 begin
   if new.status <> 'submitting' then return new; end if;
   if tg_op = 'UPDATE' and old.status = 'submitting' then return new; end if;
   perform public.quickbooks_entry_lock(new.company_entity_id, new.source, new.source_ref);
-  if exists (select 1 from public.quickbooks_entered_by_hand h
-      where h.company_entity_id = new.company_entity_id and h.source = new.source and h.source_ref = new.source_ref) then
+  select h.snapshot into v_snapshot from public.quickbooks_entered_by_hand h
+    where h.company_entity_id = new.company_entity_id and h.source = new.source and h.source_ref = new.source_ref;
+  if not found then return new; end if;
+  if new.source = 'card_import' then
+    begin v_now := public.card_import_content_fingerprint(new.company_entity_id, new.source_ref::uuid);
+    exception when invalid_text_representation then v_now := null; end;
+  else
+    v_now := new.payload_hash;
+  end if;
+  if v_now is null or v_now = v_snapshot then
     raise exception 'This entry is marked as already entered in QuickBooks by hand, so SILO did not send it. Nothing was sent.'
       using errcode = 'P0PS3';
   end if;

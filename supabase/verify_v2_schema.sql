@@ -10910,7 +10910,11 @@ select 'Saved rules auto-apply and entered by hand' as check_name,
     when to_regprocedure('public.apply_saved_card_coding_rules(integer)') is null
       or to_regprocedure('public.card_coding_infer_treatment(text,text,text,numeric)') is null
       or to_regprocedure('public.set_entry_entered_in_quickbooks(text,uuid,boolean)') is null
+      or to_regprocedure('public.quickbooks_entered_by_hand_list()') is null
+      or to_regprocedure('public.card_import_content_fingerprint(uuid,uuid)') is null
       or to_regclass('public.quickbooks_entered_by_hand') is null
+      or not exists (select 1 from information_schema.columns where table_schema = 'public'
+                      and table_name = 'quickbooks_entered_by_hand' and column_name = 'snapshot')
       then 'MISSING — run 20261125130000_rules_auto_apply_and_entered_by_hand.sql'
     when has_function_privilege('anon', 'public.apply_saved_card_coding_rules(integer)'::regprocedure, 'execute')
       or has_function_privilege('authenticated', 'public.apply_saved_card_coding_rules(integer)'::regprocedure, 'execute')
@@ -10928,5 +10932,10 @@ select 'Saved rules auto-apply and entered by hand' as check_name,
     when not exists (select 1 from pg_trigger where tgrelid = 'public.quickbooks_journal_postings'::regclass
                       and tgname = 'qbo_entered_by_hand_claim' and not tgisinternal)
       then 'BROKEN — an entry marked as entered by hand can still be sent to QuickBooks'
+    when position('v_now = v_snapshot' in pg_get_functiondef('public.quickbooks_entered_by_hand_claim_guard()'::regprocedure)) = 0
+      then 'BROKEN — a by-hand mark would hold back content it was never made on'
+    when has_function_privilege('anon', 'public.quickbooks_entered_by_hand_list()'::regprocedure, 'execute')
+      or has_function_privilege('authenticated', 'public.card_import_content_fingerprint(uuid,uuid)'::regprocedure, 'execute')
+      then 'CRITICAL: by-hand marks or another company''s month contents are readable without the finance gate'
     else 'ok'
   end as status;

@@ -792,7 +792,7 @@ jobs:
       - name: QuickBooks sync page
         run: |
           node --test scripts/tests/quickbooks-sync.test.mjs
-          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
+          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable stale-mark-still-synced stale-mark-preticked unread-marks-sendable unread-marks-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
             if QBSYNC_MUTATION=$m node --test scripts/tests/quickbooks-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
@@ -1872,7 +1872,7 @@ jobs:
       - name: Execute saved-rule auto-apply and entered-by-hand regressions
         run: |
           node scripts/tests/card-rules-auto-apply-database.test.mjs
-          for m in touched-rows auto-off unknown-type any-chart limit-on-seen browser-callable guard-off mark-after-send mark-any-role infer-drift; do
+          for m in touched-rows auto-off unknown-type any-chart limit-on-seen browser-callable guard-off stale-mark-blocks unknown-content-sends mark-keeps-old fingerprint-no-coding fingerprint-no-uncoded list-any-role mark-after-send mark-any-role infer-drift; do
             if CARD_RULES_AUTO_MUTATION=$m node scripts/tests/card-rules-auto-apply-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi

@@ -63,13 +63,21 @@ send. The row moves to Synced ("Entered in QuickBooks by hand") and **Undo** tak
   (`source`, `source_ref`), written only by `set_entry_entered_in_quickbooks(kind, id, marked)`.
 - While it stands, the trigger `qbo_entered_by_hand_claim` refuses any claim to send that entry
   (`P0PS3`), from this page or any other. That is the protection; the page's reading is only display.
-- An entry SILO has a send on record for (unconfirmed or posted) cannot be marked.
-- A database without the migration shows no button and no error. If the marks cannot be read, no
-  button is offered and a marked entry that gets pressed is refused by the database.
+- **A mark speaks only for the content it was made on** (`snapshot`): a journal entry's approval
+  hash, or a month's `card_import_content_fingerprint` (every coded line plus the count of rows still
+  uncategorized; independent of the month's status). If a late bank row lands, a row is recoded, or
+  an entry is approved again, the mark no longer counts: the row goes back to Waiting, unticked,
+  "Changed since it was marked as entered by hand", and the guard lets the new content through.
+  Pressing **Already in QuickBooks** again moves the mark to the new content.
+- An entry SILO has a send on record for (unconfirmed or posted) cannot be marked, and a journal
+  entry must be approved first.
+- The page reads marks through `quickbooks_entered_by_hand_list()` (finance-gated). A database
+  without the migration shows no button and no error. If the marks cannot be read, nothing is
+  offered for sending ("Needs a fix", refresh), exactly as when sends cannot be read.
 
 ## Tests
 
-`node --test scripts/tests/quickbooks-sync.test.mjs` (31). `QBSYNC_MUTATION=<name>` breaks one protection;
-all 22 must fail the suite and CI runs each. The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
-(11 checks, 10 mutations). Verified in Chromium against the shipped page with stubbed
+`node --test scripts/tests/quickbooks-sync.test.mjs` (33). `QBSYNC_MUTATION=<name>` breaks one protection;
+all 26 must fail the suite and CI runs each. The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
+(13 checks, 16 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

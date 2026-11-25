@@ -24,6 +24,12 @@
 //   CARD_RULES_AUTO_MUTATION=limit-on-seen    skipped rows use up the limit
 //   CARD_RULES_AUTO_MUTATION=browser-callable a signed-in browser can run it
 //   CARD_RULES_AUTO_MUTATION=guard-off        a marked entry can still be claimed
+//   CARD_RULES_AUTO_MUTATION=stale-mark-blocks      a mark holds back content it was never made on
+//   CARD_RULES_AUTO_MUTATION=unknown-content-sends  a claim that cannot be compared is let through
+//   CARD_RULES_AUTO_MUTATION=mark-keeps-old         marking again keeps the old content's mark
+//   CARD_RULES_AUTO_MUTATION=fingerprint-no-coding  a recoded month still matches its mark
+//   CARD_RULES_AUTO_MUTATION=fingerprint-no-uncoded a late uncategorized row still matches its mark
+//   CARD_RULES_AUTO_MUTATION=list-any-role          a non-finance user can read the marks list
 //   CARD_RULES_AUTO_MUTATION=mark-after-send  an entry SILO sent can be marked by hand
 //   CARD_RULES_AUTO_MUTATION=mark-any-role    a non-finance user can mark an entry
 //   CARD_RULES_AUTO_MUTATION=infer-drift      the SQL type reading drifts from the page's
@@ -44,7 +50,13 @@ const MUTATIONS = {
   'any-chart': ["      if v_type is null then raise exception using message = 'account_unavailable'; end if;\n", ''],
   'limit-on-seen': ['if v_applied >= v_limit or v_seen >= 20000 then', 'if v_seen >= v_limit then'],
   'browser-callable': ['revoke all on function public.apply_saved_card_coding_rules(integer) from public, anon, authenticated;', 'grant execute on function public.apply_saved_card_coding_rules(integer) to authenticated;'],
-  'guard-off': ['  if exists (select 1 from public.quickbooks_entered_by_hand h\n      where h.company_entity_id = new.company_entity_id', '  if false and exists (select 1 from public.quickbooks_entered_by_hand h\n      where h.company_entity_id = new.company_entity_id'],
+  'guard-off': ['  if v_now is null or v_now = v_snapshot then\n    raise', '  if false then\n    raise'],
+  'stale-mark-blocks': ['  if v_now is null or v_now = v_snapshot then\n    raise', '  if true then\n    raise'],
+  'unknown-content-sends': ['  if v_now is null or v_now = v_snapshot then\n    raise', '  if v_now = v_snapshot then\n    raise'],
+  'mark-keeps-old': ["    on conflict (company_entity_id, source, source_ref) do update\n      set snapshot = excluded.snapshot, created_by = excluded.created_by, created_at = now()\n      where quickbooks_entered_by_hand.snapshot is distinct from excluded.snapshot;", '    on conflict (company_entity_id, source, source_ref) do nothing;'],
+  'fingerprint-no-coding': ["e.txn_date::text, coalesce(e.qbo_account_id, ''),", "e.txn_date::text, '',"],
+  'fingerprint-no-uncoded': ["and t.status = 'uncoded')::text)", "and t.status = 'none')::text)"],
+  'list-any-role': ["     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then\n    raise exception 'Finance access required' using errcode = '42501';\n  end if;\n  return query", '  then raise exception \'x\'; end if;\n  return query'],
   'mark-after-send': ["        and p.status in ('submitting', 'unknown', 'posted')) then\n    raise exception 'SILO has a send on record", "        and p.status in ('none')) then\n    raise exception 'SILO has a send on record"],
   'mark-any-role': ["  if not public.can_manage_journal_entries() then raise exception 'Finance access required'; end if;\n  if p_id is null", '  if p_id is null'],
   'infer-drift': ["      case when p_source_type = 'bank' then 'card_payment' else 'unknown' end", "      'card_payment'"],
@@ -285,26 +297,32 @@ try {
 
   // ── Already in QuickBooks ─────────────────────────────────────────────────
   const mark = (kind, id, on = true, actor = finance) => as(actor, () => one('select public.set_entry_entered_in_quickbooks($1,$2,$3) r', [kind, id, on]));
-  const claim = (source, ref, company = co) => svc(() => q(
-    `insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,status)
-     values($1,$2,$3,$4,'{}','submitting') returning id`, [company, company === co ? conn : otherConn, source, ref]));
-  async function adjustment({ source = 'prepaid_amortization', ref = '2026-10', status = 'approved', company = co } = {}) {
-    const id = randomUUID();
+  const HASH = 'h'.repeat(64), HASH2 = 'i'.repeat(64);
+  // A sending claim carries the approval hash of what it sends (payload_hash).
+  const claim = (source, ref, hash = HASH, company = co) => svc(() => q(
+    `insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,payload_hash,status)
+     values($1,$2,$3,$4,'{}',$5,'submitting') returning id`, [company, company === co ? conn : otherConn, source, ref, hash]));
+  const quietly = async (sql, params) => {
     await db.exec('set session_replication_role = replica');
-    try {
-      await q(`insert into journal_adjustments(id,company_entity_id,entry_date,memo,status,accounting_source,accounting_source_ref,approval_hash,qbo_connection_id)
-               values($1,$2,'2026-10-31','Prepaid',$3,$4,$5,$6,$7)`, [id, company, status, source, ref, 'h'.repeat(64), company === co ? conn : otherConn]);
-    } finally { await db.exec('set session_replication_role = origin'); }
+    try { await q(sql, params); } finally { await db.exec('set session_replication_role = origin'); }
+  };
+  async function adjustment({ source = 'prepaid_amortization', ref = '2026-10', status = 'approved', company = co, hash = HASH } = {}) {
+    const id = randomUUID();
+    await quietly(`insert into journal_adjustments(id,company_entity_id,entry_date,memo,status,accounting_source,accounting_source_ref,approval_hash,qbo_connection_id)
+               values($1,$2,'2026-10-31','Prepaid',$3,$4,$5,$6,$7)`, [id, company, status, source, ref, hash, company === co ? conn : otherConn]);
     return id;
   }
+  const marks = (actor = finance) => as(actor, () => q('select * from public.quickbooks_entered_by_hand_list()'));
+  const markOf = async (source, ref) => (await marks()).find((m) => m.source === source && m.source_ref === ref);
 
   await test('a marked entry cannot be claimed for sending, and the mark comes off again', async () => {
     const adj = await adjustment();
     assert.deepEqual((await mark('adjustment', adj)).r, { marked: true });
     assert.deepEqual((await mark('adjustment', adj)).r, { marked: true }, 'marking twice is harmless');
-    const seen = await as(finance, () => q('select source, source_ref, approval_hash, created_by from quickbooks_entered_by_hand'));
-    assert.deepEqual(seen, [{ source: 'prepaid_amortization', source_ref: '2026-10', approval_hash: 'h'.repeat(64), created_by: finance }]);
+    const seen = await as(finance, () => q('select source, source_ref, snapshot, created_by from quickbooks_entered_by_hand'));
+    assert.deepEqual(seen, [{ source: 'prepaid_amortization', source_ref: '2026-10', snapshot: HASH, created_by: finance }]);
     await assert.rejects(claim('prepaid_amortization', '2026-10'), /already entered in QuickBooks by hand/);
+    await assert.rejects(claim('prepaid_amortization', '2026-10', null), /already entered in QuickBooks by hand/, 'a claim that cannot be compared is refused');
     assert.equal((await q("select 1 from quickbooks_journal_postings where source='prepaid_amortization'")).length, 0, 'no claim was written');
     // Another entry, and another company's entry with the same key, are not held.
     assert.equal((await claim('prepaid_amortization', '2026-09')).length, 1);
@@ -312,25 +330,68 @@ try {
     assert.equal((await claim('prepaid_amortization', '2026-10')).length, 1, 'with the mark off it can be sent');
   });
 
-  await test('an entry SILO has a send on record for cannot be marked; nor one that is posted or voided', async () => {
+  await test('an entry SILO has a send on record for cannot be marked; nor one that is posted, voided or not yet approved', async () => {
     const sent = await adjustment({ ref: '2026-09' });   // claimed above
     await assert.rejects(mark('adjustment', sent), /send on record/);
     const posted = await adjustment({ ref: '2026-08', status: 'posted' });
     await assert.rejects(mark('adjustment', posted), /already sent this entry, or it was voided/);
+    const draft = await adjustment({ ref: '2026-06', status: 'draft', hash: null });
+    await assert.rejects(mark('adjustment', draft), /Approve this entry first/);
     const legacy = await adjustment({ source: null, ref: null });
     assert.deepEqual((await mark('adjustment', legacy)).r, { marked: true });
     await assert.rejects(claim('journal_adjustment', legacy), /already entered in QuickBooks by hand/, 'a legacy entry is keyed the way its claim is');
   });
 
-  await test('a card or bank month is marked by its own id', async () => {
+  await test('a journal entry approved again after it was marked is not held back by the old mark', async () => {
+    const adj = await adjustment({ ref: '2026-05' });
+    await mark('adjustment', adj);
+    assert.deepEqual(await markOf('prepaid_amortization', '2026-05'), { source: 'prepaid_amortization', source_ref: '2026-05', snapshot: HASH, current: null });
+    // Changed and approved again under the same reference: new content, new hash.
+    await quietly('update journal_adjustments set approval_hash=$2 where id=$1', [adj, HASH2]);
+    await assert.rejects(claim('prepaid_amortization', '2026-05', HASH), /already entered in QuickBooks by hand/, 'the content that WAS marked stays held');
+    // A person says the new content is in QuickBooks too: the mark moves to it.
+    assert.deepEqual((await mark('adjustment', adj)).r, { marked: true });
+    assert.equal((await markOf('prepaid_amortization', '2026-05')).snapshot, HASH2);
+    await assert.rejects(claim('prepaid_amortization', '2026-05', HASH2), /already entered in QuickBooks by hand/);
+    await quietly('update journal_adjustments set approval_hash=$2 where id=$1', [adj, HASH]);
+    assert.equal((await claim('prepaid_amortization', '2026-05', HASH)).length, 1, 'content the mark was never made on goes out');
+  });
+
+  await test('a card or bank month is marked by its own id, for the content it held', async () => {
     // An account with no bank feed: the feed's own claim guard would refuse a
     // draft month before this one is ever asked.
     const b = await newBatch(offBank);
+    const first = await newTxn(b, 40, 'PAPER CO');
+    await quietly("update card_transactions set status='coded', qbo_account_id='supplies' where id=$1", [first]);
     assert.deepEqual((await mark('batch', b)).r, { marked: true });
-    assert.equal((await one("select count(*)::int n from quickbooks_entered_by_hand where source='card_import' and source_ref=$1", [b])).n, 1);
+    const made = await markOf('card_import', b);
+    assert.ok(made.snapshot && made.snapshot === made.current, 'the list reports the mark as still speaking for the month');
     await assert.rejects(claim('card_import', b), /already entered in QuickBooks by hand/);
+    // Approving the unchanged month does not disturb the mark.
+    await quietly("update card_import_batches set status='categorized' where id=$1", [b]);
+    assert.equal((await markOf('card_import', b)).current, made.snapshot);
+
+    // A recoding changes what would be sent.
+    await quietly("update card_transactions set qbo_account_id='meals' where id=$1", [first]);
+    const recoded = await markOf('card_import', b);
+    assert.notEqual(recoded.current, recoded.snapshot);
+    await quietly("update card_transactions set qbo_account_id='supplies' where id=$1", [first]);
+    assert.equal((await markOf('card_import', b)).current, made.snapshot, 'put back, it is the marked content again');
+
+    // A late bank row lands uncategorized: the month is no longer what was marked.
+    const late = await newTxn(b, 12.5, 'LATE ROW');
+    assert.notEqual((await markOf('card_import', b)).current, made.snapshot);
+    await quietly("update card_transactions set status='coded', qbo_account_id='supplies' where id=$1", [late]);
+    assert.notEqual((await markOf('card_import', b)).current, made.snapshot);
+    // Marking again is a fresh decision about the month as it is now.
+    assert.deepEqual((await mark('batch', b)).r, { marked: true });
+    const again = await markOf('card_import', b);
+    assert.ok(again.snapshot === again.current && again.snapshot !== made.snapshot);
+    await assert.rejects(claim('card_import', b), /already entered in QuickBooks by hand/);
+    // Changed once more and NOT marked again: SILO may send it.
+    await quietly("update card_transactions set amount=13 where id=$1", [late]);
+    assert.equal((await claim('card_import', b)).length, 1, 'changed content is not held back by an old mark');
     assert.deepEqual((await mark('batch', b, false)).r, { marked: false });
-    assert.equal((await claim('card_import', b)).length, 1);
   });
 
   await test('only a finance user of the entry\'s own company can mark or read', async () => {
@@ -338,9 +399,24 @@ try {
     await assert.rejects(mark('adjustment', adj, true, outsider), /Finance access required/);
     await assert.rejects(mark('adjustment', adj, true, otherFinance), /not found in this company/);
     await assert.rejects(mark('nonsense', adj), /Name one entry/);
+    await mark('adjustment', adj);
     assert.equal((await as(outsider, () => q('select 1 from quickbooks_entered_by_hand'))).length, 0);
     assert.equal((await as(otherFinance, () => q('select 1 from quickbooks_entered_by_hand'))).length, 0);
-    assert.equal((await as(finance, () => q('select 1 from quickbooks_entered_by_hand'))).length, 1);
+    assert.ok((await as(finance, () => q('select 1 from quickbooks_entered_by_hand'))).length >= 1);
+    await assert.rejects(marks(outsider), /Finance access required/);
+    assert.equal((await marks(otherFinance)).length, 0);
+    assert.ok((await marks()).some((m) => m.source_ref === '2026-07'));
+    await assert.rejects(as(finance, () => q('select public.card_import_content_fingerprint($1,$2)', [co, randomUUID()])), /permission denied/);
+  });
+
+  await test('the production check for this migration reads ok on a database that has it', async () => {
+    const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+    const from = verify.indexOf("select 'Saved rules auto-apply and entered by hand' as check_name");
+    assert.ok(from > 0);
+    const sql = verify.slice(from, verify.indexOf('end as status;', from) + 'end as status;'.length);
+    const expected = ['guard-off', 'stale-mark-blocks', 'unknown-content-sends', 'browser-callable'].includes(mutation) ? null : 'ok';
+    const status = (await one(sql)).status;
+    if (expected) assert.equal(status, expected); else assert.notEqual(status, 'ok');
   });
 
   console.log(`${passed} rules auto-apply database checks passed`);
