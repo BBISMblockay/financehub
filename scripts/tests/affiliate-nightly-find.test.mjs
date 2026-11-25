@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MUT = process.env.NIGHTLY_FIND_MUTATION || '';
 const SRC = new URL('../affiliate-nightly-find.mjs', import.meta.url);

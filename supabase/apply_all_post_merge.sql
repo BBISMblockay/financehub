@@ -19944,6 +19944,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261125060000_card_payment_match_both_sides.sql
 \i migrations/20261125070000_card_payment_match_relink.sql
 \i migrations/20261125080000_card_payment_match_either_side.sql
+\i migrations/20261125090000_card_payment_match_names.sql
 -- 20261125030000: View as rep -- a one-hour, read-only 'preview' portal link
 -- staff mint for one affiliate; portal writes refuse it by construction.
 \i migrations/20261125030000_affiliate_view_as_rep.sql

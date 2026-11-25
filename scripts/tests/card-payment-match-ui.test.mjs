@@ -35,9 +35,9 @@ const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) 
 
 const EXPOSE = ['accountingStateLine', 'paymentMatchSection', 'renderPaydownOffers', 'confirmableRows', 'ensureProposals',
   'applyMatchToRow', 'proposalCache', 'proposalAsked', 'matchCache', 'reviewDateRows',
-  'matchCell', 'matchArgs', 'viewingBank', 'paydownCandidate'].join(', ');
+  'matchCell', 'matchArgs', 'viewingBank', 'paydownCandidate', 'onPaymentMatchClick'].join(', ');
 
-function harness({ rows = [], batch = null, sources = [], proposals = [], rpcError = null, linkResult = {} } = {}) {
+function harness({ rows = [], batch = null, sources = [], proposals = [], options = [], rpcError = null, linkResult = {} } = {}) {
   const nodes = new Map();
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, { id, innerHTML: '', textContent: '', hidden: false, disabled: false,
@@ -56,7 +56,8 @@ function harness({ rows = [], batch = null, sources = [], proposals = [], rpcErr
     },
     rpc: (name, args) => {
       calls.rpc.push({ name, args });
-      if (name === 'card_payment_match_offers') return Promise.resolve({ data: proposals, error: rpcError });
+      if (name === 'card_payment_offers') return Promise.resolve({ data: proposals, error: rpcError });
+      if (name === 'card_payment_match_options') return Promise.resolve({ data: options, error: rpcError });
       if (name === 'link_card_payment_match') return Promise.resolve({ data: linkResult, error: rpcError });
       return Promise.resolve({ data: 0, error: null });
     },
@@ -111,14 +112,14 @@ test('every paydown on screen is asked about in one call, and only paydowns', as
   const h = harness({ rows, batch: BATCH, sources: [CARD], proposals: [offer()] });
   h.api.ensureProposals(rows);
   await settle();
-  const asked = h.calls.rpc.filter((c) => c.name === 'card_payment_match_offers');
+  const asked = h.calls.rpc.filter((c) => c.name === 'card_payment_offers');
   assert.equal(asked.length, 1, 'one call for the screen, not one per row');
   assert.deepEqual(asked[0].args.p_transaction_ids, ['p1', 'p2'],
     'money arriving on a card is a paydown; a purchase is not');
 
   h.api.ensureProposals(rows);
   await settle();
-  assert.equal(h.calls.rpc.filter((c) => c.name === 'card_payment_match_offers').length, 1,
+  assert.equal(h.calls.rpc.filter((c) => c.name === 'card_payment_offers').length, 1,
     'and the answer is kept, so redrawing the table does not re-ask');
 });
 
@@ -137,6 +138,44 @@ test('the row offers the payment to confirm, and offers no pick when there are t
   const two = h.api.paymentMatchSection(paydown());
   assert.doesNotMatch(two, /data-link-match/, 'two payments of the same amount is a judgement, not an offer');
   assert.match(two, /2 payments/);
+});
+
+test('a payment two rows could both claim is not a one-click for either of them', () => {
+  const h = harness({ rows: [paydown()], batch: BATCH, sources: [CARD] });
+  h.api.matchCache.set('p1', null);
+  h.api.proposalCache.set('p1', offer({ candidate_count: 1, other_transaction_id: null, contested: true }));
+
+  const html = h.api.paymentMatchSection(paydown());
+  assert.doesNotMatch(html, /data-link-match/, 'the press that would be refused is never shown');
+  assert.match(html, /the only candidate for another row as well/,
+    'and the reason is the shared payment, not a count of candidates');
+  assert.doesNotMatch(html, /1 payments/, 'never the nonsense a plain count would print here');
+
+  const cell = h.api.matchCell(paydown());
+  assert.match(cell, /Shared with another row/);
+  assert.doesNotMatch(cell, /data-link-match/);
+});
+
+test('the picker still lists a row the words argue against, and says so', async () => {
+  const h = harness({ rows: [paydown()], batch: BATCH, sources: [CARD],
+    options: [{ transaction_id: 'bank-1', txn_date: '2026-10-09', amount: 5412.01, source_name: 'Operating checking',
+      description: 'CAPITAL ONE MOBILE', batch_status: 'draft', day_gap: 1, name_signal: 'named' },
+    { transaction_id: 'bank-2', txn_date: '2026-10-04', amount: 5412.01, source_name: 'Operating checking',
+      description: 'PROCESSOR NET60', batch_status: 'draft', day_gap: 6, name_signal: 'other_source' }] });
+  h.api.matchCache.set('p1', null);
+
+  // Driven through the real handler, so the page's own call is what runs.
+  const target = { closest: (sel) => (sel === '[data-find-match]' ? { dataset: { findMatch: '7' } }
+    : sel === '[data-txn]' ? { dataset: { txn: 'p1' } } : null) };
+  await h.api.onPaymentMatchClick({ target, stopImmediatePropagation() {} });
+  await settle();
+
+  assert.ok(h.calls.rpc.some((c) => c.name === 'card_payment_match_options'),
+    'the picker asks the function that carries the name signal');
+  const html = h.api.paymentMatchSection(paydown());
+  assert.match(html, /data-link-match="bank-2"/, 'a contradicted row stays pickable by hand');
+  assert.match(html, /Names a different account/);
+  assert.equal((html.match(/Names a different account/g) || []).length, 1, 'on that row only');
 });
 
 test('the strip above the table counts what can be confirmed, and separates what cannot', () => {
