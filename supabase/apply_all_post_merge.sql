@@ -19983,4 +19983,7 @@ $c$select (select count(*) from v_po_header_summary
 -- away with no second confirmation, recorded in po_status_changes. Apply
 -- BEFORE deploying mcp, and the scope cannot be granted until it is applied.
 \i migrations/20261125234500_po_status_write_scope.sql
+-- 20261126000500: takes back the grants Supabase's default privileges handed
+-- anon and authenticated on po_status_options / po_status_changes.
+\i migrations/20261126000500_po_status_tables_revoke_defaults.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

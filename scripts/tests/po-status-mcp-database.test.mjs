@@ -47,6 +47,7 @@
 //   PO_STATUS_MUTATION=trigger-keeps-creator  a person's own change is still logged as the PO's creator
 //   PO_STATUS_MUTATION=no-odd-seed       a status already in use gets no step row
 //   PO_STATUS_MUTATION=no-lazy-seed      a workspace with no steps yet gets none
+//   PO_STATUS_MUTATION=no-revoke        anon keeps Supabase's default grants on the tables
 //   PO_STATUS_MUTATION=person-reads-all  the person's card reads other companies
 //
 // Run:  npm ci --prefix scripts/tests/finance-db --ignore-scripts
@@ -224,10 +225,13 @@ create table silo_api_writes (
   constraint silo_api_writes_kind_check check (kind in ('task')));
 
 grant all on all tables in schema public to anon, authenticated, service_role;
--- Deliberately NOT a default privilege for future tables: the tables this
--- migration creates must carry their own grants, as production's do, or a
--- policy nobody can exercise would pass this suite.
-alter default privileges in schema public grant all on tables to service_role;
+-- Production's default privileges, faithfully: Supabase re-grants EVERY new
+-- public table to anon and authenticated, so a migration that only grants and
+-- never revokes leaves anon holding the table. That is exactly what shipped in
+-- 20261125234500 and what 20261126000500 takes back, and this suite missed it
+-- because the fixture used to leave these two out.
+alter default privileges in schema public
+  grant all on tables to anon, authenticated, service_role;
 grant execute on function auth.uid() to anon, authenticated, service_role, silo_integration;
 grant execute on function active_company_id() to anon, authenticated, service_role, silo_integration;
 grant execute on function is_admin_user() to authenticated, service_role;
@@ -307,14 +311,26 @@ switch (MUT) {
   case 'no-odd-seed':
     mut("select distinct h.company_entity_id, btrim(h.status), 200, true, false, false",
         "select distinct h.company_entity_id, btrim(h.status), 200, true, false, false where false"); break;
+  case 'no-revoke': break;   // handled where the second migration is read
   case 'person-reads-all':
     mut('security invoker\nset search_path = \'\'\nas $$\n  select coalesce(json_agg(x order by x.created_at desc), \'[]\'::json)',
         'security definer\nset search_path = \'\'\nas $$\n  select coalesce(json_agg(x order by x.created_at desc), \'[]\'::json)'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
+// 20261126000500 takes back what Supabase's default privileges handed anon and
+// authenticated on the two tables above. It is part of the same feature, so it
+// is applied here and carries its own mutation.
+let grantSql = await readFile(
+  new URL('../../supabase/migrations/20261126000500_po_status_tables_revoke_defaults.sql', import.meta.url), 'utf8');
+if (MUT === 'no-revoke') {
+  const from = 'revoke all on public.po_status_options from anon, silo_integration, silo_revoked;';
+  assert.ok(grantSql.includes(from), 'mutation no-revoke: pattern not found');
+  grantSql = grantSql.split('revoke').join('-- revoke');
+}
+
 // apply_all_post_merge.sql re-runs every migration: it must be idempotent.
-for (let i = 0; i < 2; i += 1) await db.exec(sql);
+for (let i = 0; i < 2; i += 1) await db.exec(sql + '\n' + grantSql);
 
 const PO_DRAFT = '50000000-0000-0000-0000-000000000001';
 const PO_PROD  = '50000000-0000-0000-0000-000000000002';
@@ -444,6 +460,12 @@ await check('no client role may call the tools or the internal helpers', async (
     ['authenticated', 'po_status_changes', 'insert'],
     ['authenticated', 'po_status_changes', 'update'],
     ['authenticated', 'po_status_changes', 'delete'],
+    // TRUNCATE is the one RLS does NOT cover: a signed-in role holding it
+    // could empty every company's step list in one statement.
+    ['authenticated', 'po_status_options', 'truncate'],
+    ['authenticated', 'po_status_changes', 'truncate'],
+    ['anon', 'po_status_options', 'truncate'],
+    ['anon', 'po_status_changes', 'truncate'],
   ]) {
     const r = await one(`select has_table_privilege($1, $2, $3) ok`, [role, 'public.' + table, priv]);
     assert.equal(r.ok, false, `${role} must not ${priv} ${table}`);

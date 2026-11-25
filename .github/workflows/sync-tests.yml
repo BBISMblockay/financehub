@@ -3129,7 +3129,7 @@ jobs:
       - name: The po_status:write guards, removed, must break it
         run: |
           set -u
-          for m in not-offered no-path no-scope ignore-pause session-company any-step receipt-step unknown-step no-authority no-cap no-idem no-history-stamp trigger-keeps-creator no-odd-seed no-lazy-seed person-reads-all; do
+          for m in not-offered no-path no-scope ignore-pause session-company any-step receipt-step unknown-step no-authority no-cap no-idem no-history-stamp trigger-keeps-creator no-odd-seed no-lazy-seed person-reads-all no-revoke; do
             if PO_STATUS_MUTATION="$m" node scripts/tests/po-status-mcp-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
