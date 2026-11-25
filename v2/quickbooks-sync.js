@@ -66,6 +66,10 @@
   // unchanged cannot work, so it is not offered.
   const isValidationFailure = (message) => /ValidationFault|Business Validation|post_failed_4\d\d/i.test(String(message || ''));
 
+  const MODES = ['silo', 'qbo'];
+  const QBO_KEEPS = 'QuickBooks keeps the books for this company, so SILO sends nothing.';
+  const MODE_UNREAD = 'Could not read who keeps this company’s books. Refresh before syncing.';
+
   function claimsFor(claims, source, ref) {
     if (!known(claims) || !source || !ref) return [];
     return claims.filter((c) => c.source === source && String(c.source_ref) === String(ref));
@@ -86,6 +90,7 @@
     const mine = claimsFor(facts.claims, 'card_import', b.id);
 
     if (!known(facts.claims)) return set('fix', 'Could not read what was already sent. Refresh before syncing.', { unreadable: true });
+    if (!MODES.includes(facts.mode)) return set('fix', MODE_UNREAD, { unreadable: true });
     if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {
       return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked it so it cannot go twice. Check QuickBooks, then resolve it in Transactions.');
     }
@@ -96,7 +101,9 @@
     const live = (num(b.txn_count) || 0) - (num(b.excluded_count) || 0);
     if (live <= 0) return null;                       // nothing in it to send
     if (!['draft', 'categorized', 'approved'].includes(b.status)) return null;
-    if (facts.mode === 'qbo' && b.status !== 'approved') return null;   // reporting-only: not SILO's to send
+    // Reporting-only: nothing is SILO's to send. An approved month left over
+    // from before the switch is listed, never offered.
+    if (facts.mode === 'qbo') return b.status === 'approved' ? set('outside', QBO_KEEPS) : null;
     if (b.source_posting_start_on && end && end < b.source_posting_start_on) {
       return set('outside', 'Handled outside SILO. This month ended before SILO started sending this account.');
     }
@@ -137,13 +144,14 @@
     const mine = claimsFor(facts.claims, source, ref);
 
     if (!known(facts.claims)) return set('fix', 'Could not read what was already sent. Refresh before syncing.', { unreadable: true });
+    if (!MODES.includes(facts.mode)) return set('fix', MODE_UNREAD, { unreadable: true });
     if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {
       return set('fix', 'A send went out and QuickBooks never confirmed it. Check QuickBooks, then resolve it in the journal register.');
     }
     if (a.status === 'posted') return set('synced', a.qbo_doc_number ? `QuickBooks entry ${a.qbo_doc_number}` : '');
     if (a.status === 'draft') return facts.mode === 'qbo' ? null : set('fix', 'Draft. Review and approve it before it can sync.');
     if (a.status !== 'approved') return null;
-    if (facts.mode === 'qbo') return set('outside', 'QuickBooks keeps the books for this company, so SILO sends nothing.');
+    if (facts.mode === 'qbo') return set('outside', QBO_KEEPS);
     if (!a.approval_hash) return set('fix', 'This approval is older than the sending controls. Reopen it and approve it again.');
     const failed = mine.filter((c) => c.status === 'failed' && c.payload_hash === a.approval_hash)
       .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0];
@@ -343,9 +351,10 @@
       if (s.open) legend.append(el('span', `${plural(s.open, 'open month')} not counted`, 'qs-muted'));
       band.append(head, bar, legend);
       const btn = $('btnSync');
-      btn.disabled = st.busy || !st.model.canSend || s.sendable === 0;
+      btn.disabled = st.busy || !st.model.canSend || st.model.mode !== 'silo' || s.sendable === 0;
       btn.textContent = s.sendable ? `Sync with QuickBooks · ${s.sendable}` : 'Sync with QuickBooks';
-      $('qsSyncNote').textContent = st.model.mode === 'qbo' ? 'QuickBooks keeps the books for this company, so SILO sends nothing.'
+      $('qsSyncNote').textContent = st.model.mode === 'qbo' ? QBO_KEEPS
+        : st.model.mode !== 'silo' ? MODE_UNREAD
         : !st.model.canSend ? 'Sending to QuickBooks needs finance access.'
         : s.sendable === 0 ? (s.fix ? 'Nothing can be sent until the rows marked Needs a fix are fixed.' : 'Nothing is waiting.') : '';
       for (const tab of root.querySelectorAll('[data-qs-filter]')) {
@@ -391,7 +400,7 @@
         if (model.errors.length) setStatus(`Some of this could not be read (${model.errors.join('; ')}). Nothing unread is shown as synced.`, 'neg');
         else if (!quiet) setStatus('', 'info');
         $('qsToday').textContent = `As of ${model.today}${model.company.name ? ` · ${model.company.name}` : ''}`;
-        if (model.items && model.canSend && model.mode !== 'qbo') {
+        if (model.items && model.canSend && model.mode === 'silo') {
           precheck(model.items, api(), () => { if (token === st.token && !st.busy) draw(); });
         }
       } catch (e) {
@@ -424,7 +433,7 @@
     }
 
     function openConfirm() {
-      if (st.busy || !st.model?.items) return;
+      if (st.busy || !st.model?.items || st.model.mode !== 'silo') return;
       const sendable = st.model.items.filter((i) => i.sendable);
       if (!sendable.length) return;
       const list = $('qsConfirmList'); list.replaceChildren();

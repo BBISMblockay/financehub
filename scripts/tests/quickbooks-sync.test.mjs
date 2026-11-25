@@ -11,13 +11,18 @@ const MUTATIONS = {
   // An unconfirmed send must outrank a posted/approved reading.
   'claim-not-first': [`if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`, `if (false) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`],
   // Unread claims must not read as "nothing was sent".
-  'unread-claims-ok': [`if (!known(facts.claims)) return set('fix', 'Could not read what was already sent. Refresh before syncing.', { unreadable: true });\n    if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`, `if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`],
+  'unread-claims-ok': [`if (!known(facts.claims)) return set('fix', 'Could not read what was already sent. Refresh before syncing.', { unreadable: true });\n    if (!MODES.includes(facts.mode)) return set('fix', MODE_UNREAD, { unreadable: true });\n    if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`, `if (!MODES.includes(facts.mode)) return set('fix', MODE_UNREAD, { unreadable: true });\n    if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`],
   // A month still filling must not be sendable.
   'open-month-sendable': [`if (!ended) return set('open', 'Every transaction so far is categorized. Syncs after the month ends.');`, ``],
   // A month before SILO's posting start is not SILO's to send.
   'ignore-posting-start': [`if (b.source_posting_start_on && end && end < b.source_posting_start_on) {`, `if (false) {`],
   // Reporting-only companies send nothing.
-  'ignore-mode': [`if (facts.mode === 'qbo' && b.status !== 'approved') return null;`, ``],
+  'ignore-mode': [`if (facts.mode === 'qbo') return b.status === 'approved' ? set('outside', QBO_KEEPS) : null;`, ``],
+  // ...including a month approved before the company switched.
+  'qbo-approved-sendable': [`if (facts.mode === 'qbo') return b.status === 'approved' ? set('outside', QBO_KEEPS) : null;`, `if (facts.mode === 'qbo' && b.status !== 'approved') return null;`],
+  // An unread bookkeeping setting is unknown, never "SILO keeps the books".
+  'unread-mode-ok': [`mode: settings === undefined ? undefined : (settings?.bookkeeping_mode || 'silo')`, `mode: settings?.bookkeeping_mode || 'silo'`],
+  'unread-mode-sendable': [`if (!MODES.includes(facts.mode)) return set('fix', MODE_UNREAD, { unreadable: true });\n    if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`, `if (mine.some((c) => ACTIVE_CLAIM.includes(c.status))) {\n      return set('fix', 'A send went out and QuickBooks never confirmed it. SILO has locked`],
   // Uncategorized rows block a finished month.
   'uncoded-sendable': [`if (uncoded > 0) {`, `if (false) {`],
   // An entry sent and then marked unposted is never re-sent by default.
@@ -114,6 +119,12 @@ test('months SILO is not to send are listed, not sendable', () => {
 
 test('a reporting-only company sends nothing', () => {
   assert.equal(one(batch(), { mode: 'qbo' }), null);
+  for (const hash of ['h1', null]) {
+    const left = one(batch({ status: 'approved', approval_hash: hash }), { mode: 'qbo' });
+    assert.equal(left.status, 'outside', 'a month approved before the switch is listed, not offered');
+    assert.equal(left.sendable, false);
+  }
+  assert.equal(S.summarize(S.classify(facts({ mode: 'qbo', batches: [batch({ status: 'approved', approval_hash: 'h1' })], adjustments: [adj()] }))).sendable, 0);
   const a = S.classifyAdjustment(adj(), facts({ mode: 'qbo' }));
   assert.equal(a.status, 'outside'); assert.equal(a.sendable, false);
 });
@@ -276,3 +287,45 @@ test('the page wires the module and leaves no write path of its own', () => {
 });
 
 export const mutationNames = Object.keys(MUTATIONS);
+
+// A stand-in for the SDK: every read answers from `tables`, or fails by name.
+function fakeDb(tables, failing = []) {
+  const rpc = { can_manage_journal_entries: true, is_exec_or_owner: false, silo_business_today: '2026-11-25', silo_ledger_batch_status: [] };
+  const chain = (table) => {
+    const answer = failing.includes(table) ? { data: null, error: { message: 'timeout' } } : { data: tables[table], error: null };
+    const q = { select: () => q, eq: () => q, in: () => q, order: () => q, range: () => q, maybeSingle: () => q, then: (ok, no) => Promise.resolve(answer).then(ok, no) };
+    return q;
+  };
+  return { from: chain, rpc: async (name) => ({ data: rpc[name], error: null }) };
+}
+const company = { ensureActiveCompany: async () => ({ id: 'co', name: 'Co' }) };
+const approved = batch({ status: 'approved', approval_hash: H1 });
+const tables = (mode) => ({ accounting_settings: mode === null ? null : { bookkeeping_mode: mode }, card_import_batches_v: [approved, batch({ id: 'b2' })],
+  journal_adjustments: [adj()], journal_adjustments_v: [{ id: 'a1', debits: 500 }], quickbooks_journal_postings: [] });
+
+test('load: a reporting-only company has nothing to send, approved months included', async () => {
+  const model = await S.load(fakeDb(tables('qbo')), company);
+  assert.equal(model.mode, 'qbo');
+  assert.equal(S.summarize(model.items).sendable, 0);
+  assert.ok(model.items.every((i) => i.status === 'outside'));
+  const silo = await S.load(fakeDb(tables('silo')), company);
+  assert.equal(S.summarize(silo.items).sendable, 3, 'the same rows are sendable when SILO keeps the books');
+  assert.equal((await S.load(fakeDb(tables(null)), company)).mode, 'silo', 'no settings row is the default, SILO');
+});
+
+test('load: an unread bookkeeping setting sends nothing', async () => {
+  const model = await S.load(fakeDb(tables('qbo'), ['accounting_settings']), company);
+  assert.equal(model.mode, undefined);
+  assert.equal(S.summarize(model.items).sendable, 0);
+  assert.ok(model.items.length === 3 && model.items.every((i) => i.status === 'fix' && i.unreadable));
+  assert.match(model.errors.join(), /settings/);
+});
+
+test('an unknown bookkeeping mode is never read as SILO', () => {
+  for (const mode of [undefined, null, 'other']) {
+    const b = one(batch({ status: 'approved', approval_hash: H1 }), { mode });
+    assert.equal(b.status, 'fix'); assert.equal(b.sendable, false);
+    const a = S.classifyAdjustment(adj(), facts({ mode }));
+    assert.equal(a.status, 'fix'); assert.equal(a.sendable, false);
+  }
+});

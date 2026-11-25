@@ -790,7 +790,7 @@ jobs:
       - name: QuickBooks sync page
         run: |
           node --test scripts/tests/quickbooks-sync.test.mjs
-          for m in claim-not-first unread-claims-ok open-month-sendable ignore-posting-start ignore-mode uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
+          for m in claim-not-first unread-claims-ok open-month-sendable ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
             if QBSYNC_MUTATION=$m node --test scripts/tests/quickbooks-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi

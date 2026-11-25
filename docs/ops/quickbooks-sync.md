@@ -41,7 +41,9 @@ a time. The page writes no table.
   not sent again unchanged. A transient failure is retried.
 - **An unknown outcome stops the run.** A refusal moves on to the next row.
 - **The active company is re-checked before every row.**
-- **Reporting-only companies (`bookkeeping_mode = 'qbo'`) send nothing.**
+- **Reporting-only companies (`bookkeeping_mode = 'qbo'`) send nothing.** That includes a month approved before the
+  switch: it is listed as outside SILO, never offered, and the button stays off. If the setting cannot be read,
+  every row is Needs a fix and nothing can be sent.
 - After the page loads it pre-checks up to 12 waiting months with the preview RPC, so a refusal shows before
   anyone presses Sync.
 
@@ -53,6 +55,6 @@ a time. The page writes no table.
 
 ## Tests
 
-`node --test scripts/tests/quickbooks-sync.test.mjs` (24). `QBSYNC_MUTATION=<name>` breaks one protection;
-all 15 must fail the suite and CI runs each. Verified in Chromium against the shipped page with stubbed
+`node --test scripts/tests/quickbooks-sync.test.mjs` (27). `QBSYNC_MUTATION=<name>` breaks one protection;
+all 18 must fail the suite and CI runs each. Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.
