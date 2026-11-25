@@ -24,6 +24,9 @@
  *   PO_RECEIPT_MUTATION=silent-po       a refused PO status reports as success
  *   PO_RECEIPT_MUTATION=no-source-text  the document's own wording is not shown
  *   PO_RECEIPT_MUTATION=hard-fail       a missing RPC breaks the page
+ *   PO_RECEIPT_MUTATION=no-step-card    steps an app set are not shown at all
+ *   PO_RECEIPT_MUTATION=step-hard-fail  a missing step RPC breaks the page
+ *   PO_RECEIPT_MUTATION=step-always     the step card shows with nothing in it
  *
  * Run: node v2/tests/browser/po-report-drafted-receipts.test.js
  */
@@ -40,6 +43,9 @@ const mutations = {
   'silent-po': ["} else if(data && data.po_status_requested && data.po_status_applied !== true){", '} else if(false){'],
   'no-source-text': ['${l.source_text ? `<span class="po-receipt-src', '${false ? `<span class="po-receipt-src'],
   'hard-fail': ['      } catch (err) {\n        state.receipts = [];\n      }', '      } finally {\n      }'],
+  'no-step-card': ['      await loadAppStatusChanges();\n', ''],
+  'step-hard-fail': ['      } catch (err) {\n        state.appStatusChanges = [];\n      }', '      } finally {\n      }'],
+  'step-always': ["el.stepCard.classList.toggle('hidden-safe', !list.length);", "el.stepCard.classList.remove('hidden-safe');"],
 };
 if (process.env.PO_RECEIPT_MUTATION) {
   const m = mutations[process.env.PO_RECEIPT_MUTATION];
@@ -109,6 +115,16 @@ if (process.env.PO_RECEIPT_MUTATION) {
          made two of these cases test nothing at all. */
       const mode = new URLSearchParams(location.search).get('fixture') || '';
       window.drafts = mode === 'empty' ? [] : [draft];
+      /* Steps a connected AI SET (po_status:write, 20261125230000). Nobody
+         confirms these, so the card is the record a person reads afterwards --
+         the shape silo_po_status_changes_recent() returns. */
+      window.stepChanges = mode === 'empty' ? [] : [{
+        id: 'c1', po_header_id: 'p1', po_name: 'Autumn PO', old_status: 'Draft',
+        new_status: 'Sent to Factory', reason: 'Factory confirmed the order by email',
+        source_label: 'Factory email', source_url: 'https://example.mail.test/t/9',
+        via_app: 'Claude', requested_by_email: 'blake@example.com',
+        created_at: '2026-11-25T19:00:00Z',
+      }];
       window.rpcMissing = mode === 'norpc';
       window.rpcCalls = [];
       // What the confirm RPC answers. The default is the interesting case: the
@@ -123,6 +139,7 @@ if (process.env.PO_RECEIPT_MUTATION) {
           window.rpcCalls.push({ name, args });
           if (window.rpcMissing) return Promise.resolve({ data: null, error: { message: 'function does not exist' } });
           if (name === 'silo_receiving_pending_drafts') return Promise.resolve({ data: window.drafts, error: null });
+          if (name === 'silo_po_status_changes_recent') return Promise.resolve({ data: window.stepChanges, error: null });
           if (name === 'silo_receiving_confirm_draft') { window.drafts = []; return Promise.resolve({ data: window.confirmAnswer, error: null }); }
           if (name === 'silo_receiving_reject_draft') { window.drafts = []; return Promise.resolve({ data: { state: 'rejected', changed: true }, error: null }); }
           return Promise.resolve({ data: null, error: null });
@@ -184,7 +201,8 @@ if (process.env.PO_RECEIPT_MUTATION) {
 
     // Nothing is recorded by merely looking at it.
     assert.deepEqual(await page.evaluate(() => window.rpcCalls.map((c) => c.name)),
-      ['silo_receiving_pending_drafts'], 'rendering a draft calls nothing but the read');
+      ['silo_receiving_pending_drafts', 'silo_po_status_changes_recent'],
+      'rendering a draft calls nothing but the two reads (drafts, and the steps an app set)');
 
     // Confirming: one RPC, and the refused PO status is reported.
     await card.locator('[data-confirm-receipt="d1"]').click();
@@ -209,6 +227,23 @@ if (process.env.PO_RECEIPT_MUTATION) {
     assert.ok(!after.includes('silo_receiving_confirm_draft'), 'discarding never confirms');
     assert.match(await page.locator('#status').textContent(), /Nothing was recorded/);
 
+    // The steps an app SET, which nobody confirms: the card is the only place
+    // in SILO that says what was changed, by which application, on whose
+    // connection and why.
+    await page.goto('https://fixture.test/v2/po-report.html');
+    await page.waitForFunction(() => document.querySelector('#stepCard')
+      && !document.querySelector('#stepCard').classList.contains('hidden-safe'));
+    await page.click('[data-tab="shipments"]');
+    const stepRow = (await page.locator('#stepBody tbody tr').first().textContent()).replace(/\s+/g, ' ');
+    assert.match(stepRow, /Autumn PO/);
+    assert.match(stepRow, /Draft → Sent to Factory/, 'the step it came from and the step it went to');
+    assert.match(stepRow, /Claude/, 'which application set it');
+    assert.match(stepRow, /blake@example\.com/, 'and on whose connection');
+    assert.match(stepRow, /Factory confirmed the order by email/, 'and why');
+    assert.equal(await page.locator('#stepBody a[href="https://example.mail.test/t/9"]').count(), 1,
+      'the document it was read from is one click away');
+    assert.match(await page.locator('#stepCount').textContent(), /1 change · last 14 days/);
+
     // Nothing waiting: the card is not in the page at all, on the tab where it
     // lives (a hidden panel would make any assertion about it pass).
     await page.goto('https://fixture.test/v2/po-report.html?fixture=empty');
@@ -217,6 +252,8 @@ if (process.env.PO_RECEIPT_MUTATION) {
     assert.equal(await page.locator('#receiptCard').isVisible(), false,
       'a company with nothing drafted sees the tab exactly as before');
     assert.equal(await page.locator('[data-receipt]').count(), 0);
+    assert.equal(await page.locator('#stepCard').isVisible(), false,
+      'and a company whose apps have set no steps sees no step card either');
 
     // A database without the RPCs yet: the page still loads the rest. The
     // receipts read happens BEFORE the filters are populated, so a refusal
@@ -226,10 +263,12 @@ if (process.env.PO_RECEIPT_MUTATION) {
       'the filters, which are populated after the receipts are read, still render');
     await page.click('[data-tab="shipments"]');
     assert.equal(await page.locator('#receiptCard').isVisible(), false);
+    assert.equal(await page.locator('#stepCard').isVisible(), false,
+      'neither card appears before its function exists');
     assert.equal(await page.locator('#shipmentTableCount').textContent(), '0');
     assert.deepEqual(errors, [], 'a missing RPC must not break PO Report');
 
-    console.log('PASS drafted deliveries: variance and doubts on screen, confirm reports a refused PO status, discard records nothing, fail-soft without the RPCs');
+    console.log('PASS drafted deliveries and steps set by an app: variance and doubts on screen, confirm reports a refused PO status, discard records nothing, the steps an app set are on the record, fail-soft without the RPCs');
   } finally {
     await browser.close();
   }

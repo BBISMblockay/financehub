@@ -3956,6 +3956,29 @@ read, flags a line whose text does not resemble the line chosen, and flags
 over-receipts and packing-list (vs counted) quantities. Apply before deploying
 `mcp`; the scope cannot be granted until it is applied.
 
+### A purchase order's step, set by a connected AI — 2026-11-25
+
+`20261125230000_po_status_write_scope.sql` adds the `po_status:write` scope,
+`po_status_options` and `po_status_changes`. Two things come with it. First, the
+steps are COMPANY DATA: the eleven-step list that lived in `v2/po-builder.html`
+is seeded per company into `po_status_options` (`is_open`, `ai_settable`,
+`needs_receipt`, `is_final`), the builder reads it with that list only as a fallback, and
+`po_status_default_options()` is SILO's default rather than any company's, and `po_status_options_ensure()` seeds a workspace that had no POs when this was applied (the company-taking form is the definer tools'; the browser's takes none, so nobody seeds another tenant).
+Second, `silo_api_set_po_status()` APPLIES the step — Blake, 2026-11-25: "if
+they approve in their llm to mark as something, it shouldn't require them to
+then go into silo to approve second time" — so the fence is the scope's own
+consent box, `ai_settable` (approving, closing and cancelling are not),
+`needs_receipt` (a step meaning units arrived is refused with a pointer to
+`record_shipment_receipt`), `silo_api_may_set_po_status()` (the approving
+person must be admin of the GRANT's company or the PO's creator, which is what
+`po_headers`' UPDATE policy allows), one write against the connection's daily
+cap, and a required idempotency key. Each change is recorded in
+`po_status_changes` with the reason and the document, and the PO's own
+`po_status_history` row is stamped with the approving person and "Via <app>" in
+place of the trigger's defaults. `silo_po_status_changes_recent()` is the card
+PO Report shows afterwards. Apply before deploying `mcp`; the scope cannot be
+granted until it is applied.
+
 ### Affiliate creator codes — 2026-11-17
 
 `20261117200000_affiliate_creator_codes.sql` names a new affiliate's first code after

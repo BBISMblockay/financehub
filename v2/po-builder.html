@@ -334,7 +334,12 @@
 
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
-    const PO_STATUSES = ['Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'];
+    /* The steps are company DATA (po_status_options, 20261125230000), so a
+       company can name its own and say which an AI connection may set. This
+       list is the FALLBACK, kept because a failed read of that table must not
+       leave the editor with an empty status dropdown -- and because every
+       company with POs was seeded from exactly this list. */
+    let PO_STATUSES = ['Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'];
     const CATALOG_SELECT = 'id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po';
     const CATALOG_PREVIEW_LIMIT = 500;
     const CATALOG_SEARCH_LIMIT = 2000000;
@@ -509,7 +514,29 @@
 
     function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
     function renderFactoryFilter(){ const current=el.poFactoryFilter.value; el.poFactoryFilter.innerHTML=['<option value="">All factories</option>'].concat(state.factories.map(f=>`<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`)).join(''); el.poFactoryFilter.value=current; }
-    function renderStatusOptions(){ el.status.innerHTML=PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`).join(''); el.poStatusFilter.innerHTML=['<option value="">All statuses</option>'].concat(PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`)).join(''); }
+    /* Loaded steps, plus any status a PO already carries: a step withdrawn
+       from the list must still be shown on the POs that are at it, or the
+       editor would silently display the first option instead of the PO's own
+       status, and the filter could not find those POs at all. */
+    function statusChoices(){ const seen=new Set(PO_STATUSES); const out=PO_STATUSES.slice(); (state.poRows||[]).forEach(r=>{ const v=(r&&r.status||'').trim(); if(v&&!seen.has(v)){ seen.add(v); out.push(v); } }); return out; }
+    function renderStatusOptions(){ const list=statusChoices(); const current=el.status.value; const filter=el.poStatusFilter.value; el.status.innerHTML=list.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''); el.poStatusFilter.innerHTML=['<option value="">All statuses</option>'].concat(list.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)).join(''); if(current&&list.includes(current)) el.status.value=current; if(filter&&list.includes(filter)) el.poStatusFilter.value=filter; }
+
+    /* Non-fatal by construction: anything other than a list of names leaves
+       the fallback in place. */
+    async function loadStatusOptions(){
+      // A workspace created before its first PO has no steps of its own yet;
+      // this seeds SILO's defaults once and does nothing afterwards, so an
+      // edited list is never restored. Fail-soft: an older database without
+      // the function still reads whatever list it has.
+      try{ await sb.rpc('po_status_options_ensure'); }catch(_){ }
+      let _q=sb.from('po_status_options').select('name, sort_order, is_active').eq('is_active',true).order('sort_order').order('name');
+      if(_co?.id) _q=_q.eq('company_entity_id',_co.id);
+      const {data,error}=await _q;
+      if(error) throw error;
+      const names=(data||[]).map(r=>(r&&r.name||'').trim()).filter(Boolean);
+      if(names.length) PO_STATUSES=names;
+      renderStatusOptions();
+    }
 
     function renderPOList(){
       const q=el.poSearch.value.trim().toLowerCase(), status=el.poStatusFilter.value, factory=el.poFactoryFilter.value;
@@ -1368,8 +1395,10 @@
         // leaves the identity unknown, and generateVendorPdf() names what is
         // missing rather than printing anything hardcoded.
         await loadCompanyIdentity().catch(e=>console.warn('company identity',e));
+        await loadStatusOptions().catch(e=>console.warn('po status options',e));
         await loadCatalogProducts();
         await refreshAll();
+        renderStatusOptions();
         const startPo=new URLSearchParams(location.search).get('po_id');
         const fromConcept=new URLSearchParams(location.search).get('fromConcept');
         if(startPo){ await openPO(startPo); }

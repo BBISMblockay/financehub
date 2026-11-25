@@ -221,6 +221,17 @@
             <div class="bcn-card-body" id="receiptBody"></div>
           </section>
 
+          <!-- Steps a connected AI set itself (po_status:write, 20261125230000).
+               Applied with no confirmation in SILO, so this card is the record
+               a person reads afterwards. Hidden until there is one. -->
+          <section class="bcn-card po-receipt-card hidden-safe" id="stepCard">
+            <header class="bcn-card-header po-shipment-heading">
+              <div><span class="bcn-pill">SET BY AN APP</span><h2>Steps a connected AI set</h2></div>
+              <span class="bcn-mono po-receipt-count" id="stepCount"></span>
+            </header>
+            <div class="bcn-card-body" id="stepBody"></div>
+          </section>
+
           <section class="bcn-card">
             <header class="bcn-card-header po-shipment-heading">
               <div><span class="bcn-pill">SHIPMENTS</span><h2>Shipment overview</h2></div>
@@ -535,6 +546,7 @@
       shipments: [],
       shipmentLines: [],
       receipts: [],
+      appStatusChanges: [],
       bookings: [],
       newBookingFor: null,   // shipment id whose "new booking" form is open
       mapCountryGroups: new Map(),
@@ -585,6 +597,9 @@
       receiptCard: document.getElementById('receiptCard'),
       receiptBody: document.getElementById('receiptBody'),
       receiptCount: document.getElementById('receiptCount'),
+      stepCard: document.getElementById('stepCard'),
+      stepBody: document.getElementById('stepBody'),
+      stepCount: document.getElementById('stepCount'),
 
       poTableCount: document.getElementById('poTableCount'),
       productTableCount: document.getElementById('productTableCount'),
@@ -709,6 +724,7 @@
       await loadCompanyShipTo();
       await loadShipments();
       await loadDraftedReceipts();
+      await loadAppStatusChanges();
 
       populateFilters();
       applyFilters();
@@ -1213,6 +1229,47 @@
         quantityBasis: !assignments.length ? 'unassigned' : unknown ? 'unknown' : inferred ? 'includes full PO line defaults' : 'assigned', inferred };
     }
 
+    /* Steps a connected AI set through po_status:write (20261125230000).
+       Nobody confirms those in SILO -- the person approved them in their own
+       AI client -- so this is where SILO says what was set, by which app, on
+       whose connection and why. Fail-soft: a database without the function
+       yet shows the page exactly as before. */
+    async function loadAppStatusChanges(){
+      try {
+        const { data, error } = await sb.rpc('silo_po_status_changes_recent', { p_days: 14, p_limit: 25 });
+        if(error) throw error;
+        state.appStatusChanges = Array.isArray(data) ? data : [];
+      } catch (err) {
+        state.appStatusChanges = [];
+      }
+      renderAppStatusChanges();
+    }
+
+    function renderAppStatusChanges(){
+      const list = state.appStatusChanges || [];
+      if(!el.stepCard) return;
+      el.stepCard.classList.toggle('hidden-safe', !list.length);
+      el.stepCount.textContent = list.length
+        ? list.length + (list.length === 1 ? ' change' : ' changes') + ' · last 14 days' : '';
+      if(!list.length){ el.stepBody.innerHTML = ''; return; }
+      el.stepBody.innerHTML = '<div class="bcn-matrix-scroll"><table class="bcn-table">'
+        + '<thead><tr><th>PO</th><th>Step</th><th>Set by</th><th>Why</th><th>When</th></tr></thead><tbody>'
+        + list.map((c) => {
+          const when = c.created_at ? new Date(c.created_at).toLocaleString() : '—';
+          const src = c.source_url
+            ? `<a href="${escapeHtml(c.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(c.source_label || 'Source')}</a>`
+            : (c.source_label ? escapeHtml(c.source_label) : '');
+          return `<tr>
+            <td>${escapeHtml(c.po_name || '—')}</td>
+            <td class="bcn-mono">${escapeHtml(c.old_status || '—')} → ${escapeHtml(c.new_status || '—')}</td>
+            <td>${escapeHtml(c.via_app || 'an AI connection')}${c.requested_by_email ? ' · ' + escapeHtml(c.requested_by_email) : ''}</td>
+            <td>${escapeHtml(c.reason || '—')}${src ? '<br />' + src : ''}</td>
+            <td class="bcn-mono">${escapeHtml(when)}</td>
+          </tr>`;
+        }).join('')
+        + '</tbody></table></div>';
+    }
+
     /* Deliveries a connected AI drafted, waiting for a person
        (receiving:write, 20261117220000). One RPC, which is the same shape the
        AI was handed, so the page and the bot cannot describe one differently.
@@ -1331,6 +1388,7 @@
         }
         await loadShipments();
         await loadDraftedReceipts();
+      await loadAppStatusChanges();
       } catch (err) {
         setStatus(err?.message || 'That did not work.', 'error', 9000);
         buttons.forEach((b) => { b.disabled = false; });

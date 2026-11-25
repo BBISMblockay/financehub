@@ -11028,3 +11028,64 @@ select 'QuickBooks ledger mirror' as check_name,
       then 'CRITICAL: silo_books_ledger_v names a company id'
     else 'ok'
   end as status;
+
+-- A purchase order's step set by a connected AI (po_status:write,
+-- 20261125230000): the scope is grantable and on its own path, the steps are
+-- COMPANY DATA rather than a list in code, a step that means units arrived
+-- cannot be set without a confirmed delivery, the authority is the approving
+-- person's, and no browser role can call the connection's tools.
+select 'PO step set by AI' as check_name,
+  case
+    when to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)') is null
+      or to_regprocedure('public.silo_api_po_status_options()') is null
+      or to_regprocedure('public.silo_api_pos_for_status(text,integer)') is null
+      or to_regprocedure('public.silo_api_may_set_po_status(uuid,uuid,uuid)') is null
+      or to_regclass('public.po_status_options') is null
+      or to_regclass('public.po_status_changes') is null
+      then 'MISSING — run 20261125230000_po_status_write_scope.sql'
+    when position('po_status:write' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
+      then 'BROKEN — the consent screen cannot grant po_status:write'
+    when position('/rpc/silo_api_set_po_status' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — the PO step tools are not on the API path allowlist'
+    when position('po_status' in pg_get_constraintdef((select oid from pg_constraint where conname = 'silo_api_writes_kind_check' and conrelid = 'public.silo_api_writes'::regclass))) = 0
+      then 'BROKEN — a step set by a connection does not count against its daily writes'
+    when position('v_opt.needs_receipt' in pg_get_functiondef(to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'))) = 0
+      then 'CRITICAL: a connection could mark units as arrived without a delivery anyone confirmed'
+    when position('v_opt.ai_settable' in pg_get_functiondef(to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'))) = 0
+      then 'CRITICAL: a connection could set any purchase-order step, including approved or cancelled'
+    when position('silo_api_may_set_po_status' in pg_get_functiondef(to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'))) = 0
+      then 'CRITICAL: a connection could move a PO its own person may not change in SILO'
+    when position('pg_advisory_xact_lock' in pg_get_functiondef(to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'))) = 0
+      then 'BROKEN — two calls may both take a connection''s last free write'
+    when position('v_grant.company_entity_id' in pg_get_functiondef(to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'))) = 0
+      or position('active_company_id' in pg_get_functiondef(to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'))) > 0
+      then 'CRITICAL: the company follows the approver''s session instead of the grant'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_function_privilege(r.role, to_regprocedure('public.silo_api_set_po_status(uuid,text,text,text,text,text)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.silo_api_may_set_po_status(uuid,uuid,uuid)'), 'execute'))
+      then 'BROKEN — a browser role can call the connection''s step tools'
+    when has_function_privilege('silo_integration', to_regprocedure('public.silo_po_status_changes_recent(integer,integer)'), 'execute')
+      then 'BROKEN — a connection can read the card meant for the person'
+    when not (select relrowsecurity from pg_class where oid = 'public.po_status_options'::regclass)
+      or not (select relrowsecurity from pg_class where oid = 'public.po_status_changes'::regclass)
+      then 'CRITICAL: the PO step tables have RLS off'
+    when has_table_privilege('anon', 'public.po_status_options', 'select')
+      or has_table_privilege('anon', 'public.po_status_changes', 'select')
+      or has_table_privilege('silo_integration', 'public.po_status_options', 'select')
+      then 'CRITICAL: the PO step tables are readable by anon or by an AI connection directly'
+    when has_table_privilege('authenticated', 'public.po_status_changes', 'insert,update,delete')
+      then 'CRITICAL: a browser can write the record of what a connection changed'
+    when not has_table_privilege('authenticated', 'public.po_status_options', 'select')
+      then 'BROKEN — PO Builder cannot read this company''s steps'
+    when exists (select 1 from public.po_headers h
+                  where h.company_entity_id is not null
+                    and coalesce(btrim(h.status), '') <> ''
+                    and not exists (select 1 from public.po_status_options o
+                                     where o.company_entity_id = h.company_entity_id
+                                       and o.name = btrim(h.status)))
+      then 'BROKEN — a purchase order is at a step this company''s list does not have, so PO Builder cannot show it'
+    when exists (select 1 from public.po_status_options o
+                  where o.ai_settable and o.needs_receipt)
+      then 'CRITICAL: a step that means units arrived is also settable by a connection'
+    else 'ok'
+  end as status;

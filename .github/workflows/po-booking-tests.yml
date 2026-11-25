@@ -15,6 +15,8 @@ on:
       - 'v2/tests/browser/po-report-*.test.js'
       - 'supabase/migrations/*shipment_bookings*'
       - 'supabase/migrations/*receiving_write_scope*'
+      - 'supabase/migrations/*po_status_write_scope*'
+      - 'v2/tests/browser/po-status-steps.test.js'
       - 'scripts/tests/shipment-booking-arrival-database.test.mjs'
       - 'package.json'
       - 'package-lock.json'
@@ -80,13 +82,19 @@ jobs:
       - name: Each drafted-delivery behaviour, removed one at a time, must break it
         run: |
           set -u
-          for m in always-visible no-variance silent-po no-source-text hard-fail; do
+          for m in always-visible no-variance silent-po no-source-text hard-fail no-step-card step-hard-fail step-always; do
             echo "--- $m ---"
             if PO_RECEIPT_MUTATION="$m" node v2/tests/browser/po-report-drafted-receipts.test.js; then
               echo "::error::mutation $m did not fail the suite -- the behaviour it removes is untested"
               exit 1
             fi
           done
+
+      # 20261125230000: a PO's steps are company data, and the builder reads
+      # them -- with its own list only as the fallback, because an empty status
+      # dropdown would stop every PO being edited.
+      - name: PO Builder reads this company's steps
+        run: node v2/tests/browser/po-status-steps.test.js
 
       # The underwriting extract reads v_po_arrival now; its own suite pins that
       # the lender-facing arrival months still measure the PO's TYPED plan, so a

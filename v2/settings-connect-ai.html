@@ -530,8 +530,9 @@
   const hasScope = (g, s) => Array.isArray(g.scopes) && g.scopes.includes(s);
   const CODES = K.CODES_SCOPE || 'codes:create';
   const RECEIVING = K.RECEIVING_SCOPE || 'receiving:write';
+  const PO_STATUS = K.PO_STATUS_SCOPE || 'po_status:write';
   const canWrite = (g) => hasScope(g, K.WRITE_SCOPE) || hasScope(g, OUTREACH) || hasScope(g, CODES)
-    || hasScope(g, RECEIVING);
+    || hasScope(g, RECEIVING) || hasScope(g, PO_STATUS);
 
   /* What this connection may write, in words. Pausing stops both. */
   function writeWhat(g) {
@@ -540,7 +541,13 @@
     if (hasScope(g, OUTREACH)) parts.push('send affiliate outreach someone approved, from your own mailbox, and record it as sent');
     if (hasScope(g, CODES)) parts.push('create the affiliate codes someone asked for in your own Shopify store, and record them');
     if (hasScope(g, RECEIVING)) parts.push('draft a delivery against a purchase order, for someone to confirm in PO Report');
-    return 'Can ' + parts.join(', and ') + '. It cannot change anything that exists';
+    if (hasScope(g, PO_STATUS)) parts.push('move a purchase order to a step you allow an AI to set, straight away');
+    /* The step permission is the one that changes something that already
+       exists, so the closing clause has to stop claiming otherwise. */
+    return 'Can ' + parts.join(', and ') + '. '
+      + (hasScope(g, PO_STATUS)
+        ? 'It cannot mark units as arrived, approve, close or cancel a PO, or touch money or quantities'
+        : 'It cannot change anything that exists');
   }
 
   function writeLine(g) {
@@ -924,13 +931,15 @@
     'outreach:send': 'Send approved affiliate outreach from your own mailbox (only if you tick it when approving)',
     'codes:create': 'Create affiliate codes in your own Shopify store (only if you tick it when approving)',
     'receiving:write': 'Draft a delivery against a purchase order, for someone to confirm in PO Report (only if you tick it when approving)',
+    'po_status:write': 'Move a purchase order to a step you allow an AI to set, applied straight away (only if you tick it when approving)',
   };
 
   function renderGrantedScopes() {
     /* Writing is listed last and named as optional, because it is the one
        permission the approval screen leaves unticked. */
     const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE, K.OUTREACH_SCOPE || 'outreach:send',
-      K.CODES_SCOPE || 'codes:create', K.RECEIVING_SCOPE || 'receiving:write']);
+      K.CODES_SCOPE || 'codes:create', K.RECEIVING_SCOPE || 'receiving:write',
+      K.PO_STATUS_SCOPE || 'po_status:write']);
     const items = keys.map((key) => {
       const detail = (K.SCOPE_COPY && K.SCOPE_COPY[key]) || key;
       const label = SCOPE_LABEL[key] || key;

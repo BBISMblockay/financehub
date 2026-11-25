@@ -159,6 +159,16 @@
             pausing writing pauses this too.</span>
         </label>
 
+        <label class="cs-opt" for="optPoStatus">
+          <input type="checkbox" id="optPoStatus" />
+          <span><strong>Also let it move a purchase order to a step, straight away.</strong> It can set the steps your
+            company allows an AI to set &mdash; that the order is with the factory, in production, shipped &mdash;
+            marked as this application. <strong>This one applies immediately: there is no second approval in
+            SILO</strong>, so tick it only for an application you tell what to do. It can never mark units as arrived
+            (that stays a delivery someone confirms), approve, close or cancel a PO, or touch money or quantities. Off
+            unless you tick it, and pausing writing pauses this too.</span>
+        </label>
+
         <p class="cs-label">It will not be able to</p>
         <ul class="cs-list cs-cannot">
           <li id="cannotChange">Change, add or delete anything</li>
@@ -382,6 +392,7 @@
   const OUTREACH = (K && K.OUTREACH_SCOPE) || 'outreach:send';
   const CODES = (K && K.CODES_SCOPE) || 'codes:create';
   const RECEIVING = (K && K.RECEIVING_SCOPE) || 'receiving:write';
+  const PO_STATUS = (K && K.PO_STATUS_SCOPE) || 'po_status:write';
   const READS = (K && Array.isArray(K.SILO_SCOPES) && K.SILO_SCOPES.length)
     ? K.SILO_SCOPES : ['reports:read', 'data:read'];
 
@@ -390,8 +401,9 @@
     const send = !!(el('optOutreach') && el('optOutreach').checked);
     const codes = !!(el('optCodes') && el('optCodes').checked);
     const recv = !!(el('optReceiving') && el('optReceiving').checked);
+    const step = !!(el('optPoStatus') && el('optPoStatus').checked);
     return READS.concat(on ? [WRITE] : [], send ? [OUTREACH] : [], codes ? [CODES] : [],
-      recv ? [RECEIVING] : []).filter(Boolean);
+      recv ? [RECEIVING] : [], step ? [PO_STATUS] : []).filter(Boolean);
   }
 
   async function writeGrant(clientId) {
@@ -408,7 +420,7 @@
        the write. Anything unreadable here is NOT treated as a failure: the
        grant exists either way, and blocking the connection over a failed
        verification read would be a worse bug than the one it guards. */
-    const extras = [WRITE, OUTREACH, CODES, RECEIVING].filter((s) => wanted.includes(s));
+    const extras = [WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS].filter((s) => wanted.includes(s));
     if (!extras.length) return;
     try {
       const { data } = await db
@@ -423,7 +435,8 @@
       if (missing.length) {
         throw new Error('SILO approved the connection but did not record permission to '
           + (missing.includes(WRITE) ? 'open tasks' : missing.includes(OUTREACH) ? 'send approved outreach'
-            : missing.includes(CODES) ? 'create affiliate codes' : 'draft deliveries')
+            : missing.includes(CODES) ? 'create affiliate codes'
+              : missing.includes(RECEIVING) ? 'draft deliveries' : 'move a purchase order\u2019s step')
           + '. Reload this page and approve again.');
       }
     } catch (e) {
@@ -523,17 +536,24 @@
       /* With writing on, "change, add or delete anything" would be a lie about
          the "add" -- and the thing people need to know is that nothing which
          already exists can be touched. */
+      const step = !!(el('optPoStatus') && el('optPoStatus').checked);
       const writes = el('optWrite').checked || !!(el('optOutreach') && el('optOutreach').checked)
         || !!(el('optCodes') && el('optCodes').checked)
-        || !!(el('optReceiving') && el('optReceiving').checked);
-      el('cannotChange').textContent = writes
-        ? 'Change, complete or delete anything that already exists'
-        : 'Change, add or delete anything';
+        || !!(el('optReceiving') && el('optReceiving').checked) || step;
+      /* With the step box ticked, "change anything that already exists" would
+         be a lie: a purchase order's step is exactly that, and it changes with
+         no second approval. Say what is still out of reach instead. */
+      el('cannotChange').textContent = step
+        ? 'Mark units as arrived, approve, close or cancel a purchase order, or touch money, quantities or anything else that already exists'
+        : writes
+          ? 'Change, complete or delete anything that already exists'
+          : 'Change, add or delete anything';
     };
     el('optWrite').addEventListener('change', paintScopes);
     if (el('optOutreach')) el('optOutreach').addEventListener('change', paintScopes);
     if (el('optCodes')) el('optCodes').addEventListener('change', paintScopes);
     if (el('optReceiving')) el('optReceiving').addEventListener('change', paintScopes);
+    if (el('optPoStatus')) el('optPoStatus').addEventListener('change', paintScopes);
     paintScopes();
 
     const sel = el('coSelect');

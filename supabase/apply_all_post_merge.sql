@@ -19967,4 +19967,9 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
 -- not contact), so worked finds leave Affiliate Studio's working lists.
 \i migrations/20261125210000_affiliate_customer_review.sql
+-- 20261125230000: po_status:write -- a connected AI moves a purchase order to
+-- one of the steps the company allows (po_status_options), applied straight
+-- away with no second confirmation, recorded in po_status_changes. Apply
+-- BEFORE deploying mcp, and the scope cannot be granted until it is applied.
+\i migrations/20261125230000_po_status_write_scope.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

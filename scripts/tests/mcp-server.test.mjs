@@ -229,6 +229,19 @@ test('the tool list shows what this connection may call, and nothing else', asyn
   assert.deepEqual(coded.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'affiliate_codes_to_create', 'mark_affiliate_code_created', 'how_to_use_silo']);
   assert.ok(!sent.result.tools.some((t) => /code/.test(t.name)), 'outreach:send does not imply codes:create');
 
+  // po_status:write is its own permission as well, and the one that CHANGES
+  // something that exists: its three tools appear with it alone, and a
+  // connection that may draft a delivery is not shown them.
+  const stepper = withScopes(['reports:read', 'data:read', 'po_status:write']);
+  const stepped = await (await stepper.handle(post(rpc('tools/list')))).json();
+  assert.deepEqual(stepped.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'po_status_options', 'purchase_orders_for_status', 'set_po_status', 'how_to_use_silo']);
+  const receiver = withScopes(['reports:read', 'data:read', 'receiving:write']);
+  const received = await (await receiver.handle(post(rpc('tools/list')))).json();
+  assert.ok(!received.result.tools.some((t) => t.name === 'set_po_status'),
+    'receiving:write does not imply po_status:write');
+  assert.ok(!stepped.result.tools.some((t) => t.name === 'record_shipment_receipt'),
+    'and po_status:write does not imply receiving:write');
+
   const reader = withScopes(['reports:read', 'data:read']);
   const read1 = await (await reader.handle(post(rpc('tools/list')))).json();
   assert.ok(!read1.result.tools.some((t) => t.name === 'create_task'),
@@ -260,7 +273,7 @@ test('the write tools are exactly create_task and the two outreach tools', async
   assert.deepEqual(writers, ['create_task', 'claim_outreach_to_send', 'mark_outreach_sent']);
   for (const t of TOOLS) {
     if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent', 'mark_affiliate_code_created',
-      'record_shipment_receipt'].includes(t.name)) {
+      'record_shipment_receipt', 'set_po_status'].includes(t.name)) {
       assert.equal(t.annotations.readOnlyHint, false);
       assert.equal(t.annotations.destructiveHint, false, `${t.name} destroys nothing`);
       assert.equal(t.annotations.idempotentHint, true, `${t.name}: a retry returns the first result`);
@@ -632,8 +645,9 @@ test('the function never reaches for the database service role; live access adds
   assert.deepEqual([...new Set(rpcs)].sort(),
     ['silo_api_claim_outreach', 'silo_api_codes_to_create', 'silo_api_connect', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
      'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_po_lines_for_receiving',
-     'silo_api_pos_awaiting_receipt', 'silo_api_query', 'silo_api_record_failure',
-     'silo_api_record_shipment_receipt', 'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
+     'silo_api_po_status_options', 'silo_api_pos_awaiting_receipt', 'silo_api_pos_for_status',
+     'silo_api_query', 'silo_api_record_failure', 'silo_api_record_shipment_receipt',
+     'silo_api_run_report', 'silo_api_scopes', 'silo_api_set_po_status', 'silo_api_windsor_connections']);
   // Every PostgREST request goes through rawRpc, so that pin is the whole list.
   assert.equal([...src.matchAll(/fetchImpl\(base \+ '\/rest\/v1\/rpc\/'/g)].length, 1);
 });
@@ -868,6 +882,95 @@ test('the read side forwards a PO id and a search, and refuses anything else', a
   const bad = await callRecv(handle, { po_header_id: 'PO-1' }, 'po_lines_for_receiving');
   assert.equal(bad.result.isError, true);
   const badLimit = await callRecv(handle, { limit: 0 }, 'pos_awaiting_receipt');
+  assert.equal(badLimit.result.isError, true);
+});
+
+// ── 7b. po_status:write: moving a PO's step (20261125230000) ───────────────
+
+const STEP_OK = { applied: true, changed: true, po_name: 'Incotexco-900',
+  old_status: 'Draft', new_status: 'Sent to Factory' };
+const stepScopes = (fn) => fn === 'silo_api_scopes'
+  ? [200, ['reports:read', 'data:read', 'po_status:write']]
+  : [200, fn === 'silo_api_set_po_status' ? STEP_OK : CATALOG];
+const callStep = async (handle, args, name = 'set_po_status') =>
+  (await (await handle(post(rpc('tools/call', { name, arguments: args })))).json());
+
+test('set_po_status says plainly that it applies, and is the only writer of the three', async () => {
+  const t = TOOLS.find((x) => x.name === 'set_po_status');
+  assert.equal(t.annotations.readOnlyHint, false);
+  assert.equal(t.annotations.idempotentHint, true);
+  assert.match(t.description, /APPLIED IMMEDIATELY/,
+    'a tool with no confirmation behind it must say so where the model reads it');
+  assert.ok(/record_shipment_receipt/.test(t.description),
+    'and point arrivals at the receipt tool instead');
+  for (const n of ['po_status_options', 'purchase_orders_for_status']) {
+    assert.equal(TOOLS.find((x) => x.name === n).annotations.readOnlyHint, true);
+  }
+});
+
+test('a step change reaches the database as the person\'s own call, with nothing invented forwarded', async () => {
+  const { handle, calls } = harness(stepScopes);
+  const body = await callStep(handle, {
+    po_header_id: PO,
+    status: 'Sent to Factory',
+    idempotency_key: 'mail-1700000000',
+    reason: 'Factory confirmed the order',
+    source_label: 'Factory email',
+    source_url: 'https://example.mail.com/t/9',
+    nonsense: 'ignored by the schema',
+  });
+  assert.equal(body.result.isError, false);
+  assert.deepEqual(body.result.structuredContent, STEP_OK);
+  const call = calls.find((c) => c.fn === 'silo_api_set_po_status');
+  assert.ok(call, 'it reaches the database RPC');
+  assert.equal(call.headers.Authorization, INTEGRATION, 'with the caller\'s own token, never a service role');
+  assert.deepEqual(call.body, {
+    p_po_header_id: PO, p_status: 'Sent to Factory', p_idempotency_key: 'mail-1700000000',
+    p_reason: 'Factory confirmed the order', p_source_label: 'Factory email',
+    p_source_url: 'https://example.mail.com/t/9',
+  });
+});
+
+test('a step change the model got wrong is a tool error, and never reaches the database', async () => {
+  const bad = [
+    [{ status: 'Sent to Factory', idempotency_key: 'k' }, 'no PO'],
+    [{ po_header_id: 'Incotexco-900', status: 'Sent to Factory', idempotency_key: 'k' }, 'a PO name instead of an id'],
+    [{ po_header_id: PO, idempotency_key: 'k' }, 'no step'],
+    [{ po_header_id: PO, status: '   ', idempotency_key: 'k' }, 'a blank step'],
+    [{ po_header_id: PO, status: 'Sent to Factory' }, 'no idempotency key'],
+    [{ po_header_id: PO, status: 'Sent to Factory', idempotency_key: 'k', source_url: 'http://example.com/x' }, 'a link that is not https'],
+  ];
+  for (const [args, why] of bad) {
+    const { handle, calls } = harness(stepScopes);
+    const body = await callStep(handle, args);
+    assert.equal(body.result.isError, true, why);
+    assert.equal(calls.filter((c) => c.fn === 'silo_api_set_po_status').length, 0, `${why}: never reaches the database`);
+  }
+  // The step NAMES are company data, so the server forwards an unknown one and
+  // lets the database say which steps this company has -- it cannot know.
+  const { handle, calls } = harness((fn) => fn === 'silo_api_scopes'
+    ? [200, ['reports:read', 'data:read', 'po_status:write']]
+    : fn === 'silo_api_set_po_status'
+      ? [400, { code: 'P0001', message: 'unknown_status: "At the moon" is not one of this company\'s purchase-order steps.' }]
+      : [200, CATALOG]);
+  const body = await callStep(handle, { po_header_id: PO, status: 'At the moon', idempotency_key: 'k' });
+  assert.equal(body.result.isError, true);
+  assert.equal(calls.filter((c) => c.fn === 'silo_api_set_po_status').length, 1,
+    'the allowed steps are not knowable in the server, so the database decides');
+  assert.match(body.result.content[0].text, /not one of this company's purchase-order steps/);
+});
+
+test('the step read side forwards a search and a limit, and refuses anything else', async () => {
+  const { handle, calls } = harness(stepScopes);
+  const opts = await callStep(handle, {}, 'po_status_options');
+  assert.equal(opts.result.isError, false);
+  assert.equal(calls.at(-1).fn, 'silo_api_po_status_options');
+  const list = await callStep(handle, { search: 'Incotexco', limit: 10 }, 'purchase_orders_for_status');
+  assert.equal(list.result.isError, false);
+  assert.equal(calls.at(-1).fn, 'silo_api_pos_for_status');
+  assert.equal(calls.at(-1).body.p_search, 'Incotexco');
+  assert.equal(calls.at(-1).body.p_limit, 10);
+  const badLimit = await callStep(handle, { limit: 500 }, 'purchase_orders_for_status');
   assert.equal(badLimit.result.isError, true);
 });
 
