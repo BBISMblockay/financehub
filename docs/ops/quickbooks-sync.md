@@ -53,8 +53,23 @@ a time. The page writes no table.
 - Sales, prepaid and depreciation entries are still created on their own pages; once approved they sync here.
 - No nightly run. Sending still needs a signed-in finance user.
 
+## Already in QuickBooks (20261125130000)
+
+SILO knows only what it sent, so an entry made by hand in QuickBooks used to sit under Waiting,
+unticked, for ever. A finance user can now press **Already in QuickBooks** on any row SILO would
+send. The row moves to Synced ("Entered in QuickBooks by hand") and **Undo** takes the mark off.
+
+- The mark is a row in `quickbooks_entered_by_hand`, keyed exactly like a sending claim
+  (`source`, `source_ref`), written only by `set_entry_entered_in_quickbooks(kind, id, marked)`.
+- While it stands, the trigger `qbo_entered_by_hand_claim` refuses any claim to send that entry
+  (`P0PS3`), from this page or any other. That is the protection; the page's reading is only display.
+- An entry SILO has a send on record for (unconfirmed or posted) cannot be marked.
+- A database without the migration shows no button and no error. If the marks cannot be read, no
+  button is offered and a marked entry that gets pressed is refused by the database.
+
 ## Tests
 
-`node --test scripts/tests/quickbooks-sync.test.mjs` (27). `QBSYNC_MUTATION=<name>` breaks one protection;
-all 18 must fail the suite and CI runs each. Verified in Chromium against the shipped page with stubbed
+`node --test scripts/tests/quickbooks-sync.test.mjs` (31). `QBSYNC_MUTATION=<name>` breaks one protection;
+all 22 must fail the suite and CI runs each. The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
+(11 checks, 10 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

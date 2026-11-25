@@ -10892,3 +10892,33 @@ select 'ad metric adjustments' as check_name,
       then 'CRITICAL: a browser role or an AI connection can rewrite stored ad metrics'
     else 'ok'
   end as status;
+
+-- Saved rules without a page, and "already in QuickBooks" (20261125130000). The rule function
+-- categorizes rows with no person present, so it must be the scheduler's alone and must keep
+-- its two fences (rows no person has saved; accounts that are switched on). The by-hand mark
+-- only means anything while the claim guard is attached: without it a marked entry posts twice.
+select 'Saved rules auto-apply and entered by hand' as check_name,
+  case
+    when to_regprocedure('public.apply_saved_card_coding_rules(integer)') is null
+      or to_regprocedure('public.card_coding_infer_treatment(text,text,text,numeric)') is null
+      or to_regprocedure('public.set_entry_entered_in_quickbooks(text,uuid,boolean)') is null
+      or to_regclass('public.quickbooks_entered_by_hand') is null
+      then 'MISSING — run 20261125130000_rules_auto_apply_and_entered_by_hand.sql'
+    when has_function_privilege('anon', 'public.apply_saved_card_coding_rules(integer)'::regprocedure, 'execute')
+      or has_function_privilege('authenticated', 'public.apply_saved_card_coding_rules(integer)'::regprocedure, 'execute')
+      then 'CRITICAL: a browser can categorize every switched-on account from saved rules'
+    when position('x.updated_by is null' in pg_get_functiondef('public.apply_saved_card_coding_rules(integer)'::regprocedure)) = 0
+      or position('xs.auto_prepare_coding' in pg_get_functiondef('public.apply_saved_card_coding_rules(integer)'::regprocedure)) = 0
+      then 'BROKEN — saved rules would re-categorize rows a person cleared, or accounts that are switched off'
+    when not exists (select 1 from pg_class where oid = to_regclass('public.quickbooks_entered_by_hand') and relrowsecurity)
+      then 'CRITICAL: quickbooks_entered_by_hand has RLS off'
+    when has_table_privilege('anon', 'public.quickbooks_entered_by_hand', 'SELECT')
+      or has_table_privilege('authenticated', 'public.quickbooks_entered_by_hand', 'INSERT')
+      or has_table_privilege('authenticated', 'public.quickbooks_entered_by_hand', 'DELETE')
+      or has_function_privilege('anon', 'public.set_entry_entered_in_quickbooks(text,uuid,boolean)'::regprocedure, 'execute')
+      then 'CRITICAL: the by-hand mark can be read or written outside its function'
+    when not exists (select 1 from pg_trigger where tgrelid = 'public.quickbooks_journal_postings'::regclass
+                      and tgname = 'qbo_entered_by_hand_claim' and not tgisinternal)
+      then 'BROKEN — an entry marked as entered by hand can still be sent to QuickBooks'
+    else 'ok'
+  end as status;

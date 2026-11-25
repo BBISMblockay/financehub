@@ -9,13 +9,29 @@ const reply = (body, status = 200) => Response.json(body, { status });
 // rest of an import through further bounded invocations.
 export const ROWS_PER_INVOCATION = 40;
 
+// How many rows one run may categorize from saved rules. The rest waits for
+// the next run (every bank feed sync, and nightly).
+export const RULE_ROWS_PER_RUN = 500;
+// Counts only -- never a row, a merchant or an account name in a response.
+async function applySavedRules(db) {
+  try {
+    const { data, error } = await db.rpc('apply_saved_card_coding_rules', { p_limit: RULE_ROWS_PER_RUN });
+    if (error || !data || typeof data !== 'object') return null;
+    const whole = value => (Number.isInteger(value) && value >= 0 ? value : 0);
+    const skipped = data.skipped && typeof data.skipped === 'object' && !Array.isArray(data.skipped)
+      ? Object.values(data.skipped).reduce((n, value) => n + whole(value), 0) : 0;
+    return { applied: whole(data.applied), skipped, more: data.more === true };
+  } catch { return null; }
+}
+
 // Scheduled coding preparation. The caller is the scheduler, identified by its
 // GitHub OIDC token -- never a person, and never a borrowed person's session.
 // It may name a cursor or the import it is still working through; it may NOT
 // name a company, an account, an action, or which rows: the database decides
 // what needs preparing (next_card_coding_work) and the company is read from the
-// import. Preparation writes suggestions only; accepting, approval and posting
-// are not reachable from here.
+// import. Preparation writes suggestions only. The one thing that categorizes
+// a row here is a rule the company saved (below); accepting a suggestion,
+// approval and posting are not reachable from here.
 export function createScheduledPrepareHandler({ env, verifyIdentity, createDb, prepare }) {
   return async req => {
     if (req.method !== 'POST') return reply({ error_code: 'method_not_allowed' }, 405);
@@ -35,6 +51,14 @@ export function createScheduledPrepareHandler({ env, verifyIdentity, createDb, p
         !['background', 'nightly'].includes(input.trigger)) return reply({ error_code: 'invalid_request' }, 400);
     let db;
     try { db = createDb(); } catch { return reply({ error_code: 'work_discovery_failed' }, 503); }
+    // Saved rules first, once per run (the runner's first call carries no
+    // cursor): a row a rule answers is categorized here and never reaches the
+    // model. The database decides which rows (apply_saved_card_coding_rules:
+    // switched-on accounts, open months, rows no person has saved). Fail-soft
+    // by design -- preparation below does not depend on it, and a database
+    // that does not have the function yet simply reports null.
+    let rules = null;
+    if (input.after == null && input.batch == null) rules = await applySavedRules(db);
     let work;
     try {
       const { data, error } = await db.rpc('next_card_coding_work',
@@ -42,7 +66,7 @@ export function createScheduledPrepareHandler({ env, verifyIdentity, createDb, p
       if (error) throw new Error();
       work = data;
     } catch { return reply({ error_code: 'work_discovery_failed' }, 503); }
-    if (!work) return reply({ done: true });
+    if (!work) return reply({ done: true, ...(rules ? { rules } : {}) });
     if (!uuid(work.batch_id) || !uuid(work.company_entity_id) || !Array.isArray(work.transaction_ids) ||
         !work.transaction_ids.length || !work.transaction_ids.every(uuid) ||
         (input.after && !input.batch && work.batch_id <= input.after) ||
@@ -60,12 +84,12 @@ export function createScheduledPrepareHandler({ env, verifyIdentity, createDb, p
         run_id: uuid(body.run_id) ? body.run_id : null, run_status: typeof body.run_status === 'string' ? body.run_status : null,
         suggested: count('suggested'), needs_judgment: count('needs_judgment'), failed: count('failed'),
         in_progress: count('in_progress'), asked: work.transaction_ids.length, remaining,
-        ...(ok ? {} : { error_code: 'preparation_failed' }) });
+        ...(rules ? { rules } : {}), ...(ok ? {} : { error_code: 'preparation_failed' }) });
     } catch {
       // Whatever finished was saved slice by slice; the claim lease expires.
       return reply({ done: false, batch_id: work.batch_id, ok: false, status: 'unconfirmed', run_id: null, run_status: null,
         suggested: 0, needs_judgment: 0, failed: 0, in_progress: 0, asked: work.transaction_ids.length, remaining,
-        error_code: 'preparation_unconfirmed' });
+        ...(rules ? { rules } : {}), error_code: 'preparation_unconfirmed' });
     }
   };
 }

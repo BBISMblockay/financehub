@@ -42,6 +42,13 @@ const MUTATIONS = {
   // An unreadable list is unknown, never empty-and-green.
   'unread-list-empty': [`if (!known(facts.batches) || !known(facts.adjustments)) return null;`, `facts = { ...facts, batches: facts.batches || [], adjustments: facts.adjustments || [] };`],
   // The bar scores only what SILO sends.
+  // An entry marked as already in QuickBooks is never offered for sending.
+  'by-hand-sendable': [`if (enteredByHand(facts, 'card_import', b.id)) return set('synced', BY_HAND, { byHand: true });`, ``],
+  'by-hand-entry-sendable': [`if (a.status === 'approved' && enteredByHand(facts, source, ref)) return set('synced', BY_HAND, { byHand: true });`, ``],
+  // The button is offered only where the database can hold the mark.
+  'mark-without-table': [`i.canMark = known(facts.byHand) && i.status === 'waiting' && i.sendable === true;`, `i.canMark = i.status === 'waiting' && i.sendable === true;`],
+  // A missing feature is "not installed", not a failed read.
+  'missing-table-is-error': [`if (r.error.code === 'PGRST205' || r.error.code === '42P01') return null;`, ``],
   'score-open-months': [`const total = synced + waiting + fix;`, `const total = synced + waiting + fix + count('open');`],
 };
 
@@ -282,7 +289,7 @@ test('the page wires the module and leaves no write path of its own', () => {
   assert.doesNotMatch(raw + page, /\balert\(/);
   assert.doesNotMatch(raw, /\.(insert|update|upsert|delete)\(/, 'no table writes from the page');
   const rpcs = [...raw.matchAll(/rpc\('([a-z_]+)'/g)].map((m) => m[1]).sort();
-  assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'is_exec_or_owner', 'silo_business_today', 'silo_ledger_batch_status'].sort());
+  assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'is_exec_or_owner', 'set_entry_entered_in_quickbooks', 'silo_business_today', 'silo_ledger_batch_status'].sort());
   assert.doesNotMatch(raw, /innerHTML/);
 });
 
@@ -292,8 +299,9 @@ export const mutationNames = Object.keys(MUTATIONS);
 function fakeDb(tables, failing = []) {
   const rpc = { can_manage_journal_entries: true, is_exec_or_owner: false, silo_business_today: '2026-11-25', silo_ledger_batch_status: [] };
   const chain = (table) => {
-    const answer = failing.includes(table) ? { data: null, error: { message: 'timeout' } } : { data: tables[table], error: null };
-    const q = { select: () => q, eq: () => q, in: () => q, order: () => q, range: () => q, maybeSingle: () => q, then: (ok, no) => Promise.resolve(answer).then(ok, no) };
+    const answer = failing.includes(table) ? { data: null, error: { message: 'timeout' } }
+      : tables[table] === 'missing' ? { data: null, error: { code: 'PGRST205', message: 'no such table' } } : { data: tables[table], error: null };
+    const q = { select: () => q, eq: () => q, in: () => q, order: () => q, range: () => q, limit: () => q, maybeSingle: () => q, then: (ok, no) => Promise.resolve(answer).then(ok, no) };
     return q;
   };
   return { from: chain, rpc: async (name) => ({ data: rpc[name], error: null }) };
@@ -328,4 +336,51 @@ test('an unknown bookkeeping mode is never read as SILO', () => {
     const a = S.classifyAdjustment(adj(), facts({ mode }));
     assert.equal(a.status, 'fix'); assert.equal(a.sendable, false);
   }
+});
+
+test('an entry marked as already in QuickBooks is synced by hand, never sendable, and can be undone', () => {
+  const marks = [{ source: 'card_import', source_ref: 'b1' }, { source: 'prepaid_amortization', source_ref: '2026-10' }];
+  const month = one(batch({ status: 'approved', approval_hash: H1 }), { byHand: marks });
+  assert.deepEqual([month.status, month.sendable, month.byHand, month.reason], ['synced', false, true, 'Entered in QuickBooks by hand.']);
+  assert.equal(one(batch(), { byHand: marks }).status, 'synced', 'a categorized month too');
+  const entry = S.classifyAdjustment(adj(), facts({ byHand: marks }));
+  assert.deepEqual([entry.status, entry.sendable, entry.byHand], ['synced', false, true]);
+  // A legacy entry is keyed the way its sending claim is.
+  const legacy = S.classifyAdjustment(adj({ id: 'a9', accounting_source: null, accounting_source_ref: null }), facts({ byHand: [{ source: 'journal_adjustment', source_ref: 'a9' }] }));
+  assert.equal(legacy.byHand, true);
+  // Another entry's mark is not this one's.
+  assert.equal(one(batch({ id: 'b2' }), { byHand: marks }).status, 'waiting');
+  assert.equal(S.classifyAdjustment(adj({ accounting_source_ref: '2026-09' }), facts({ byHand: marks })).status, 'waiting');
+  const list = S.classify(facts({ byHand: marks, batches: [batch()], adjustments: [adj()] }));
+  assert.equal(S.summarize(list).sendable, 0); assert.equal(S.summarize(list).synced, 2);
+});
+
+test('a send nobody confirmed still outranks a by-hand mark, and a posted entry shows its QuickBooks number', () => {
+  const marks = [{ source: 'card_import', source_ref: 'b1' }];
+  const stuck = one(batch({ status: 'approved', approval_hash: H1 }), { byHand: marks, claims: [{ source: 'card_import', source_ref: 'b1', status: 'unknown', payload_hash: H1 }] });
+  assert.equal(stuck.status, 'fix');
+  const posted = one(batch({ status: 'posted', qbo_doc_number: 'JE-9' }), { byHand: marks });
+  assert.deepEqual([posted.status, posted.byHand ?? false, posted.reason], ['synced', false, 'QuickBooks entry JE-9']);
+});
+
+test('the button is offered only on rows SILO would send, and only where marks can be stored', () => {
+  const rows = (byHand) => S.classify(facts({ byHand, batches: [batch(), batch({ id: 'b2', uncoded_count: 2 }), batch({ id: 'b3', status: 'posted' }), batch({ id: 'b4', period_end: '2026-11-30' })], adjustments: [adj()] }));
+  same(rows([]).filter((i) => i.canMark).map((i) => i.key).sort(), ['adjustment:a1', 'batch:b1']);
+  for (const unavailable of [null, undefined]) assert.equal(rows(unavailable).some((i) => i.canMark), false);
+  // An entry sent before and marked unposted is offered unticked AND can be marked: that is its way out.
+  const voided = one(batch({ status: 'approved', approval_hash: H1 }), { byHand: [], claims: [{ source: 'card_import', source_ref: 'b1', status: 'voided', payload_hash: H1 }] });
+  assert.deepEqual([voided.status, voided.defaultSelected], ['waiting', false]);
+  assert.equal(S.classify(facts({ byHand: [], batches: [batch({ status: 'approved', approval_hash: H1 })], claims: [{ source: 'card_import', source_ref: 'b1', status: 'voided', payload_hash: H1 }] }))[0].canMark, true);
+});
+
+test('load: marks are read; a database without the feature has no button and no error', async () => {
+  const withMarks = await S.load(fakeDb({ ...tables('silo'), quickbooks_entered_by_hand: [{ source: 'card_import', source_ref: 'b1' }] }), company);
+  assert.equal(withMarks.items.find((i) => i.key === 'batch:b1').byHand, true);
+  assert.equal(S.summarize(withMarks.items).sendable, 2);
+  assert.ok(withMarks.items.some((i) => i.canMark));
+  const missing = await S.load(fakeDb({ ...tables('silo'), quickbooks_entered_by_hand: 'missing' }), company);
+  same(missing.errors, []); assert.equal(missing.items.some((i) => i.canMark), false);
+  assert.equal(S.summarize(missing.items).sendable, 3, 'everything else still works');
+  const unread = await S.load(fakeDb(tables('silo'), ['quickbooks_entered_by_hand']), company);
+  assert.match(unread.errors.join(), /entered by hand/); assert.equal(unread.items.some((i) => i.canMark), false);
 });

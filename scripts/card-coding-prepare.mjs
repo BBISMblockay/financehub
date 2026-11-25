@@ -20,7 +20,7 @@ export async function runCodingPreparation({ url, trigger, getToken = githubIden
   const base = new URL(url);
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw new Error('Invalid Supabase URL');
   const endpoint = new URL('/functions/v1/card-coding-prepare-scheduled', base);
-  let after = null, batch = null, repeats = 0, calls = 0;
+  let after = null, batch = null, repeats = 0, calls = 0, rules = null;
   const results = [];
   for (;;) {
     if (calls >= maxCalls) { results.push({ stopped: 'call_limit' }); break; }
@@ -38,6 +38,11 @@ export async function runCodingPreparation({ url, trigger, getToken = githubIden
     }
     const body = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`Scheduled preparation rejected (${response.status}): ${safeCodes.has(body?.error_code) ? body.error_code : 'request_failed'}`);
+    // Saved rules run once, on the first call; later calls carry no count.
+    const whole = value => Number.isInteger(value) && value >= 0;
+    if (!rules && body?.rules && whole(body.rules.applied) && whole(body.rules.skipped)) {
+      rules = { applied: body.rules.applied, skipped: body.rules.skipped, more: body.rules.more === true };
+    }
     if (body?.done === true) break;
     const count = key => Number.isInteger(body?.[key]) && body[key] >= 0;
     if (body?.done !== false || !uuid(body.batch_id) || typeof body.ok !== 'boolean'
@@ -54,7 +59,7 @@ export async function runCodingPreparation({ url, trigger, getToken = githubIden
   const units = results.filter(r => r.batch_id);
   return { calls, imports: new Set(units.map(r => r.batch_id)).size, failed: units.filter(r => !r.ok).length,
     suggested: units.reduce((n, r) => n + r.suggested, 0), needs_judgment: units.reduce((n, r) => n + r.needs_judgment, 0),
-    failures_recorded: units.reduce((n, r) => n + r.failed, 0), stopped: results.find(r => r.stopped)?.stopped ?? null, results };
+    failures_recorded: units.reduce((n, r) => n + r.failed, 0), stopped: results.find(r => r.stopped)?.stopped ?? null, rules, results };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -344,6 +344,7 @@ on:
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'v2/quickbooks-sync.js'
       - 'v2/quickbooks-sync.html'
+      - 'supabase/migrations/*rules_auto_apply_and_entered_by_hand.sql'
       - 'scripts/tests/quickbooks-sync.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
@@ -791,7 +792,7 @@ jobs:
       - name: QuickBooks sync page
         run: |
           node --test scripts/tests/quickbooks-sync.test.mjs
-          for m in claim-not-first unread-claims-ok open-month-sendable ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
+          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
             if QBSYNC_MUTATION=$m node --test scripts/tests/quickbooks-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
@@ -1863,6 +1864,19 @@ jobs:
       # categorizer suites use checked row-for-row against the real function.
       - name: Execute coding evidence and saved-rule regressions
         run: node scripts/tests/card-coding-evidence-database.test.mjs
+
+      # Saved rules without a page (20261125130000): the SQL type reading is the
+      # page's own, a rule categorizes only rows no person has saved on
+      # switched-on accounts, and an entry marked as entered in QuickBooks by
+      # hand cannot be claimed for sending. Every mutation must fail.
+      - name: Execute saved-rule auto-apply and entered-by-hand regressions
+        run: |
+          node scripts/tests/card-rules-auto-apply-database.test.mjs
+          for m in touched-rows auto-off unknown-type any-chart limit-on-seen browser-callable guard-off mark-after-send mark-any-role infer-drift; do
+            if CARD_RULES_AUTO_MUTATION=$m node scripts/tests/card-rules-auto-apply-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+          done
 
       # The SILO daily ledger: a categorized, settled transaction is recorded at
       # once, changes are reversal + new entry, locked periods are never written

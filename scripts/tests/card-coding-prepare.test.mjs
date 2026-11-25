@@ -75,3 +75,14 @@ test('failures are counted, rejections name only safe codes, and nonsense is ref
   await assert.rejects(runCodingPreparation({ url: 'https://x.test', trigger: 'manual' }), /background or nightly/);
   await assert.rejects(runCodingPreparation({ url: 'http://x.test', trigger: 'nightly' }), /Invalid Supabase URL/);
 });
+
+test('the count of rows categorized from saved rules is carried into the run summary', async () => {
+  const e = endpoint([unit(id(1), { rules: { applied: 12, skipped: 3, more: false } }), unit(id(2), { rules: { applied: 99, skipped: 0, more: true } }), { done: true }]);
+  assert.deepEqual((await run(e)).rules, { applied: 12, skipped: 3, more: false }, 'the first call is the one that ran them');
+  const none = endpoint([{ done: true, rules: { applied: 4, skipped: 0, more: false } }]);
+  assert.deepEqual((await run(none)).rules, { applied: 4, skipped: 0, more: false }, 'reported even when there is nothing to prepare');
+  // Absent or malformed is unknown, never zero.
+  for (const bad of [undefined, null, 'x', { applied: -1, skipped: 0 }, { applied: '3', skipped: 0 }]) {
+    assert.equal((await run(endpoint([{ done: true, rules: bad }]))).rules, null, JSON.stringify(bad));
+  }
+});

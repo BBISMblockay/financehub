@@ -38,10 +38,14 @@
     table.bcn-table.qs-table tr.qs-month th { background: var(--bcn-sunken); font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--bcn-ink-2); }
     table.bcn-table.qs-table th.qs-c-what { width: 28%; }
     table.bcn-table.qs-table th.qs-r { width: 130px; }
-    table.bcn-table.qs-table th.qs-c-go { width: 64px; }
-    @media (max-width: 600px) { table.bcn-table.qs-table th.qs-r { width: 92px; } table.bcn-table.qs-table th.qs-c-go { width: 44px; } table.bcn-table.qs-table td, table.bcn-table.qs-table th { padding-left: 8px; padding-right: 8px; } }
+    table.bcn-table.qs-table th.qs-c-go { width: 150px; }
+    @media (max-width: 600px) { table.bcn-table.qs-table th.qs-r { width: 92px; } table.bcn-table.qs-table th.qs-c-go { width: 76px; } .qs-mark { white-space: normal; text-align: left; } table.bcn-table.qs-table td, table.bcn-table.qs-table th { padding-left: 8px; padding-right: 8px; } }
     .qs-what small, .qs-state small { display: block; color: var(--bcn-ink-3); font-size: 12px; line-height: 1.45; margin-top: 2px; max-width: 62ch; }
     .qs-go { white-space: nowrap; }
+    .qs-go a, .qs-mark { display: block; }
+    .qs-mark { margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--bcn-ink-2); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+    .qs-mark:hover { color: var(--bcn-ink); }
+    .qs-mark:disabled { color: var(--bcn-ink-3); cursor: default; }
     .qs-dialog { border: 1px solid var(--bcn-border); border-radius: 6px; padding: 20px; max-width: 520px; width: calc(100% - 32px); background: var(--bcn-surface); color: var(--bcn-ink); }
     .qs-dialog h2 { margin: 0 0 6px; font-size: 16px; }
     .qs-dialog p { margin: 0 0 12px; font-size: 13px; color: var(--bcn-ink-2); line-height: 1.5; }
