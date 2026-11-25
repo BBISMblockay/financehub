@@ -12,7 +12,7 @@ import {
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
-  identityKeys, groupPeople, assignedProspectRow,
+  identityKeys, groupPeople, dropClosedRows, assignedProspectRow,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerContactPath, customerNoPathReason, customerDisplayName, customerOrdersLine, customerTemplateRow,
   customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
 } from './studio-core.js';
@@ -435,10 +435,14 @@ const findProgram = () => openPrograms().find((x) => x.id === S.programId) || op
 async function loadPrograms() {
   S.programs = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).order('created_at'));
   const qp = new URLSearchParams(location.search).get('program');
-  if (!isAll() && !S.programs.some((p) => p.id === S.programId)) S.programId = (S.programs.find((p) => p.id === qp) || S.programs[0])?.id || null;
+  // An open program is the default; a closed one is only ever picked on purpose.
+  if (!isAll() && !S.programs.some((p) => p.id === S.programId)) S.programId = (S.programs.find((p) => p.id === qp) || openPrograms()[0] || S.programs[0])?.id || null;
+  const opt = (p) => `<option value="${p.id}"${p.id === S.programId ? ' selected' : ''}>${esc(p.name)} · ${esc(p.status)}</option>`;
+  const closed = S.programs.filter((p) => p.status === 'closed');
   $('programSel').innerHTML = S.programs.length
     ? (S.programs.length > 1 ? `<option value="${ALL}"${isAll() ? ' selected' : ''}>All programs</option>` : '')
-      + S.programs.map((p) => `<option value="${p.id}"${p.id === S.programId ? ' selected' : ''}>${esc(p.name)} · ${esc(p.status)}</option>`).join('')
+      + openPrograms().map(opt).join('')
+      + (closed.length ? `<optgroup label="Closed">${closed.map(opt).join('')}</optgroup>` : '')
     : '<option value="">No programs yet</option>';
   $('btnNewProgram').hidden = !MANAGE;
 }
@@ -813,7 +817,8 @@ function ctxProgram(ds) {
 // A box with nothing in it is not drawn (Blake, 2026-11-17: "a lot of shit
 // to look at"). A tab left with nothing says so once (see render()).
 const EMPTY_ONLY = /^\s*<div class="bcn-empty">[^<]*<\/div>\s*$/;
-const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
+// `icon` is trusted markup (a source's logo, e.g. shopifyMark()) drawn before the title.
+const card = (title, body, meta = '', extraClass = '', icon = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${icon}${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
 // An empty box can carry the one button that fills it (audit finding 12,
 // 2026-11-25). `go` is that button; a box with one is never dropped as empty,
 // which is the point of it.
@@ -1039,10 +1044,10 @@ const recSortRows = (rows, getters) => {
 // `actions` are buttons that belong to the whole list and stay in its header,
 // so a control like Export never hides at the bottom of a card (audit
 // finding 5).
-const surface = (title, body, meta = '', id = '', actions = '') => {
+const surface = (title, body, meta = '', id = '', actions = '', icon = '') => {
   if (EMPTY_ONLY.test(body) && !actions) return '';
   const idAttr = id ? ` id="${esc(id)}"` : '';
-  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}${actions ? `<div class="af-surface-acts">${actions}</div>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
+  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${icon}${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}${actions ? `<div class="af-surface-acts">${actions}</div>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
 };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
@@ -1267,16 +1272,32 @@ const custFiltersOn = (c, spec) => {
 };
 const custState = () => (S.cust ||= CUST_DEFAULTS());
 const SOCIAL_COLS = 'id, customer_key, status, match_basis, match_score, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
+// The decision on each find (review: shortlisted / not_fit / suppressed,
+// 20261125210000). Probed once: before that migration the column is not
+// there, and the page keeps working exactly as before, with no Shortlisted
+// or Archive tab.
+let custReview = null;
+async function reviewReady() {
+  if (custReview === null) {
+    try {
+      const r = await db.from('affiliate_customer_social').select('review').eq('company_entity_id', CO).limit(1);
+      custReview = !r.error;
+    } catch (_) { custReview = false; }
+  }
+  return custReview;
+}
+const socialCols = () => (custReview ? `${SOCIAL_COLS}, review` : SOCIAL_COLS);
 const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, filters, error_message, started_at, heartbeat_at, finished_at';
 // The scan row and the page's result rows, read together. Fail-soft: either
 // read failing leaves the list as it was and hides only the scan bar.
 let scanTimer = null;
 async function loadSocial(c, keys) {
+  await reviewReady();
   const [scan, soc] = await Promise.all([
     db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)
       .order('started_at', { ascending: false }).limit(1),
     keys.length
-      ? db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)
+      ? db.from('affiliate_customer_social').select(socialCols()).eq('company_entity_id', CO).in('customer_key', keys)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (scan.error || soc.error) { c.scanReady = false; c.scan = null; c.social = {}; return; }
@@ -1295,10 +1316,18 @@ async function loadSocial(c, keys) {
 // Over the bar splits by the match score: Likely (LIKELY_SCORE and up, or an
 // unscored older row with a second signal) or Check (everything else over the
 // bar). Only Likely counts toward the finds asked for.
-const HUNT_TIERS = { top: ['found'], check: ['found'], more: ['below', 'no_count'] };
+// Shortlisted and Archive (Blake 2026-11-25: "an archive style tab - so
+// lists don't just grow on working queues") hold the finds already decided:
+// added to a program, or Not a fit / Not them / Do not contact. The three
+// working tabs hold only the undecided.
+const HUNT_TIERS = { top: ['found'], check: ['found'], more: ['below', 'no_count'], shortlisted: [], archive: [] };
+const HUNT_DONE = ['shortlisted', 'archive'];
 function huntTier(q, tier) {
-  const t = HUNT_TIERS[tier] ? tier : 'top';
+  const t = HUNT_TIERS[tier] && (custReview || !HUNT_DONE.includes(tier)) ? tier : 'top';
+  if (t === 'shortlisted') return q.eq('review', 'shortlisted').neq('status', 'rejected');
+  if (t === 'archive') return q.or('status.eq.rejected,review.eq.not_fit,review.eq.suppressed');
   q = q.in('status', HUNT_TIERS[t]);
+  if (custReview) q = q.is('review', null);
   if (t === 'top') return q.gte('match_score', LIKELY_SCORE);
   // Unscored (older) rows are Check too, as the scan counts them.
   if (t === 'check') return q.or(`match_score.is.null,match_score.lt.${LIKELY_SCORE}`);
@@ -1314,7 +1343,7 @@ async function huntHidden() {
   // writes between two reads never repeats one; de-duplicated all the same.
   const byId = new Map();
   for (let after = null; ;) {
-    let q = db.from('affiliate_customer_social').select('id, customer_key, status, match_score')
+    let q = db.from('affiliate_customer_social').select(custReview ? 'id, customer_key, status, match_score, review' : 'id, customer_key, status, match_score')
       .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']);
     if (after !== null) q = q.gt('id', after);
     const { data: page, error } = await q.order('id', { ascending: true }).limit(1000);
@@ -1338,16 +1367,20 @@ async function huntHidden() {
 // Reads only; returns null when the scan tables are not there yet (a
 // database before the migration), so the caller falls back to the full list.
 async function readHunt(tier) {
+  await reviewReady();
   const finds = (t) => huntTier(db.from('affiliate_customer_social').select('customer_key', { count: 'exact', head: true })
     .eq('company_entity_id', CO), t);
-  const [scan, top, check, more, hits] = await Promise.all([
+  const none = Promise.resolve({ count: null, error: null });
+  const [scan, top, check, more, listed, archived, hits] = await Promise.all([
     db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)
       .order('started_at', { ascending: false }).limit(1),
     finds('top'),
     finds('check'),
     finds('more'),
+    custReview ? finds('shortlisted') : none,
+    custReview ? finds('archive') : none,
     // Likely finds most-sure first; the rest biggest first.
-    huntTier(db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO), tier)
+    huntTier(db.from('affiliate_customer_social').select(socialCols()).eq('company_entity_id', CO), tier)
       .order(tier === 'top' ? 'match_score' : 'followers', { ascending: false, nullsFirst: false })
       .order('followers', { ascending: false, nullsFirst: false }).order('checked_at', { ascending: false }).limit(HUNT_LIMIT),
   ]);
@@ -1379,8 +1412,15 @@ async function readHunt(tier) {
     scan: sc, rows, recent,
     social: Object.fromEntries((hits.data || []).map((r) => [r.customer_key, r])),
     // NULL means the count did not come back, never zero.
-    counts: huntCounts({ top: top.count ?? null, check: check.count ?? null, more: more.count ?? null }, hidden),
+    counts: huntCounts({ top: top.count ?? null, check: check.count ?? null, more: more.count ?? null, shortlisted: listed.count ?? null, archive: archived.count ?? null }, hidden),
   };
+}
+// One decision on many finds (affiliate_customer_social_review), in parts
+// the function accepts. Returns how many rows changed.
+async function markCustomers(keys, review) {
+  let n = 0;
+  for (const part of chunk(keys, 500)) n += Number(must(await db.rpc('affiliate_customer_social_review', { p_keys: part, p_review: review })) || 0);
+  return n;
 }
 function applyHunt(c, h) {
   c.scanReady = true; c.scan = h.scan; c.social = h.social; c.rows = h.rows; c.total = h.rows.length; c.hunt = h;
@@ -1537,13 +1577,21 @@ function customerProgramsPill(x) {
     }
     progsByEmail = { rows, map };
   }
-  const ids = progsByEmail.map.get(e) || [];
+  const all = progsByEmail.map.get(e) || [];
+  const open = all.filter((id) => S.programs.find((y) => y.id === id)?.status !== 'closed');
+  const ids = open.length ? open : all;
   return ids.length ? ` ${pill(`In ${ids.map(progName).join(', ')}`, '')}` : '';
 }
-function custAddButtons() {
+// Shortlist puts the ticked finds into a program's outreach (a prospect row
+// and a drafted message), as Shortlist does on Discovery. With several open
+// programs it is Shortlist into the first and Add to each of the others.
+// `mode` 'add' (on Shortlisted) offers only the Add to buttons.
+function custAddButtons(mode = '') {
   const list = openPrograms();
-  if (list.length <= 1) return list.length ? btn('Add to outreach', 'cust-add', { pg: list[0].id }, 'primary') : '';
-  return list.map((y, i) => btn(`Add to ${y.name}`, 'cust-add', { pg: y.id }, i === 0 ? 'primary' : 'surface')).join('');
+  if (!list.length) return '';
+  const first = mode === 'add' ? [] : [btn('Shortlist', 'cust-add', { pg: list[0].id }, 'primary', { title: `Adds them to ${list[0].name} and drafts their message` })];
+  const rest = (mode === 'add' ? list : list.slice(1)).map((y) => btn(`Add to ${y.name}`, 'cust-add', { pg: y.id }));
+  return [...first, ...(list.length > 1 || mode === 'add' ? rest : [])].join('');
 }
 // The Hunt view: the slice to hunt, a live module while it runs, then only
 // the people it brought back.
@@ -1574,27 +1622,50 @@ function huntBody({ c, spec, filters, running, socialCell, consentCell, pickable
       </div>`
     : '';
   const counts = c.hunt?.counts || {};
-  const tiers = subtabs('Finds', [['top', `Likely · ${bar}+`, counts.top], ['check', `Check · ${bar}+`, counts.check], ['more', 'Under the bar', counts.more]], 'cust-hunt-tier', c.huntTier);
+  const tierList = [['top', `Likely · ${bar}+`, counts.top], ['check', `Check · ${bar}+`, counts.check], ['more', 'Under the bar', counts.more]];
+  if (custReview) tierList.push(['shortlisted', 'Shortlisted', counts.shortlisted], ['archive', 'Archive', counts.archive]);
+  const tiers = subtabs('Finds', tierList, 'cust-hunt-tier', c.huntTier);
+  // Sort by a column header, as on Discovery: numbers biggest first, words A to Z.
+  const SORT = {
+    customer: (x) => (customerDisplayName(x) || x.email_lc || '').toLowerCase(),
+    match: (x) => { const r = c.social[x.customer_key]; return r?.match_score ?? -1; },
+    followers: (x) => Number(c.social[x.customer_key]?.followers ?? -1),
+    orders: (x) => Number(x.order_count || 0),
+    spend: (x) => Number(x.lifetime_spend || 0),
+    last: (x) => String(x.last_order_at || ''),
+  };
+  const hs = c.hSort;
+  const shown = hs && SORT[hs.k]
+    ? [...c.rows].sort((a, b) => { const x = SORT[hs.k](a); const y = SORT[hs.k](b); return (x < y ? -1 : x > y ? 1 : 0) * hs.dir; })
+    : c.rows;
+  const allPicked = MANAGE && !!shown.length && shown.every((x) => c.sel.has(x.customer_key));
   const list = table([
-    ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
-      ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
-      : '')}] : []),
-    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${customerProgramsPill(x)}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
-    { left: true, h: 'Account', f: socialCell },
+    // Every find can be ticked: Not a fit, Not them and Do not contact need
+    // no way to reach them. Adding to a program still skips anyone it cannot
+    // reach, and says how many.
+    ...(MANAGE ? [{ hHtml: allPicked
+      ? '<input type="checkbox" class="af-pick" data-act="cust-select-none" aria-label="Clear selection" checked />'
+      : `<input type="checkbox" class="af-pick" data-act="cust-select-all" data-all="1" aria-label="Select all ${num(shown.length)}" />`,
+    h: '', f: (x) => `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />` }] : []),
+    { left: true, h: 'Customer', sort: 'customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${customerProgramsPill(x)}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
+    { left: true, h: 'Account', sort: 'match', f: socialCell },
     // Everyone found is listed; this tag decides email or DM.
     { left: true, h: 'Status', f: consentCell },
-    { num: true, h: 'Orders', f: (x) => num(x.order_count) },
-    { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
-    { h: 'Last order', f: (x) => fmtDate(x.last_order_at) },
-  ], c.rows, c.loading ? 'Loading…' : (c.huntTier === 'top'
+    { num: true, h: 'Orders', sort: 'orders', f: (x) => num(x.order_count) },
+    { num: true, h: 'Lifetime spend', sort: 'spend', f: (x) => custMoney(x.lifetime_spend) },
+    { h: 'Last order', sort: 'last', f: (x) => fmtDate(x.last_order_at) },
+  ], shown, c.loading ? 'Loading…' : (c.huntTier === 'top'
     ? (running ? 'Nobody over the bar yet. Finds appear here as they come back.' : 'Nobody over the bar yet. Press Find to check more customers.')
-    : 'Nobody here yet.'));
-  const onPage = c.rows.filter((x) => pickable(x));
-  const bulk = MANAGE && onPage.length
-    ? `<div class="af-row af-bulk">
-        ${btn(`Select all ${onPage.length}`, 'cust-select-all')}
-        ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${custAddButtons()}${btn('Clear', 'cust-select-none')}` : ''}
-      </div>`
+    : c.huntTier === 'archive' ? 'Nothing archived. Not a fit, Not them and Do not contact land here.'
+      : c.huntTier === 'shortlisted' ? 'Nobody shortlisted yet. Tick finds and press Shortlist.' : 'Nobody here yet.'), { act: 'cust-hsort', k: hs?.k || '', dir: hs?.dir || -1 });
+  // The same bar as Discovery (Blake 2026-11-25): Shortlist, Not a fit, Add
+  // to program, Do not contact. Archive offers Restore instead.
+  const n = c.sel.size;
+  const acts = c.huntTier === 'archive'
+    ? `${btn('Restore', 'cust-review', { s: '' }, 'primary', { title: 'Back to the working lists. Only Not a fit can be restored here; Do not contact is undone on the do-not-contact list.' })}`
+    : `${c.huntTier === 'shortlisted' ? custAddButtons('add') : custAddButtons()}${btn('Not a fit', 'cust-review', { s: 'not_fit' })}${btn('Not them', 'cust-bulk-notthem', {}, 'surface', { title: 'The account found is somebody else. They are not searched again.' })}${btn('Do not contact', 'cust-dnc', {}, 'surface', { confirm: true })}`;
+  const bulk = MANAGE && n
+    ? `<div class="af-row af-bulk"><span class="af-mono">${num(n)} selected</span>${acts}${btn('Clear', 'cust-select-none')}</div>`
     : '';
   const more = c.total != null && (counts[c.huntTier] ?? counts.top) > c.total
     ? `<p class="af-muted">Showing the top ${num(c.total)}.</p>` : '';
@@ -1650,9 +1721,10 @@ function renderCustomers() {
     const r = c.social[row.customer_key];
     // The tier and why, on every find a profile was chosen for: "Likely" only
     // with a second signal, otherwise "Name match" to check by eye.
-    const tierPill = v.trust ? `${pill(v.pill, v.trust === 'likely' ? 'pos' : 'warn')} ` : '';
+    const tierPill = v.trust ? `<span class="bcn-pill bcn-pill--${v.trust === 'likely' ? 'pos' : 'warn'} af-score-pill" title="${esc(v.tip || v.why || '')}">${esc(v.pill)}</span> ` : '';
     const title = [v.why, v.quote].filter(Boolean).join(' · ');
-    const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('Not them', 'cust-social-reject', { id: r.id }, 'ghost')}` : '';
+    // A red x on the match (Blake 2026-11-25); the hover says what it does.
+    const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('✕', 'cust-social-reject', { id: r.id }, 'ghost', { title: 'Not them: remove this match. They are not searched again.', cls: 'af-x-btn' })}` : '';
     return `${tierPill}<span class="af-mono"${title ? ` title="${esc(title)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}${notThem}`;
   };
   const consentCell = (row) => {
@@ -1729,7 +1801,7 @@ function renderCustomers() {
     : '';
   const hunting = c.view === 'hunt' && c.scanReady;
   if (hunting) body.innerHTML = surface('Your customers', `${views}${huntBody({ c, spec, filters, running, socialCell, consentCell, pickable, noPath })}`,
-    c.hunt?.counts?.top == null ? '' : `${num(c.hunt.counts.top)} over the bar`, 'afCustomers');
+    c.hunt?.counts?.top == null ? '' : `${num(c.hunt.counts.top)} over the bar`, 'afCustomers', '', shopifyMark('af-head-mark'));
   else body.innerHTML = surface('Your customers',
     `${views}
      ${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
@@ -1740,7 +1812,7 @@ function renderCustomers() {
      ${bulk}
      ${rows}
      ${foot}`,
-    c.total === null ? '' : `${num(c.total)} match these filters`, 'afCustomers');
+    c.total === null ? '' : `${num(c.total)} match these filters`, 'afCustomers', '', shopifyMark('af-head-mark'));
   if (keepId) {
     const back = $(keepId);
     if (back) {
@@ -1975,6 +2047,9 @@ function renderAllHome() {
       owed: sumBy(bal, (r) => Number(r.unclaimed_cents) > 0, (r) => r.unclaimed_cents),
     };
   });
+  // A closed program drops off the table once it owes nothing; the totals
+  // above still count everything it earned.
+  const progRows = perProg.filter((r) => r.p.status !== 'closed' || r.owed > 0);
   const tot = (k, cur) => perProg.filter((r) => r.p.currency === cur).reduce((n, r) => n + r[k], 0);
   const moneyLine = (k) => curs.map((c) => formatMoney(tot(k, c), c)).join(' · ') || formatMoney(0, 'USD');
   const k = (label, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(label)}</div><div class="bcn-kpi-value">${v}</div></div>`;
@@ -1989,7 +2064,7 @@ function renderAllHome() {
       { h: 'Earned', num: true, f: (r) => esc(formatMoney(r.earned, r.p.currency)) },
       { h: 'Owed', num: true, f: (r) => esc(formatMoney(r.owed, r.p.currency)) },
       { h: '', f: (r) => btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface') },
-    ], perProg, 'No programs yet.'), 'All time'),
+    ], progRows, 'No programs yet.'), 'All time'),
   ].join('');
 }
 // The same table on the company view of Program, where it is the program
@@ -2009,11 +2084,15 @@ function byProgramCard() {
       owed: bal.reduce((n, r) => n + (Number(r.unclaimed_cents) > 0 ? Number(r.unclaimed_cents) : 0), 0),
     };
   });
+  // A closed program stays only while it still owes money; the total line
+  // still counts everything every program did.
+  const allRows = rows.splice(0, rows.length);
+  rows.push(...allRows.filter((r) => r.p.status !== 'closed' || r.owed > 0));
   // A total line, only where every program is in the same currency: money is
   // summed per currency, never across.
   const curs = [...new Set(S.programs.map((x) => (x.currency || 'USD').toUpperCase()))];
-  const sum = (k) => rows.reduce((n, r) => n + Number(r[k] || 0), 0);
-  const all = curs.length === 1 && rows.length > 1
+  const sum = (k) => allRows.reduce((n, r) => n + Number(r[k] || 0), 0);
+  const all = curs.length === 1 && allRows.length > 1
     ? [{ total: true, p: { name: 'All programs', currency: curs[0] }, people: sum('people'), orders: sum('orders'), sales: sum('sales'), owed: sum('owed') }]
     : [];
   return card('By program', table([
@@ -2187,7 +2266,7 @@ const storesCard = (p, dis) => {
   // answer whether or not the list was opened.
   return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${shown.map(chip).join('')}${
     hidden.length ? `<button type="button" class="af-chip-tog af-chip-more" data-act="stores-all">+${num(hidden.length)} more</button>` : ''}</div>${
-    hidden.length ? `<div class="af-chips-off">${hidden.map(chip).join('')}</div>` : ''}`));
+    hidden.length ? `<div class="af-chips-off">${hidden.map(chip).join('')}</div>` : ''}`), '', '', shopifyMark('af-head-mark'));
 };
 const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
 // Setup is a settings page, not a form (Blake, 2026-11-13: "looks like 98
@@ -2257,6 +2336,11 @@ function renderProgram(isNew = S.creating) {
     setRow('Countries', setInput('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`)),
     setRow('Platforms', `<div class="af-chips-tog">${plats.map((x) => `<button type="button" class="af-chip-tog pPlat${(p.platforms || []).includes(x) ? ' is-on' : ''}" data-plat="${x}" aria-pressed="${(p.platforms || []).includes(x)}" ${dis}>${esc(PLATFORM_NAMES[x] || x)}</button>`).join('')}</div>`),
   ].join(''));
+  // Automatic searches are set per company on Billing, not per program
+  // (Blake 2026-11-25: "in setup -- instruct/ link to billing ... for auto
+  // discovery search etc."). Setup says where, rather than repeating them.
+  const auto = isNew ? '' : card('Automatic searches', `<p class="af-muted">Nightly Find on your customers, nightly Discovery of new creators and the monthly spending limit are set once for the whole company, in Workspace Settings under Billing. Everything Affiliate Studio does is one line on your bill there.</p>
+    <div class="af-row"><a class="bcn-btn bcn-btn--primary" href="../billing.html#studioCard">Open Billing settings</a></div>`);
   // The message to creators is prepped on Comms now (Blake, 2026-11-17).
   const message = '';
   // The agreement: written terms, a PDF the brand uploads (20261119010000),
@@ -2280,7 +2364,7 @@ function renderProgram(isNew = S.creating) {
   const saved = !isNew && MANAGE ? '<span class="af-set-saved" id="setSaved" aria-live="polite"></span>' : '';
   $('programBody').innerHTML = `<div class="af-settings">${saved}
     <div class="af-settings-col">${program}${storesCard(p, dis)}${pay}${seeding}${codes}${create}</div>
-    <div class="af-settings-col">${recruit}${message}${terms}${access}</div></div>`;
+    <div class="af-settings-col">${recruit}${auto}${message}${terms}${access}</div></div>`;
   syncCommissionFields();
 }
 
@@ -2414,7 +2498,11 @@ function readProgramForm() {
 // ── Prospects ────────────────────────────────────────────────────────────
 // The Discovery filters. Applications wait on Outreach > Inbound (Blake,
 // 2026-11-17), not under To review.
-const PROSPECT_GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited', 'signed_up'], all: null };
+// Archive holds Not a fit and Do not contact (Blake 2026-11-25), so the
+// working filters only grow with open work. Somebody who signed up is an
+// affiliate now and lives on Affiliates, not anywhere in Discovery.
+const PROSPECT_GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited'], archive: ['rejected', 'suppressed'], all: ['new', 'qualified', 'approved', 'invited', 'rejected', 'suppressed'] };
+const PROSPECT_OPEN = ['new', 'qualified', 'approved', 'invited'];
 const prospectInGroup = (x, g) => (!PROSPECT_GROUPS[g] || PROSPECT_GROUPS[g].includes(x.status)) && !(g === 'new' && x.source === 'applied');
 // A bulk press on people becomes their program rows: each row in the filter
 // on screen, or every row for Do not contact (which is company-wide anyway).
@@ -2460,18 +2548,24 @@ function renderProspects() {
   // platform, program, has an email, follower floor. The status chips below
   // count what these leave.
   const F = (S.dFilt ||= { plat: '', prog: '', email: false, minF: 0 });
-  const allPeople = groupPeople(d.prospects, d.suppressions);
+  const allPeople = dropClosedRows(groupPeople(d.prospects, d.suppressions), S.programs.filter((y) => y.status === 'closed').map((y) => y.id));
   const followersOf = (g) => Math.max(0, ...g.rows.map((x) => Number(followersFrom(x.evidence)?.count) || 0));
   const engagementOf = (g) => { const r = g.rows.map((x) => creatorStats(x.evidence)?.rate).filter((v) => v != null); return r.length ? Math.max(...r) : null; };
   const emailOf = (g) => g.rows.map((x) => x.contact_email).find(Boolean) || '';
   const plats = [...new Set(allPeople.flatMap((g) => g.rows.map((x) => x.platform)).filter(Boolean))].sort();
   if (F.plat && !plats.includes(F.plat)) F.plat = '';
-  if (F.prog && !S.programs.some((y) => y.id === F.prog)) F.prog = '';
+  if (F.prog && !openPrograms().some((y) => y.id === F.prog)) F.prog = '';
   const people = allPeople.filter((g) => (!F.plat || g.rows.some((x) => x.platform === F.plat))
     && (!F.prog || g.programIds.includes(F.prog))
     && (!F.email || !!emailOf(g))
     && (!F.minF || followersOf(g) >= F.minF));
-  const inGroup = (g, f) => g.rows.some((x) => prospectInGroup(x, f));
+  // A person is archived only when none of their programs still has them in
+  // open work; Do not contact archives the whole person, company-wide.
+  const inGroup = (g, f) => {
+    if (g.suppressed) return f === 'archive' || f === 'all';
+    if (f === 'archive') return g.rows.some((x) => prospectInGroup(x, f)) && !g.rows.some((x) => PROSPECT_OPEN.includes(x.status));
+    return g.rows.some((x) => prospectInGroup(x, f));
+  };
   // The search a prospect came from, so one search's results can be picked out.
   const fromQuery = (x) => String(x.evidence?.last_seen_query || x.evidence?.query || '').trim();
   const queries = [...new Set(people.filter((g) => inGroup(g, filter)).flatMap((g) => g.rows.map(fromQuery)).filter(Boolean))].slice(0, 30);
@@ -2547,7 +2641,7 @@ function renderProspects() {
   const researching = S.watching && d.runs.some((r) => r.id === S.watching);
   // "Approved" read as a decision about the person; at this point it only
   // means they are lined up for outreach (Blake 2026-11-20).
-  const filters = [['new', 'To review'], ['approved', 'Shortlisted'], ['all', 'All']];
+  const filters = [['new', 'To review'], ['approved', 'Shortlisted'], ['archive', 'Archive'], ['all', 'All']];
   const runs = d.runs.slice(0, 10);
   const prospectCard = (g) => {
     const x = g.x;
@@ -2580,7 +2674,7 @@ function renderProspects() {
       <div class="af-kv-line"><span class="bcn-num">${followersVal}</span> followers · <span class="bcn-num">${pct}</span> engagement</div>
       ${facts.length ? `<div class="af-muted af-catalog-facts">${facts.join(' · ')}</div>` : ''}
       <div class="af-muted">${sourceLine(x)}</div>
-      ${S.programs.length > 1 ? `<div class="af-kv-line"><span class="af-muted">Program</span> ${esc(programsOf(g))}</div>` : ''}
+      ${openPrograms().length > 1 ? `<div class="af-kv-line"><span class="af-muted">Program</span> ${esc(programsOf(g))}</div>` : ''}
       <footer class="af-item-foot af-catalog-foot">${actions(g)}</footer>
     </article>`;
   };
@@ -2589,7 +2683,7 @@ function renderProspects() {
   const anyFilter = F.plat || F.prog || F.email || F.minF;
   const dFilterRow = `<div class="af-dfilters">${[
     plats.length > 1 ? seg('Platform', 'plat', [['', 'All'], ...plats.map((x) => [x, PLATFORM_NAMES[x] || x])]) : '',
-    S.programs.length > 1 ? seg('Program', 'prog', [['', 'All'], ...S.programs.map((y) => [y.id, y.name])]) : '',
+    openPrograms().length > 1 ? seg('Program', 'prog', [['', 'All'], ...openPrograms().map((y) => [y.id, y.name])]) : '',
     seg('Email', 'email', [[false, 'Any'], [true, 'Has email']]),
     seg('Followers', 'minF', [[0, 'Any'], [1000, '1k+'], [10000, '10k+'], [100000, '100k+']]),
     anyFilter ? btn('Clear filters', 'd-filter-clear', {}, 'ghost') : '',
@@ -2633,7 +2727,7 @@ function renderProspects() {
     findRow}${filtOpen ? `<div class="af-panelette">${dFilterRow}</div>` : ''}`;
   // The program a row is in is worth a column only when the rows differ; one
   // program repeated down every row says nothing.
-  const showProgramCol = S.programs.length > 1 && new Set(list.map((g) => programsOf(g))).size > 1;
+  const showProgramCol = openPrograms().length > 1 && new Set(list.map((g) => programsOf(g))).size > 1;
   // Everything this row tells you about the person, in one cell: their state
   // when it is not already the filter you are in, whether they have bought
   // from you, how engaged their audience is, and their email if we have one.
@@ -2652,7 +2746,7 @@ function renderProspects() {
   $('prospectsBody').innerHTML = [
     surface('Creators', `${ctlRow}
       ${MANAGE && S.sel.size ? `<div class="af-row af-bulk">
-        <span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}
+        <span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${openPrograms().length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}
       </div>` : ''}
       ${S.view === 'list'
         ? table([
@@ -2673,7 +2767,7 @@ function renderProspects() {
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${people.length} people`, 'afCreatorsList'),
     more('Recruiting tools', [
-    card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${S.programs.length > 1 ? `${esc(progName(r.program_id))} · ` : ''}${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run yet.')),
+    card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${openPrograms().length > 1 ? `${esc(progName(r.program_id))} · ` : ''}${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run yet.')),
     card('Do-not-contact list', `
       ${itemList(d.suppressions, (s) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(s.value_normalized)}</span> ${pill(s.kind)}</div><div class="af-muted">${esc(s.reason)} · ${fmtDate(s.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'surface', { confirm: true }) : ''}</div></article>`, 'Nobody is on the list.')}
       <div class="af-row" style="margin-top:8px;">${field('Type', '<select class="bcn-field" id="supKind"><option>email</option><option>domain</option><option>handle</option><option value="profile_url">profile URL</option></select>')}${field('Value', input('supVal'))}${field('Reason', '<select class="bcn-field" id="supReason"><option value="opted_out">asked not to be contacted</option><option value="bounced">bounced</option><option value="complained">complained</option><option value="competitor">competitor</option><option value="do_not_contact">do not contact</option><option value="manual">other</option></select>')}${btn('Add', 'suppression-add')}</div>`),
@@ -3491,7 +3585,7 @@ async function renderShare() {
     ads: () => card('Recent ads', capped(ads, 'No recent ads with a picture.')),
     products: () => card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${
       products.length ? capped(products, '') : (sh.q ? empty(sh.otherStore ? `Nothing by that name in ${esc(shopLabel())}.` : 'No products match.') : '<p class="af-muted">Search to pick products.</p>')}${
-      sh.otherStore ? `<p class="af-muted">${num(sh.otherStore)} match in your other stores. This program\u2019s codes are made in ${esc(shopLabel())}, so only what that store sells can be shared here \u2014 and one product can be named differently from store to store.</p>` : ''}`),
+      sh.otherStore ? `<p class="af-muted">${num(sh.otherStore)} match in your other stores. This program\u2019s codes are made in ${esc(shopLabel())}, so only what that store sells can be shared here \u2014 and one product can be named differently from store to store.</p>` : ''}`, '', '', shopifyMark('af-head-mark')),
   };
   $('shareBody').innerHTML = [
     storeLine,
@@ -3610,7 +3704,7 @@ function commissionsBodyHtml() {
       order: (r) => String(r.order_number || r.order_id || ''),
       who: (r) => String(d.affById[r.affiliate_id]?.display_name || '').toLowerCase(),
       base: (r) => Number(r.commissionable_cents || 0),
-    }), recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.', recSortSpec())}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300')]),
+    }), recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.', recSortSpec())}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300', '', shopifyMark('af-head-mark'))]),
     more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Start', input('perStart', 'type="date"'))}${field('End', input('perEnd', 'type="date"'))}${btn('Open period', 'period-add', {}, 'primary')}</div>` : ''}`),
@@ -4652,7 +4746,68 @@ const A = {
   // reload() of the whole program.
   'cust-sort': ({ k }) => { const c = custState(); c.sort = k; c.page = 0; loadCustomers(true); return null; },
   'cust-pick': ({ k }) => { const c = custState(); if (c.sel.has(k)) c.sel.delete(k); else c.sel.add(k); renderCustomers(); return null; },
-  'cust-select-all': () => { const c = custState(); for (const x of c.rows) if (customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
+  // On Find creators every find can be ticked (data-all); on All customers
+  // only those SILO can reach, as before.
+  'cust-select-all': ({ all } = {}) => { const c = custState(); for (const x of c.rows) if (all || customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
+  'cust-hsort': ({ k }) => {
+    const c = custState();
+    const first = ['customer'].includes(k) ? 1 : -1;
+    c.hSort = c.hSort?.k === k ? { k, dir: -c.hSort.dir } : { k, dir: first };
+    renderCustomers(); return null;
+  },
+  // Not a fit, or Restore ('' -- only Not a fit comes back).
+  'cust-review': async ({ s: to }) => {
+    const c = custState();
+    const keys = [...c.sel];
+    if (!keys.length) return 'Tick at least one customer.';
+    const n = await markCustomers(keys, to || null);
+    c.sel.clear();
+    loadCustomers(true);
+    if (!to) return `${num(n)} restored to the working lists.${n < keys.length ? ` ${num(keys.length - n)} were not Not a fit, so they stay.` : ''}`;
+    return `${num(n)} marked Not a fit and moved to Archive.`;
+  },
+  // "Not them" on every ticked find that has an account matched.
+  'cust-bulk-notthem': async () => {
+    const c = custState();
+    const ids = [...c.sel].map((k) => c.social[k]).filter((r) => r?.id && ['found', 'below', 'no_count', 'ambiguous'].includes(r.status)).map((r) => r.id);
+    if (!ids.length) return 'None of the ticked finds has an account to reject.';
+    let done = 0; let failed = 0;
+    for (const id of ids) { try { must(await db.rpc('affiliate_customer_social_reject', { p_id: id })); done += 1; } catch (_) { failed += 1; } }
+    c.sel.clear();
+    loadCustomers(true);
+    return `${num(done)} marked Not them and moved to Archive. They will not be searched again.${failed ? ` ${num(failed)} could not be changed.` : ''}`;
+  },
+  // Do not contact: their email (and the account found) on the company's
+  // do-not-contact list, the same list Discovery uses, then Archive.
+  'cust-dnc': async () => {
+    const c = custState();
+    const keys = [...c.sel];
+    if (!keys.length) return 'Tick at least one customer.';
+    const byKey = new Map(c.rows.map((x) => [x.customer_key, x]));
+    // Only a find whose do-not-contact entries all landed (or were already
+    // there) is archived: one with nothing to list, or a refused insert,
+    // stays on the working list, so the list and the archive never disagree.
+    const listed = []; let failed = 0;
+    for (const k of keys) {
+      const x = byKey.get(k); const r = c.social[k];
+      const rows = [];
+      if (x?.email_lc) rows.push({ kind: 'email', value_normalized: x.email_lc });
+      if (r?.profile_url) rows.push({ kind: 'profile_url', value_normalized: r.profile_url });
+      if (!rows.length) { failed += 1; continue; }
+      try {
+        for (const row of rows) {
+          const { error } = await db.from('affiliate_suppressions').insert({ ...row, company_entity_id: CO, reason: 'do_not_contact', source: 'affiliate_studio', created_by: me.id });
+          if (error && error.code !== '23505') throw error;
+        }
+        listed.push(k);
+      } catch (_) { failed += 1; }
+    }
+    const done = listed.length;
+    if (custReview && listed.length) await markCustomers(listed, 'suppressed').catch(() => {});
+    c.sel.clear();
+    loadCustomers(true);
+    return `${num(done)} added to the do-not-contact list and moved to Archive.${failed ? ` ${num(failed)} could not be added.` : ''}`;
+  },
   'cust-select-none': () => { custState().sel.clear(); renderCustomers(); return null; },
   // Picked customers enter the SAME outreach flow a creator does: a prospect
   // row and a draft, and nothing else differs after this point. The draft is
@@ -4662,9 +4817,9 @@ const A = {
   // Each customer is its own insert pair rather than one bulk insert, so one
   // row the database refuses -- a suppressed address, a constraint -- does not
   // discard the rest, and the count reported is what actually landed.
-  'cust-add': async () => {
+  'cust-add': async ({ pg } = {}) => {
     const c = custState();
-    const p = prog();
+    const p = openPrograms().find((x) => x.id === pg) || prog();
     if (!p) throw new Error('Pick a program first.');
     if (!c.sel.size) return 'Tick at least one customer.';
     const sup = S.d?.suppressions || [];
@@ -4701,6 +4856,7 @@ const A = {
     const picked = picked0.filter((x) => nowConsent.has(x.customer_key))
       .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));
     let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0; let noWay = picked0.length - picked.length; let dms = 0;
+    const done = [];
     for (const x of picked) {
       if (x.email_lc && customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
       // The consent tag decides the path: email where it allows, otherwise a
@@ -4743,7 +4899,7 @@ const A = {
           // this for the common case; beyond that window, the database does.
           const has = drafted.has(id) || (must(await db.from('affiliate_outreach_drafts').select('id')
             .eq('company_entity_id', CO).eq('prospect_id', id).limit(1)) || []).length > 0;
-          if (has) { drafted.add(id); skippedDupe += 1; continue; }
+          if (has) { drafted.add(id); skippedDupe += 1; done.push(x.customer_key); continue; }
         }
         const { tpl, vars } = draftFor({ ...row, id, program_id: p.id });
         try {
@@ -4757,13 +4913,17 @@ const A = {
           // means the message this press would have written is already
           // waiting, which is not a failure to report.
           if (e?.code !== '23505') throw e;
-          drafted.add(id); skippedDupe += 1; continue;
+          drafted.add(id); skippedDupe += 1; done.push(x.customer_key); continue;
         }
         drafted.add(id);
         if (path.channel === 'dm') dms += 1;
         if (fresh) added += 1; else resumed += 1;
+        done.push(x.customer_key);
       } catch (_) { failed += 1; }
     }
+    // Everyone now in a program (new, finished, or already there) moves to
+    // Shortlisted. A failure here leaves them on the working list, no worse.
+    if (custReview && done.length) await markCustomers(done, 'shortlisted').catch(() => {});
     c.sel.clear();
     loadCustomers(true);
     const bits = [`${num(added)} draft${added === 1 ? '' : 's'} created in ${p.name}`];
@@ -4814,7 +4974,7 @@ const A = {
     S.custFiltOpen = !on; renderCustomers(); return null;
   },
   'cust-view': ({ k }) => { const c = custState(); c.view = k === 'all' ? 'all' : 'hunt'; c.sel.clear(); c.page = 0; loadCustomers(true); return null; },
-  'cust-hunt-tier': ({ k }) => { const c = custState(); c.huntTier = ['check', 'more'].includes(k) ? k : 'top'; c.sel.clear(); loadCustomers(true); return null; },
+  'cust-hunt-tier': ({ k }) => { const c = custState(); c.huntTier = ['check', 'more', ...(custReview ? HUNT_DONE : [])].includes(k) ? k : 'top'; c.sel.clear(); loadCustomers(true); return null; },
   'cust-page': ({ p }) => { const c = custState(); c.page = Math.max(0, Number(p) || 0); loadCustomers(true); return null; },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
