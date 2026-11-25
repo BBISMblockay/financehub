@@ -7005,6 +7005,28 @@ select 'Card paydown match' as check_name,
   else 'ok' end as status;
 -- End card paydown match checks.
 
+-- View as rep (20261125030000): a preview link is its own purpose, made only
+-- by staff of the company, and never writable.
+select 'Affiliate view as rep' as check_name,
+ case when to_regprocedure('public.affiliate_issue_preview_token(uuid,text)') is null
+        or not exists (select 1 from pg_constraint where conrelid = 'public.affiliate_access_tokens'::regclass
+                        and contype = 'c' and pg_get_constraintdef(oid) ilike '%preview%')
+   then 'MISSING — run 20261125030000_affiliate_view_as_rep.sql'
+  when has_function_privilege('anon', 'public.affiliate_issue_preview_token(uuid,text)', 'execute')
+   then 'CRITICAL: anon can mint a rep preview'
+  when exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
+                and p.proname in ('affiliate_portal_claim', 'affiliate_portal_seed_request', 'affiliate_portal_content_start',
+                                  'affiliate_portal_content_finish', 'affiliate_portal_switch_token', 'affiliate_portal_renew_subject',
+                                  'affiliate_portal_brands')
+                and p.prosrc ilike '%preview%')
+   then 'CRITICAL: a portal write, switch, renewal or brand list accepts a read-only preview link'
+  when exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
+                and p.proname in ('affiliate_portal_content', 'affiliate_portal_feed', 'affiliate_portal_orders', 'affiliate_portal_seeds')
+                and p.prosrc not ilike '%''preview''%')
+   then 'STALE — re-run 20261125030000_affiliate_view_as_rep.sql: a portal read refuses the preview'
+  else 'ok' end as status;
+-- End affiliate view as rep checks.
+
 -- SILO ledger mirrors journal adjustments (20261014040000): every posted
 -- adjustment is a ledger entry, recorded by trigger, internals not client-callable.
 select 'SILO ledger mirrors journal adjustments' as check_name,

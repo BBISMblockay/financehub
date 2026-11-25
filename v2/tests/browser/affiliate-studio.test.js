@@ -90,6 +90,12 @@
  *   AFFILIATE_UI_MUTATION=afftwice    an affiliate in two programs is two cards
  *   AFFILIATE_UI_MUTATION=onerowstatus a person's row shows a program other than the one in the filter
  *   AFFILIATE_UI_MUTATION=moreall     More shows one program's buttons for somebody in several
+ *   AFFILIATE_UI_MUTATION=previewlock the preview page leaves its buttons live
+ *   AFFILIATE_UI_MUTATION=previewkey  a preview link is kept under the rep's own key
+ *   AFFILIATE_UI_MUTATION=previewmatch a preview link draws on the rep page (or a rep link as a preview)
+ *   AFFILIATE_UI_MUTATION=previewrenew an ended preview offers renewal
+ *   AFFILIATE_UI_MUTATION=previewbrands a preview asks for the rep's other brands
+ *   AFFILIATE_UI_MUTATION=previewhash View as rep sends the raw link to the database
  *   AFFILIATE_UI_MUTATION=loadgen     a slower People read lands last and shows every program on a program tab
  *   AFFILIATE_UI_MUTATION=supignored  the do-not-contact list is not checked when grouping people
  *   AFFILIATE_UI_MUTATION=supfailopen an unread do-not-contact list still offers people to other programs
@@ -363,6 +369,12 @@ const MUTATIONS = {
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
   onerowstatus: ["/affiliates/studio.js", "  const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;", "  const shownRow = (g) => g.x;"],
   moreall: ["/affiliates/studio.js", "    const rows = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id))?.rows || [mp];", "    const rows = [mp];"],
+  previewlock: ["/affiliates/portal.html", "    $('previewBar').hidden = false;\n    lockPage();\n", "    $('previewBar').hidden = false;\n"],
+  previewkey: ["/affiliates/portal.html", "takeToken(PREVIEW ? 'silo_affiliate_portal_preview' : 'silo_affiliate_portal')", "takeToken('silo_affiliate_portal')"],
+  previewmatch: ["/affiliates/portal.html", "  if (PREVIEW !== (r.preview === true)) {", "  if (false) {"],
+  previewrenew: ["/affiliates/portal.html", "if (e.status === 404) return PREVIEW ? previewEnded() : expired();", "if (e.status === 404) return expired();"],
+  previewbrands: ["/affiliates/portal.html", "  if (!PREVIEW) brandSwitcher();", "  brandSwitcher();"],
+  previewhash: ["/affiliates/studio.js", "p_token_hash: await sha256Hex(raw)", "p_token_hash: raw"],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
@@ -641,6 +653,33 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await toAffiliates(page);
     await toTiles(page, '#affiliatesBody');
     R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    // View as rep (Blake 2026-11-24): their own portal, read-only, in a new
+    // tab, through a preview link whose raw token only the tab ever sees.
+    {
+      let opened = null;
+      const onPortal = (route) => { opened = route.request().url(); return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>portal</title>' }); };
+      await suite.context.route('**/v2/affiliates/portal.html?*', onPortal);
+      R.ok('a signed-up affiliate offers View as rep', !!(await page.$(`#affiliatesBody [data-act="view-as-rep"][data-id="${AFF}"]`)));
+      // The test server is plain http, where browsers withhold crypto.subtle:
+      // a real SHA-256 from Node stands in, so the hash can be checked.
+      await page.exposeFunction('__sha256Bytes', (bytes) => [...require('crypto').createHash('sha256').update(Buffer.from(bytes)).digest()]).catch(() => {});
+      await page.evaluate(() => { if (!crypto.subtle) Object.defineProperty(crypto, 'subtle', { configurable: true, value: { digest: async (_a, buf) => new Uint8Array(await window.__sha256Bytes([...new Uint8Array(buf)])).buffer } }); });
+      const popup = suite.context.waitForEvent('page', { timeout: 5000 }).catch(() => null);
+      await page.click(`#affiliatesBody [data-act="view-as-rep"][data-id="${AFF}"]`).catch(() => {});
+      const tab = await popup;
+      await page.waitForFunction(() => /Read-only, for one hour/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      for (let i = 0; i < 25 && !opened; i += 1) await page.waitForTimeout(100);
+      const call = await page.evaluate(() => window.__QUERIES__.find((q) => q.table === 'rpc:affiliate_issue_preview_token')?.args || null);
+      const u = opened ? new URL(opened) : null;
+      const raw = u?.searchParams.get('t') || '';
+      const hashed = require('crypto').createHash('sha256').update(raw).digest('hex');
+      R.ok('it asks the database for a preview of that affiliate', call?.p_affiliate_id === AFF && /^[0-9a-f]{64}$/.test(call?.p_token_hash || ''));
+      R.ok('and opens their portal in preview mode with the raw link', u?.pathname.endsWith('/v2/affiliates/portal.html') && u.searchParams.get('view') === 'rep' && /^[A-Za-z0-9_-]{43}$/.test(raw));
+      R.ok('the database is sent only the hash of that link', hashed === call?.p_token_hash && !JSON.stringify(call).includes(raw));
+      R.ok('it does not touch the rep\'s own portal link', !(await page.evaluate(() => (window.__INVOKES__ || []).some((x) => x?.body?.action === 'portal_link'))));
+      if (tab) await tab.close().catch(() => {});
+      await suite.context.unroute('**/v2/affiliates/portal.html?*', onPortal);
+    }
     // One list at a time: the sub-tab that is not picked is really gone.
     {
       const onAff = await peopleSubVisible(page);
@@ -1512,6 +1551,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: null, items: [] },
           statement: { currency: 'USD', totals: { earned_cents: 0, paid_cents: 0, unclaimed_cents: 0, orders: 0, today: '2026-11-09' }, monthly: [], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', display_name: 'Pat', terms_version_accepted: 3, terms_accepted_at: now } } });
       }
+      if (body.action === 'resolve' && body.token.startsWith('V')) return reply(200, { purpose: 'preview', preview: true, brand: 'Brand A', brand_logo: LOGO, program, affiliate: { display_name: 'Pat', status: 'active' }, expires_at: now });
       if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO,
         program: body.token.startsWith('F') ? { ...program, terms_file: { name: 'Brand A partnership.pdf', url: 'https://files.invalid/signed/agreement.pdf' } }
           : body.token.startsWith('B') ? { ...program, terms_file: { name: null, url: null } } : program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
@@ -1799,6 +1839,35 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(await text(expiredPortal, '#status'), 'If this link belongs to an active affiliate', 'renewal never confirms whose link it was');
     R.ok('an expired link also offers email sign-in', !!(await expiredPortal.$('#signin #siEmail')));
     await expiredPortal.close();
+    // View as rep: a V link is a staff preview of Pat's portal.
+    {
+      const V = 'V'.repeat(43);
+      const before = calls.length;
+      const pv = await suite.open('/v2/affiliates/portal.html?view=rep&t=' + V, {}, { ready: () => !document.getElementById('kpis').hidden });
+      pv.on('pageerror', (e) => errors.push(e.message));
+      await pv.waitForTimeout(400);
+      R.has(await text(pv, '#previewBar'), 'Viewing as Pat, read-only', 'a preview says whose portal and that it is read-only');
+      R.ok('a preview shows the rep\'s real numbers', /12\.50/.test(await text(pv, '#kpis')));
+      R.ok('nothing that changes anything can be pressed', await pv.evaluate(() => {
+        const claim = document.querySelector('[data-claim]');
+        return !!claim && claim.disabled && [...document.querySelectorAll('[data-claim], [data-seed], #payEmailEdit, #payEmailSave, #meRemove, #ctLinkGo, #ctFile, #meFile')].every((b) => b.disabled);
+      }));
+      R.ok('reading still works: tabs and copy', await pv.evaluate(() => [...document.querySelectorAll('[data-tab], [data-copy]')].every((b) => !b.disabled)));
+      const mine = calls.slice(before).filter((c) => c.token === V);
+      R.ok('a preview never asks for the rep\'s other brands', !mine.some((c) => c.action === 'brands' || c.action === 'switch'));
+      R.ok('a preview never offers add to home screen', !(await pv.evaluate(() => (document.getElementById('install')?.textContent || '').trim())));
+      R.ok('a preview keeps its link apart from a rep\'s own', await pv.evaluate(() => { try { return sessionStorage.getItem('silo_affiliate_portal') === null && !!sessionStorage.getItem('silo_affiliate_portal_preview'); } catch { return false; } }));
+      await pv.close();
+      const plain = await suite.open('/v2/affiliates/portal.html?t=' + V, {}, { ready: () => !!document.getElementById('signin') || !document.getElementById('kpis').hidden });
+      R.ok('a preview link on the rep page draws nothing of theirs', !!(await plain.$('#signin')) && await plain.evaluate(() => document.getElementById('kpis').hidden));
+      await plain.close();
+      const wrong = await suite.open('/v2/affiliates/portal.html?view=rep&t=' + 'P'.repeat(43), {}, { ready: () => /preview has ended/.test(document.body.textContent || '') || !document.getElementById('kpis').hidden });
+      R.ok('a rep\'s own link is never shown as a preview', /preview has ended/.test(await text(wrong, '#body')) && await wrong.evaluate(() => document.getElementById('kpis').hidden));
+      await wrong.close();
+      const ended = await suite.open('/v2/affiliates/portal.html?view=rep&t=' + 'E'.repeat(43), {}, { ready: () => /preview has ended/.test(document.body.textContent || '') || !!document.getElementById('renew') });
+      R.ok('an ended preview offers no renewal or sign-in', /preview has ended/.test(await text(ended, '#body')) && !(await ended.$('#renew')) && !(await ended.$('#signin')));
+      await ended.close();
+    }
     const signin = await suite.open('/v2/affiliates/portal.html', {}, { ready: () => !!document.getElementById('signin') });
     signin.on('pageerror', (e) => errors.push(e.message));
     await signin.fill('#siEmail', 'pat@creator.invalid');
