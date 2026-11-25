@@ -28,10 +28,12 @@
 -- because a re-import was correctly collapsed. The report itself is unchanged,
 -- so the other three checks and the fingerprint guard stay as they are.
 --
+-- No BEGIN/COMMIT of its own, on purpose: the applier sends this file and its
+-- schema_migrations row as ONE request, which is one transaction. A file that
+-- commits itself would be applied before its version is recorded.
+--
 -- Idempotent. No data change. Rollback: re-run section 3 (the view) and the
 -- last tie-out of 20261113200000.
-
-begin;
 
 create or replace view public.accounting_ledger_v
 with (security_invoker = true) as
@@ -218,5 +220,3 @@ begin
     raise exception 'accounting_ledger_v does not read qbo_history_imports: history would be counted once per import';
   end if;
 end $$;
-
-commit;

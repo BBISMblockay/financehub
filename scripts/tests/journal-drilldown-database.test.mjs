@@ -972,6 +972,21 @@ await test('the cut-over stays derived: no date literal, no company id in the vi
   assert.ok(d.includes('active_company_id()'), 'the settings read must be company-scoped');
 });
 
+await test('the migration leaves its transaction to the applier', async () => {
+  // auto-apply-migrations sends the file and its schema_migrations row as one
+  // request. A file that commits itself is applied before its version is
+  // recorded, so a lost connection there would apply it twice. Function
+  // bodies and comments are stripped first: a plpgsql `begin ... end` is not
+  // a transaction.
+  const original = readFileSync(
+    new URL('../../supabase/migrations/20261125140000_ledger_history_one_import_per_day.sql', import.meta.url), 'utf8');
+  const bare = original.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1?\$/g, ' $BODY$ ').replace(/'(?:[^']|'')*'/g, " '' ");
+  assert.equal(/(^|;)\s*(begin|start\s+transaction|commit|rollback)\b/i.test(bare), false,
+    'the migration carries its own transaction control');
+  assert.match(bare, /create or replace view public\.accounting_ledger_v/);
+});
+
 await test('verify reports ok on the fixed ledger and BROKEN on the old one', async () => {
   // The production check itself, lifted from verify_v2_schema.sql by name.
   const verify = readFileSync(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
