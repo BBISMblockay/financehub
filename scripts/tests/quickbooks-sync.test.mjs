@@ -81,6 +81,10 @@ const MUTATIONS = {
   'settle-without-shown-state': [`const r = await api.accept(e.posting_id, e.held_state);`, `const r = await api.accept(e.posting_id);`],
   // an entry QuickBooks changed again is counted as settled
   'settle-counts-moved-on': [`if (r && r.ok === true) out.done += 1;`, `if (r) out.done += 1;`],
+  // a credit is shown as a debit
+  'detail-loses-side': ["n > 0 ? 'debit' : 'credit'", "'debit'"],
+  // the date QuickBooks now holds is not shown
+  'moved-hides-new-date': ["parts.push(a && b ? (a", "parts.push(false ? (a"],
   // Mirror now keeps reading after the company changed
   'mirror-ignores-company': [`try { await api.stillActive(); res = await api.mirror(since); }`, `try { res = await api.mirror(since); }`],
   // Mirror now keeps asking after an answer it does not understand
@@ -535,11 +539,16 @@ test('a month is judged only where QuickBooks was read back, and only from a cle
   }
 });
 
-test('what happened to an entry in QuickBooks is said plainly', () => {
+test('what happened to an entry in QuickBooks is said plainly, with the date and accounts it now holds', () => {
   assert.equal(S.changeText({ missing: true, differs_by: 500 }), 'Not in QuickBooks any more (deleted, or moved out of the months read)');
-  assert.equal(S.changeText({ missing: false, moved: false, differs_by: '100' }), 'Changed in QuickBooks, differs by 100.00');
-  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0 }), 'Moved to another day in QuickBooks');
-  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 25 }), 'Changed in QuickBooks, differs by 25.00');
+  assert.equal(S.changeText({ missing: false, moved: false, differs_by: '100' }), 'Changed in QuickBooks: differs by 100.00');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0, held_first_day: '2026-09-15', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: now dated 2026-09-15');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 25, held_first_day: '2026-09-12', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: differs by 25.00, now dated 2026-09-12 to 2026-09-15');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0 }), 'Changed in QuickBooks: moved to another day');
+  same(S.changeDetail({ accounts: [{ account: 'Rent', sent: 400, quickbooks: 500 }, { account: 'Rent:Warehouse', sent: '100', quickbooks: 0 }, { account: 'Visa', sent: -500, quickbooks: '-450' }] }),
+    ['Rent: SILO sent 400.00 debit, QuickBooks has 500.00 debit', 'Rent:Warehouse: SILO sent 100.00 debit, QuickBooks has nothing', 'Visa: SILO sent 500.00 credit, QuickBooks has 450.00 credit']);
+  same(S.changeDetail({ accounts: null }), []);
+  same(S.changeDetail({ accounts: [{ account: '', sent: 'x', quickbooks: 1 }] }), ['Account: SILO sent unknown, QuickBooks has 1.00 debit']);
 });
 
 test('settling sends the version that was on the screen, and says when QuickBooks has moved on', async () => {

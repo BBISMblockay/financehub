@@ -376,8 +376,21 @@
   function changeText(e) {
     if (e.missing) return 'Not in QuickBooks any more (deleted, or moved out of the months read)';
     const off = num(e.differs_by);
-    if (off) return `Changed in QuickBooks, differs by ${money(off)}`;
-    return e.moved ? 'Moved to another day in QuickBooks' : 'Changed in QuickBooks';
+    const parts = [];
+    if (off) parts.push(`differs by ${money(off)}`);
+    if (e.moved) {
+      const a = e.held_first_day; const b = e.held_last_day;
+      parts.push(a && b ? (a === b ? `now dated ${a}` : `now dated ${a} to ${b}`) : 'moved to another day');
+    }
+    return parts.length ? `Changed in QuickBooks: ${parts.join(', ')}` : 'Changed in QuickBooks';
+  }
+  // The accounts that differ: what SILO sent against what QuickBooks has now.
+  // Amounts are +debit / -credit in the data and said as words here.
+  const side = (v) => { const n = num(v); return n === null ? 'unknown' : n === 0 ? 'nothing' : `${money(Math.abs(n))} ${n > 0 ? 'debit' : 'credit'}`; };
+  function changeDetail(e) {
+    if (!Array.isArray(e.accounts)) return [];
+    return e.accounts.filter((a) => a && typeof a === 'object')
+      .map((a) => `${a.account || 'Account'}: SILO sent ${side(a.sent)}, QuickBooks has ${side(a.quickbooks)}`);
   }
 
   /* Accept QuickBooks' version of each open entry AS IT WAS SHOWN: the state
@@ -430,7 +443,7 @@
     return out;
   }
 
-  const API = { sections, chosen, agreement, agreementLabel, changeText, settleAll, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
+  const API = { sections, chosen, agreement, agreementLabel, changeText, changeDetail, settleAll, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
 
   // ─────────────────────────────────────────────────────────── data ──
   async function result(query) {
@@ -482,7 +495,7 @@
       // Fewer rows than the cap, or it is not the whole list and says nothing.
       optional(async () => {
         const r = await db.from('quickbooks_sent_entries_check_v')
-          .select('posting_id,qbo_doc_number,memo,entry_date,status,differs_by,missing,moved,held_state')
+          .select('posting_id,qbo_doc_number,memo,entry_date,status,differs_by,missing,moved,held_state,held_first_day,held_last_day,accounts')
           .eq('company_entity_id', company.id).order('posting_id').limit(5000);
         return !r.error && Array.isArray(r.data) && r.data.length >= 5000 ? { error: { message: 'too many' } } : r;
       }),
@@ -640,7 +653,12 @@
         if (a && a.open.length) {
           const box = el('div', null, 'qs-settle');
           const list = el('ul');
-          for (const e of a.open) list.append(el('li', `${e.qbo_doc_number || 'Entry'}${e.memo ? ` · ${e.memo}` : ''} · ${e.entry_date}: ${changeText(e)}`));
+          for (const e of a.open) {
+            const li = el('li', `${e.qbo_doc_number || 'Entry'}${e.memo ? ` · ${e.memo}` : ''} · ${e.entry_date}: ${changeText(e)}`);
+            const detail = changeDetail(e);
+            if (detail.length) { const sub = el('ul'); for (const line of detail) sub.append(el('li', line)); li.append(sub); }
+            list.append(li);
+          }
           box.append(list);
           if (st.model.canSend) {
             const b = el('button', `Use QuickBooks’ version · ${a.open.length}`, 'bcn-btn'); b.type = 'button'; b.disabled = st.busy;

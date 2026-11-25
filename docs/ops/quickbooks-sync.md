@@ -98,7 +98,9 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
   hand in QuickBooks are not judged here.
 - **QuickBooks is the master copy** (Blake, 2026-11-25: "qbo is current master", "with action to get
   settled and mirrored, not just flag"). SILO's statements already use QuickBooks' lines for a month that
-  was read back. A month that differs lists each changed entry and one button, **Use QuickBooks' version**:
+  was read back. A month that differs lists each changed entry, with the date QuickBooks now holds it on
+  and, for each account that differs, what SILO sent against what QuickBooks has (`held_first_day`,
+  `held_last_day`, `accounts` on the view), and one button, **Use QuickBooks' version**:
   it calls `quickbooks_accept_quickbooks_version(posting_id, expected_state)` for each, which records the exact QuickBooks
   state accepted (`quickbooks_entry_settlements`). The entry reads `settled` and the month agrees. If
   QuickBooks changes that entry again, the acceptance no longer matches and it is flagged again. The page
@@ -117,6 +119,6 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
 
 `node --test scripts/tests/quickbooks-sync.test.mjs` (41). `QBSYNC_MUTATION=<name>` breaks one protection; every one
 must fail the suite and CI runs each. The entry check, the settle function and Mirror now's work list run on real
-PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs` (26 checks; `SETTLE_MUTATION`, 20). The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
+PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs` (26 checks; `SETTLE_MUTATION`, 22). The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
 (13 checks, 17 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

@@ -511,6 +511,9 @@ const SETTLE_MUTATIONS = {
   // an acceptance covers whatever QuickBooks does next
   // a click on an old screen accepts whatever QuickBooks holds now
   'accept-unseen-version': [`  if p_expected_state is null or v_row.held_state is distinct from p_expected_state then`, `  if false then`],
+  // the accounts shown are not the ones that differ
+  'detail-shows-unchanged': [`order by name, acct) filter (where off <> 0), '[]'::jsonb) as accounts`, `order by name, acct), '[]'::jsonb) as accounts`],
+  'detail-swaps-sides': [`jsonb_build_object('account', name, 'sent', sent_amt, 'quickbooks', held_amt)`, `jsonb_build_object('account', name, 'sent', held_amt, 'quickbooks', sent_amt)`],
   'stale-acceptance-stands': [`s.accepted_state = j.held_state then 'settled'`, `true then 'settled'`],
   'browser-writes-settlements': [`revoke all on public.quickbooks_entry_settlements from public, anon, authenticated;`, `grant all on public.quickbooks_entry_settlements to authenticated;`],
   'anon-can-accept': [`revoke all on function public.quickbooks_accept_quickbooks_version(uuid, text) from public, anon, authenticated;`, ``],
@@ -600,12 +603,19 @@ await test('every entry SILO sent is checked against what QuickBooks holds now',
   // 100 moved from the warehouse account to its parent.
   await store(CHANGED);
   await sept('SILO-AAA changed off=100.00');
+  const seen = async () => { const [r] = await q(`select held_first_day::text a, held_last_day::text b, accounts from quickbooks_sent_entries_check_v where qbo_doc_number = 'SILO-AAA'`);
+    return `${r.a}..${r.b} ${r.accounts.map((x) => `${x.account}:${Number(x.sent)}>${Number(x.quickbooks)}`).join(' ')}`.trim(); };
+  // What a person is shown before accepting: the day QuickBooks holds it on, and
+  // each account that differs with what SILO sent against what QuickBooks has.
+  assert.equal(await seen(), '2026-09-10..2026-09-10 Rent:400>500 Rent:Warehouse:100>0');
   // Same amounts, two days later.
   await store(MOVED);
   await sept('SILO-AAA changed off=0.00 moved');
+  assert.equal(await seen(), '2026-09-12..2026-09-12');
   // Deleted in QuickBooks: the whole entry is the difference.
   await store(DELETED);
   await sept('SILO-AAA changed off=500.00 missing');
+  assert.match(await seen(), /^null\.\.null .*:400>0 .*:100>0 .*:-500>0$/);
   // A deposit that carries the same id is not SILO's journal entry.
   await store(september({ ...SEPT_ROWS,
     rent: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 400]],
