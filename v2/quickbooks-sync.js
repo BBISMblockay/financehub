@@ -70,6 +70,25 @@
   const QBO_KEEPS = 'QuickBooks keeps the books for this company, so SILO sends nothing.';
   const MODE_UNREAD = 'Could not read who keeps this company’s books. Refresh before syncing.';
 
+  const BY_HAND = 'Entered in QuickBooks by hand.';
+  const BY_HAND_UNREAD = 'Could not read which entries were entered in QuickBooks by hand. Refresh before syncing.';
+  const BY_HAND_CHANGED = 'Changed since it was marked as entered by hand. Send it, or mark it again.';
+  /* A person's statement that an entry is already in QuickBooks
+     (quickbooks_entered_by_hand, 20261125130000). `facts.byHand` is the list,
+     null where the database does not have the feature yet, undefined where it
+     could not be read -- and then nothing is called sendable.
+     A mark speaks for the content it was made on (`snapshot`). `now` is what
+     the entry holds today: a month's own fingerprint comes with the mark
+     (`current`), a journal entry's is its approval hash. 'current' = still
+     speaks for it; 'stale' = the entry changed, so a person decides again. */
+  function byHandMark(facts, source, ref, now) {
+    if (!known(facts.byHand)) return null;
+    const h = facts.byHand.find((m) => m.source === source && String(m.source_ref) === String(ref));
+    if (!h) return null;
+    const is = now === undefined ? h.current : now;
+    return h.snapshot && is && h.snapshot === is ? 'current' : 'stale';
+  }
+
   function claimsFor(claims, source, ref) {
     if (!known(claims) || !source || !ref) return [];
     return claims.filter((c) => c.source === source && String(c.source_ref) === String(ref));
@@ -97,6 +116,10 @@
     if (b.status === 'posted') {
       return set('synced', b.qbo_doc_number || b.qbo_journal_entry_id ? `QuickBooks entry ${b.qbo_doc_number || b.qbo_journal_entry_id}` : '');
     }
+    if (facts.byHand === undefined) return set('fix', BY_HAND_UNREAD, { unreadable: true });
+    const marked = byHandMark(facts, 'card_import', b.id);
+    if (marked === 'current') return set('synced', BY_HAND, { byHand: true });
+    if (marked === 'stale') item.staleMark = true;
     const uncoded = num(b.uncoded_count) || 0;
     const live = (num(b.txn_count) || 0) - (num(b.excluded_count) || 0);
     if (live <= 0) return null;                       // nothing in it to send
@@ -149,6 +172,10 @@
       return set('fix', 'A send went out and QuickBooks never confirmed it. Check QuickBooks, then resolve it in the journal register.');
     }
     if (a.status === 'posted') return set('synced', a.qbo_doc_number ? `QuickBooks entry ${a.qbo_doc_number}` : '');
+    if (facts.byHand === undefined) return set('fix', BY_HAND_UNREAD, { unreadable: true });
+    const marked = a.status === 'approved' ? byHandMark(facts, source, ref, a.approval_hash || null) : null;
+    if (marked === 'current') return set('synced', BY_HAND, { byHand: true });
+    if (marked === 'stale') item.staleMark = true;
     if (a.status === 'draft') return facts.mode === 'qbo' ? null : set('fix', 'Draft. Review and approve it before it can sync.');
     if (a.status !== 'approved') return null;
     if (facts.mode === 'qbo') return set('outside', QBO_KEEPS);
@@ -169,6 +196,13 @@
     const items = [];
     for (const b of facts.batches) { const i = classifyBatch(b, facts); if (i) items.push(i); }
     for (const a of facts.adjustments) { const i = classifyAdjustment(a, facts); if (i) items.push(i); }
+    // Anything SILO would send can instead be marked as already there -- only
+    // where the database can hold the mark.
+    for (const i of items) {
+      i.canMark = known(facts.byHand) && i.status === 'waiting' && i.sendable === true;
+      // The mark was for different content: offered, never pre-ticked.
+      if (i.staleMark && i.canMark) { i.defaultSelected = false; i.reason = BY_HAND_CHANGED; }
+    }
     const rank = { fix: 0, waiting: 1, open: 2, synced: 3, outside: 4 };
     return items.sort((x, y) => String(y.month || '').localeCompare(String(x.month || ''))
       || (rank[x.status] - rank[y.status]) || x.title.localeCompare(y.title) || x.key.localeCompare(y.key));
@@ -291,7 +325,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today || '')) throw new Error('Could not read the company’s business date. Refresh to retry.');
     const errors = [];
     const attempt = async (name, read) => { try { return await read(); } catch (e) { errors.push(`${name}: ${e.message}`); return undefined; } };
-    const [settings, batches, base, view, claims, ledger] = await Promise.all([
+    const [settings, batches, base, view, claims, byHand, ledger] = await Promise.all([
       attempt('settings', async () => (await result(db.from('accounting_settings').select('bookkeeping_mode').eq('company_entity_id', company.id).maybeSingle())).data),
       attempt('months', () => allRows(db, company.id, 'card_import_batches_v',
         'id,source_name,label,status,entry_date,period_start,period_end,txn_count,uncoded_count,excluded_count,coded_amount,qbo_doc_number,qbo_journal_entry_id,source_posting_enabled,source_posting_start_on,approval_hash')),
@@ -300,13 +334,19 @@
       attempt('sends', () => allRows(db, company.id, 'quickbooks_journal_postings', 'id,source,source_ref,status,error_message,payload_hash,created_at',
         (q) => q.in('status', ['submitting', 'unknown', 'failed', 'voided']))),
       // A missing function means the daily ledger is not installed: no holds to report.
+      // A missing function means the feature is not installed here: no marks, no button.
+      attempt('entered by hand', async () => {
+        const r = await db.rpc('quickbooks_entered_by_hand_list');
+        if (r.error) { if (r.error.code === 'PGRST202' || r.error.code === '42883') return null; throw new Error(r.error.message); }
+        return r.data || [];
+      }),
       attempt('ledger', async () => { const r = await db.rpc('silo_ledger_batch_status'); if (r.error) { if (r.error.code === 'PGRST202' || r.error.code === '42883') return []; throw new Error(r.error.message); } return r.data || []; }),
     ]);
     const after = await config.ensureActiveCompany(db);
     if (after?.id !== company.id) throw new Error('Company changed while loading. Refresh to retry.');
     const totals = new Map((view || []).map((v) => [v.id, v]));
     const adjustments = known(base) && known(view) ? base.map((a) => ({ ...a, ...(totals.get(a.id) || {}) })) : undefined;
-    const facts = { companyId: company.id, today, mode: settings === undefined ? undefined : (settings?.bookkeeping_mode || 'silo'), batches, adjustments, claims, ledger };
+    const facts = { companyId: company.id, today, mode: settings === undefined ? undefined : (settings?.bookkeeping_mode || 'silo'), batches, adjustments, claims, byHand, ledger };
     return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts) };
   }
 
@@ -385,6 +425,13 @@
         if (i.reason) state.append(el('small', i.reason));
         const go = el('td', null, 'qs-go');
         if (i.status !== 'synced' || i.kind === 'batch') { const a = el('a', i.status === 'fix' ? 'Fix' : 'Open'); a.href = i.href; a.setAttribute('aria-label', `${i.hrefLabel}: ${i.title}`); go.append(a); }
+        const mayMark = st.model.canSend && st.model.mode === 'silo' && !st.busy;
+        if (mayMark && (i.canMark || i.byHand)) {
+          const b = el('button', i.byHand ? 'Undo' : 'Already in QuickBooks', 'qs-mark'); b.type = 'button';
+          b.setAttribute('aria-label', `${i.byHand ? 'Undo entered by hand' : 'Mark as already in QuickBooks'}: ${i.title}${i.detail ? `, ${i.detail}` : ''}`);
+          b.addEventListener('click', () => mark(i, !i.byHand, b));
+          go.append(b);
+        }
         tr.append(what, amount, state, go); body.append(tr);
       }
     }
@@ -409,6 +456,23 @@
       }
     }
 
+    // One entry, marked as already in QuickBooks or unmarked again. Nothing is
+    // sent either way, and it is undone with one click, so it asks nothing.
+    async function mark(item, on, button) {
+      if (st.busy || !st.model) return;
+      button.disabled = true;
+      try {
+        const a = api();
+        await a.stillActive();
+        await a.mark(item.kind, item.id, on);
+        await refresh(true);
+        setStatus(on ? `${item.title} is marked as already in QuickBooks. SILO will not send it.` : `${item.title} is back in the list to send.`, 'pos', 6000);
+      } catch (e) {
+        button.disabled = false;
+        setStatus(e.code === 'COMPANY_CHANGED' ? 'The active company changed. Refresh before changing anything.' : friendly(e.message), 'neg');
+      }
+    }
+
     function api() {
       const rpc = async (name, args) => (await result(db.rpc(name, args))).data;
       return {
@@ -418,6 +482,7 @@
         },
         preview: (id) => rpc('card_import_batch_preview', { p_batch_id: id }),
         approve: (id, hash) => rpc('approve_reviewed_card_import_batch', { p_batch_id: id, p_expected_hash: hash }),
+        mark: (kind, id, on) => rpc('set_entry_entered_in_quickbooks', { p_kind: kind, p_id: id, p_marked: on }),
         async post(body) {
           try {
             const { data: { session } } = await db.auth.getSession();

@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { generateKeyPair, SignJWT } from 'npm:jose@6.2.12';
 import { verifySchedulerIdentity, WORKFLOWS } from '../../supabase/functions/card-coding-prepare-scheduled/oidc.mjs';
-import { createScheduledPrepareHandler, ROWS_PER_INVOCATION } from '../../supabase/functions/card-coding-prepare-scheduled/handler.mjs';
+import { createScheduledPrepareHandler, ROWS_PER_INVOCATION, RULE_ROWS_PER_RUN } from '../../supabase/functions/card-coding-prepare-scheduled/handler.mjs';
 
 const keys = await generateKeyPair('RS256');
 const audience = 'https://synthetic.supabase.co/functions/v1/card-coding-prepare-scheduled';
@@ -115,4 +115,53 @@ test('a failed or unconfirmed preparation is reported as such, never as progress
   const thrown = fixture({ prepareThrows: true });
   const c = await (await thrown.request()).json();
   assert.equal(c.ok, false); assert.equal(c.status, 'unconfirmed'); assert.equal(c.error_code, 'preparation_unconfirmed');
+});
+
+// ── Saved rules run first, once per run ─────────────────────────────────────
+// A database that answers each function by name, unlike the fixture above.
+function rulesFixture({ rules = { data: { applied: 7, skipped: { needs_type: 2, account_unavailable: 1 }, more: true }, error: null },
+  rulesThrows = false, work = null } = {}) {
+  const calls = [];
+  const handler = createScheduledPrepareHandler({
+    env: (key) => ({ SUPABASE_URL: 'https://synthetic.supabase.co', CODING_PREP_BACKGROUND_ENABLED: 'true' })[key],
+    verifyIdentity: (value, aud) => verifySchedulerIdentity(value, aud, keys.publicKey),
+    createDb: () => ({ rpc: async (name, args) => {
+      calls.push([name, args]);
+      if (name === 'apply_saved_card_coding_rules') { if (rulesThrows) throw new Error('down'); return rules; }
+      return { data: work, error: null };
+    } }),
+    prepare: async () => ({ status: 200, body: { run_id: null, run_status: 'completed', suggested: 1, needs_judgment: 0, failed: 0, in_progress: 0 } }),
+  });
+  return { calls, request: (body) => handler(new Request(audience, { method: 'POST', headers: { 'x-silo-scheduler-token': token }, body: JSON.stringify(body) })) };
+}
+
+test('saved rules are applied before any work is looked for, with counts only in the answer', async () => {
+  const f = rulesFixture();
+  const body = await (await f.request({ trigger: 'background' })).json();
+  assert.deepEqual(f.calls.map((c) => c[0]), ['apply_saved_card_coding_rules', 'next_card_coding_work'], 'rules first: what they answer must not reach the model');
+  assert.deepEqual(f.calls[0][1], { p_limit: RULE_ROWS_PER_RUN }, 'the caller names no company, account or row');
+  assert.deepEqual(body, { done: true, rules: { applied: 7, skipped: 3, more: true } });
+  // With work to do, the counts ride along on the same answer.
+  const g = rulesFixture({ work: { batch_id: BATCH, company_entity_id: COMPANY, transaction_ids: [txn(1)], remaining: 0 } });
+  const withWork = await (await g.request({ trigger: 'nightly' })).json();
+  assert.deepEqual(withWork.rules, { applied: 7, skipped: 3, more: true }); assert.equal(withWork.ok, true);
+});
+
+test('saved rules run once per run: a call that carries a cursor or an import does not repeat them', async () => {
+  for (const body of [{ trigger: 'background', after: AFTER }, { trigger: 'background', batch: BATCH }]) {
+    const f = rulesFixture();
+    const answer = await (await f.request(body)).json();
+    assert.deepEqual(f.calls.map((c) => c[0]), ['next_card_coding_work'], JSON.stringify(body));
+    assert.equal('rules' in answer, false);
+  }
+});
+
+test('a rules failure never stops preparation, and is not reported as zero', async () => {
+  for (const broken of [{ rules: { data: null, error: { code: 'PGRST202', message: 'no such function' } } }, { rulesThrows: true }, { rules: { data: 'nonsense', error: null } }]) {
+    const f = rulesFixture({ ...broken, work: { batch_id: BATCH, company_entity_id: COMPANY, transaction_ids: [txn(1)], remaining: 0 } });
+    const response = await f.request({ trigger: 'background' });
+    const body = await response.json();
+    assert.equal(response.status, 200); assert.equal(body.ok, true); assert.equal(body.suggested, 1);
+    assert.equal('rules' in body, false, 'unknown is absent, not {applied: 0}');
+  }
 });

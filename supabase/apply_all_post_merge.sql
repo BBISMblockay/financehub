@@ -19954,4 +19954,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125100000: nightly Discovery -- its own switch and limits beside nightly
 -- Find; a running run's spend so far counts toward its own limit.
 \i migrations/20261125100000_affiliate_studio_nightly_discovery.sql
+-- 20261125130000: saved rules categorize at bank sync without a page (only rows
+-- no person has saved, only switched-on accounts), and an entry made by hand in
+-- QuickBooks can be marked so no page can send it a second time.
+\i migrations/20261125130000_rules_auto_apply_and_entered_by_hand.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
