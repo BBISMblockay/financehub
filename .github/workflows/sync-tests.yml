@@ -2975,6 +2975,19 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      - name: Affiliate customer find decisions database (real PostgreSQL)
+        run: node scripts/tests/affiliate-customer-review-database.test.mjs
+      - name: The customer find decision guards, removed, must break it
+        run: |
+          set -u
+          for m in anongrant nomanager nocompany restoreall nobackfill; do
+            if CUST_REVIEW_DB_MUTATION="$m" node scripts/tests/affiliate-customer-review-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Affiliate view as rep database (real PostgreSQL)
         run: node scripts/tests/affiliate-view-as-rep-database.test.mjs
       - name: The view-as-rep guards, removed, must break it

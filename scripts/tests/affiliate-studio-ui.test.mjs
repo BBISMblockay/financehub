@@ -542,11 +542,14 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.customerSocialView(undefined).label, '—', 'never scanned');
   const found = C.customerSocialView({ status: 'found', match_basis: 'city', match_score: 80, handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
   assert.equal(found.trust, 'likely', 'a Likely score makes it likely');
-  assert.equal(found.pill, 'Likely 80', 'the score shows on the find');
+  assert.equal(found.pill, 'Likely 80%', 'the score shows on the find');
   assert.equal(found.why, 'Their city appears on the profile', 'and the basis says why');
   const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', match_score: 40, handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
   assert.equal(nameOnly.trust, 'name'); assert.equal(nameOnly.tone, 'warn', 'a name alone is a match to check, never shown as found');
-  assert.equal(nameOnly.pill, 'Check 40');
+  assert.equal(nameOnly.pill, 'Check 40%');
+  assert.match(found.tip, /^80% sure .*Their city appears on the profile\. 70% and up is Likely/, 'the hover says how sure and why');
+  assert.match(nameOnly.tip, /^40% sure .*Only the name matches.*Under 70% is Check/, 'a Check says to look first');
+  assert.match(C.socialScoreTip({ match_basis: 'city' }), /^Found before match scores existed/, 'an unscored find says so, never 0%');
   assert.equal(C.customerSocialView({ status: 'found', match_score: 69, match_basis: 'city', handle: '@em', profile_url: 'https://x.test/em', followers: 900 }).trust, 'name', 'under 70 is Check, whatever the basis');
   const old = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 });
   assert.deepEqual([old.trust, old.pill], ['name', 'Check'], 'a row scored before scores existed is Check, as the scan counts it');
@@ -594,8 +597,14 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.scanTermsFromRead(null), null);
   // The tab counts agree with the list: opted-out customers come off their tab.
   const hid = [{ status: 'found', match_score: 35 }, { status: 'found', match_score: 82 }, { status: 'below' }, { status: 'none' }];
-  assert.deepEqual(C.huntCounts({ top: 10, check: 76, more: 5 }, hid), { top: 9, check: 75, more: 4 });
-  assert.deepEqual(C.huntCounts({ top: null, check: 2, more: 0 }, [{ status: 'below' }]), { top: null, check: 2, more: 0 }, 'a missing count stays missing, never below zero');
+  assert.deepEqual(C.huntCounts({ top: 10, check: 76, more: 5 }, hid), { top: 9, check: 75, more: 4, shortlisted: null, archive: null });
+  assert.deepEqual(C.huntCounts({ top: null, check: 2, more: 0 }, [{ status: 'below' }]), { top: null, check: 2, more: 0, shortlisted: null, archive: null }, 'a missing count stays missing, never below zero');
+  // A decided find counts under Shortlisted or Archive, never a working tab.
+  assert.deepEqual(C.huntCounts({ top: 3, check: 3, more: 3, shortlisted: 2, archive: 2 }, [
+    { status: 'found', match_score: 90, review: 'shortlisted' }, { status: 'found', match_score: 90, review: 'not_fit' }, { status: 'found', match_score: 90 },
+  ]), { top: 2, check: 3, more: 3, shortlisted: 1, archive: 1 });
+  assert.equal(C.huntTierOf({ status: 'rejected' }), 'archive', 'Not them is archived');
+  assert.equal(C.huntTierOf({ status: 'below', review: 'suppressed' }), 'archive', 'Do not contact is archived');
   // Show every prospect; the consent tag decides the path (Blake 2026-11-24).
   const okFind = { status: 'found', platform: 'instagram', handle: '@ola', profile_url: 'https://www.instagram.com/ola' };
   const cu = (state, o = {}) => ({ email_lc: 'ola@buyer.invalid', email_consent_state: state, ...o });
@@ -633,6 +642,19 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   // On the company list by address, whatever their rows' status.
   const listed = C.groupPeople([{ id: 9, program_id: B_, contact_email: 'ali@x.com', status: 'new' }], [{ kind: 'email', value_normalized: 'ali@x.com' }]);
   assert.equal(listed[0].suppressed, true, 'the do-not-contact list marks the person, not only a suppressed status');
+  // A closed program leaves no remnant once the person has an open row, and
+  // nobody only ever in a closed program is lost.
+  const mixed = C.dropClosedRows(C.groupPeople([
+    { id: 20, program_id: 'closed', handle: '@sam', platform: 'instagram', status: 'new' },
+    { id: 21, program_id: A_, handle: '@sam', platform: 'instagram', status: 'approved' },
+    { id: 22, program_id: 'closed', handle: '@solo', platform: 'instagram', status: 'new' },
+  ]), ['closed']);
+  assert.deepEqual(mixed.map((g) => [g.x.id, g.rows.map((x) => x.id), g.programIds]), [[21, [21], [A_]], [22, [22], ['closed']]]);
+  const dncClosed = C.dropClosedRows(C.groupPeople([
+    { id: 23, program_id: 'closed', handle: '@no', platform: 'instagram', status: 'suppressed' },
+    { id: 24, program_id: A_, handle: '@no', platform: 'instagram', status: 'new' },
+  ]), new Set(['closed']));
+  assert.equal(dncClosed[0].suppressed, true, 'do not contact from a closed program still marks the person');
   const moved = C.assignedProspectRow({ id: 9, program_id: B_, status: 'signed_up', affiliate_id: 'a', source_id: 's', reviewed_by: 'r', platform: 'youtube', profile_url: 'u', source: 'serp', evidence: { q: 1 } }, A_);
   assert.equal(moved.program_id, A_); assert.equal(moved.status, 'approved');
   for (const k of ['id', 'affiliate_id', 'source_id', 'reviewed_by']) assert.ok(!(k in moved), `${k} stays with the other program`);

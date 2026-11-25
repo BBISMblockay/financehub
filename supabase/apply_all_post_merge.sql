@@ -19964,4 +19964,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125150000: SILO's books read QuickBooks back each night -- a replaceable
 -- mirror of QuickBooks' ledger per month, and silo_books_ledger_v on top of it.
 \i migrations/20261125150000_quickbooks_ledger_mirror.sql
+-- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
+-- not contact), so worked finds leave Affiliate Studio's working lists.
+\i migrations/20261125210000_affiliate_customer_review.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
