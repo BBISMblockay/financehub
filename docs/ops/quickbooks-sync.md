@@ -1,7 +1,7 @@
 # QuickBooks sync page
 
-Page: `testing/quickbooks-sync.html` (in `testing/` until it goes live; then it moves to `v2/` and into
-`ACCOUNTING_PAGES`). Logic: `v2/quickbooks-sync.js`. No migration, no edge function.
+Page: `/v2/quickbooks-sync.html`, not in the menu yet (`testing/` is not published, so it could not be opened
+there; it joins `ACCOUNTING_PAGES` when it goes live). Logic: `v2/quickbooks-sync.js`. No migration, no edge function.
 
 Steps 1-2 of the 2026-11-25 accounting audit (Blake: "categorize in silo, watch the financials build,
 sync with qbo which would generate all the entries, show a loading progress, approve or fix").

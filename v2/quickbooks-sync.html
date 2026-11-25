@@ -1,20 +1,19 @@
 <!doctype html>
-<!-- QuickBooks sync: work-in-progress, in testing/ on purpose (new UI lives
-     here until it goes live, then moves to v2/ and into the Accounting tabs).
-     Signed-in and finance-gated like every Accounting page. The logic is
-     ../v2/quickbooks-sync.js, which adds no write path of its own: it runs the
-     same preview, approval and send calls On Deck and Transactions already
-     make, one entry after another. -->
+<!-- QuickBooks sync. Not in the menu yet: it is opened by its address until
+     it joins the Accounting tabs. Signed-in and finance-gated like every
+     Accounting page. The logic is quickbooks-sync.js, which adds no write
+     path of its own: it runs the same preview, approval and send calls On
+     Deck and Transactions already make, one entry after another. -->
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
   <title>SILO · QuickBooks sync</title>
-  <link rel="stylesheet" href="../v2/beacon.css" />
-  <link rel="stylesheet" href="../v2/silo-brand.css" />
-  <link rel="stylesheet" href="../v2/accounting-suite.css" />
-  <link rel="stylesheet" href="../v2/accounting-workspace.css" />
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-workspace.css" />
   <style>
     .qs-top { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
     .qs-summary { flex: 1 1 320px; min-width: 0; max-width: 620px; display: flex; flex-direction: column; gap: 8px; }
@@ -52,16 +51,16 @@
     .qs-ack { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; margin-bottom: 14px; }
     .qs-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
   </style>
-  <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
-  <link rel="stylesheet" href="../v2/v2-mobile.css" />
-  <script src="../v2/v2-shell.js" defer></script>
-  <script src="../v2/nav-config.js"></script>
-  <script src="../v2/avatar.js"></script>
-  <script src="../v2/accounting-suite.js"></script>
-  <script src="../v2/silo-chrome.js"></script>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="accounting-suite.js"></script>
+  <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
-  <script src="../v2/quickbooks-sync.js"></script>
+  <script src="quickbooks-sync.js"></script>
 </head>
 <body>
 <div class="silo-app" id="silo-app">

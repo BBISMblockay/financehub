@@ -343,6 +343,7 @@ on:
       - 'supabase/migrations/*card_payment_match_either_side.sql'
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'v2/quickbooks-sync.js'
+      - 'v2/quickbooks-sync.html'
       - 'scripts/tests/quickbooks-sync.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
@@ -784,7 +785,7 @@ jobs:
       - name: Bookkeeping mode card
         run: node --test scripts/tests/accounting-mode.test.mjs
 
-      # The QuickBooks sync page (testing/quickbooks-sync.html): which state
+      # The QuickBooks sync page (v2/quickbooks-sync.html): which state
       # each month and entry is in, and the send run. Every mutation breaks one
       # protection and must fail the suite.
       - name: QuickBooks sync page

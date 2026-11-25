@@ -273,7 +273,7 @@ test('precheck turns a waiting month into a fix before anyone presses Sync', asy
 });
 
 test('the page wires the module and leaves no write path of its own', () => {
-  const page = fs.readFileSync(new URL('../../testing/quickbooks-sync.html', import.meta.url), 'utf8');
+  const page = fs.readFileSync(new URL('../../v2/quickbooks-sync.html', import.meta.url), 'utf8');
   for (const id of ['status', 'qsSummary', 'btnSync', 'qsSyncNote', 'qsProgress', 'qsProgressBar', 'qsProgressText', 'qsRows', 'qsEmpty', 'qsConfirm', 'qsConfirmList', 'qsAck', 'qsConfirmGo', 'qsConfirmCancel', 'btnRefresh', 'qsToday']) {
     assert.ok(page.includes(`id="${id}"`), id);
   }
