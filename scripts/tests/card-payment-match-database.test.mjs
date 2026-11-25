@@ -59,9 +59,9 @@ const MUTATIONS = {
   // will judge, and an undo never overwrites coding somebody did themselves.
   'payer-any-treatment': ['    else null end;', "    else 'card_payment' end;"],
   'relink-resnapshots': ["  select * into v_match from public.card_payment_matches where card_transaction_id = v_card.id;\n  if v_match.card_transaction_id is not null then", '  if false then'],
-  'restore-unstamped': ['       and v_bank.updated_at is not distinct from v_match.payer_coded_at\n', ''],
-  'restore-changed': ["    if v_bank.id is not null and v_bank.status = 'coded'\n       and v_bank.updated_at is not distinct from v_match.payer_coded_at\n       and v_bank.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n       and v_bank.accounting_treatment is not distinct from v_treatment then",
-    '    if v_bank.id is not null then'],
+  'restore-unstamped': ['         and t.updated_at is not distinct from v_match.payer_coded_at\n', ''],
+  'restore-changed': ["       where t.id = v_bank.id\n         and t.status = 'coded'\n         and t.updated_at is not distinct from v_match.payer_coded_at\n         and t.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n         and t.accounting_treatment is not distinct from v_treatment;",
+    '       where t.id = v_bank.id;'],
 };
 const mutation = process.env.CARD_MATCH_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown mutation');

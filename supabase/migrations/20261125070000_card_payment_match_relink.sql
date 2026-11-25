@@ -149,11 +149,14 @@ begin
       join public.card_import_batches b on b.source_id = s.id where b.id = v_card.batch_id;
     v_treatment := public.card_payment_posting_treatment(v_card_src.credit_qbo_account_type);
     /* Untouched since the match wrote it: the stamp catches an edit that put
-       back the same account and treatment, which the values alone cannot. */
-    if v_bank.id is not null and v_bank.status = 'coded'
-       and v_bank.updated_at is not distinct from v_match.payer_coded_at
-       and v_bank.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id
-       and v_bank.accounting_treatment is not distinct from v_treatment then
+       back the same account and treatment, which the values alone cannot.
+       The test is the UPDATE's own predicate, not a decision taken on a row
+       read a moment ago: another person saving this row between the read and
+       the write would otherwise have their save overwritten, since the UPDATE
+       waits for their lock and then proceeds regardless. In the predicate,
+       PostgreSQL re-checks it against the row as they left it, so their
+       coding stands and nothing is restored. */
+    if v_bank.id is not null then
       update public.card_transactions t
          set status = v_match.payer_prior->>'status',
              qbo_account_id = v_match.payer_prior->>'qbo_account_id',
@@ -162,7 +165,11 @@ begin
              coding_source = v_match.payer_prior->>'coding_source',
              coding_conflict = v_match.payer_prior->>'coding_conflict',
              updated_at = now(), updated_by = auth.uid()
-       where t.id = v_bank.id;
+       where t.id = v_bank.id
+         and t.status = 'coded'
+         and t.updated_at is not distinct from v_match.payer_coded_at
+         and t.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id
+         and t.accounting_treatment is not distinct from v_treatment;
       get diagnostics v_rows = row_count;
       v_restored := v_rows > 0;
     end if;
