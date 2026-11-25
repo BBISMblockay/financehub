@@ -25,6 +25,7 @@
 //   STUDIO_SPEND_DB_MUTATION=norls       the settings table is readable across companies
 //   STUDIO_SPEND_DB_MUTATION=heldcount   a run's spend so far (still held) is left out of its own figure
 //   STUDIO_SPEND_DB_MUTATION=heldall     another run's spend so far counts toward this run
+//   STUDIO_SPEND_DB_MUTATION=heldmonth   runs still going are left out of the month's figure (the cap misses them)
 //   STUDIO_SPEND_DB_MUTATION=discclobber saving the Find limits resets the Discovery ones
 //
 // 20261125100000 (nightly Discovery) is applied after it, both twice, in order.
@@ -60,7 +61,7 @@ create table ai_credit_reservations(
   id uuid primary key default gen_random_uuid(), company_entity_id uuid not null, feature text not null,
   source_ref text, status text not null, enforced boolean not null, outcome text,
   provider_cost_micros numeric, computed_charge_micros bigint, charged_micros bigint not null default 0,
-  settled_at timestamptz, usage jsonb, rate_id uuid, multiplier_bps integer);
+  settled_at timestamptz, usage jsonb, rate_id uuid, multiplier_bps integer, created_at timestamptz not null default now());
 create table ai_provider_rates(id uuid primary key, web_search_micros_per_request numeric not null default 0);
 -- Stand-ins for the ledger's pricing (20261001120000): searches at the rate,
 -- then the company's multiplier.
@@ -89,8 +90,9 @@ function mutate(from, to) {
 switch (MUT) {
   case '': break;
   case 'anongrant': mutate('revoke all on function public.affiliate_studio_set_spend(boolean, integer, numeric, numeric, boolean, integer, numeric) from public, anon;', ''); break;
-  case 'heldcount': mutate('+ (select micros from open_run) end', 'end'); break;
-  case 'heldall': mutate("and x.status = 'held' and x.source_ref = p_scan::text", "and x.status = 'held'"); break;
+  case 'heldcount': mutate('+ coalesce((select sum(micros) from open_run where source_ref = p_scan::text), 0) end', 'end'); break;
+  case 'heldmonth': mutate('+ coalesce((select sum(micros) from open_run), 0),', ','); break;
+  case 'heldall': mutate('from open_run where source_ref = p_scan::text', 'from open_run'); break;
   case 'discclobber': mutate('coalesce(p_discovery, cur.discovery_nightly_enabled, false)', 'coalesce(p_discovery, false)'); break;
   case 'noowner': mutate("  if not coalesce(public.is_owner_admin_of_active_company(), false) then\n    raise exception 'Only", "  if false then\n    raise exception 'Only"); break;
   case 'allfeature': mutate(" and x.feature = 'affiliate_research'", ''); break;
@@ -210,13 +212,17 @@ await test('G: Discovery has its own nightly switch and limits; saving Find alon
   assert.deepEqual([fresh.discovery_nightly_enabled, fresh.discovery_night_creators, Number(fresh.discovery_night_max_micros)], [false, 10, 1_000_000], 'off and modest by default');
 });
 
-await test('H: a run still going counts what it has used so far, and only its own', async () => {
+await test('H: runs still going count what they have used so far: toward the month, and each toward its own run', async () => {
   await db.exec(`insert into ai_provider_rates values ('${RATE}', 900);
     insert into ai_credit_reservations (company_entity_id, feature, source_ref, status, enforced, usage, rate_id, multiplier_bps) values
       ('${CO_A}', 'affiliate_research', '${RUN}', 'held', false, '{"web_search": 100}', '${RATE}', 20000),
       ('${CO_A}', 'affiliate_research', 'another-run', 'held', false, '{"web_search": 999}', '${RATE}', 20000);`);
-  assert.equal(Number((await spend(CO_A, RUN)).scan_micros), 180_000, '100 searches x 900 x 2, still held');
-  assert.equal(Number((await spend(CO_A)).month_micros), 1230, 'the month counts settled spend only');
+  assert.equal(Number((await spend(CO_A, RUN)).scan_micros), 180_000, '100 searches x 900 x 2, still held; never another run');
+  assert.equal(Number((await spend(CO_A)).month_micros), 1230 + 180_000 + 1_798_200, 'the month sees spend still in progress, so the cap stops a run partway');
+  // Settling moves a hold into the settled figure: never counted twice.
+  await db.exec(`update ai_credit_reservations set status = 'settled', outcome = 'succeeded', computed_charge_micros = 180000, settled_at = now() where source_ref = '${RUN}'`);
+  assert.equal(Number((await spend(CO_A)).month_micros), 1230 + 180_000 + 1_798_200);
+  assert.equal(Number((await spend(CO_A, RUN)).scan_micros), 180_000);
 });
 
 await test('I: the summary shows the last nightly Discovery, counts only', async () => {

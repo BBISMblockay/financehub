@@ -2905,7 +2905,7 @@ jobs:
       - name: The Affiliate Studio spend guards, removed, must break it
         run: |
           set -u
-          for m in anongrant noowner allfeature provider authspend norls heldcount heldall discclobber; do
+          for m in anongrant noowner allfeature provider authspend norls heldcount heldmonth heldall discclobber; do
             if STUDIO_SPEND_DB_MUTATION="$m" node scripts/tests/affiliate-studio-spend-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

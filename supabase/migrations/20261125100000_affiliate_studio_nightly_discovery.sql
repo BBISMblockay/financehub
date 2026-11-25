@@ -17,10 +17,11 @@
 --   1. adds the Discovery settings to affiliate_studio_spend_settings
 --   2. marks a nightly Discovery run (affiliate_discovery_runs.nightly), so
 --      Billing can show the last one and the job can rotate programs
---   3. affiliate_studio_spend(): returns the new settings, and a run's own
---      spend now includes what an OPEN run has used so far (its held
---      reservations' recorded usage, at the customer price), so a nightly run
---      stops at its dollar limit while it is still going, not after
+--   3. affiliate_studio_spend(): returns the new settings, and both the
+--      month's figure and a run's own figure now include what OPEN runs have
+--      used so far (held reservations' recorded usage, at the customer
+--      price), so the monthly cap and a nightly limit stop a run while it is
+--      still going, not after
 --   4. affiliate_studio_set_spend(): takes the Discovery settings (null = keep)
 --   5. affiliate_studio_spend_summary(): adds the last nightly Discovery
 --
@@ -60,20 +61,24 @@ returns jsonb language sql stable security definer set search_path to 'public' a
      where x.company_entity_id = p_company and x.feature = 'affiliate_research'
        and x.status = 'settled' and x.outcome = 'succeeded' and x.settled_at >= b.month_start
   ), open_run as (
-    -- What a run still in progress has used so far (recorded by each step),
-    -- at the customer price. Only for the one run asked about.
-    select coalesce(sum(public.ai_credit_customer_micros(public.ai_credit_provider_cost(rt, x.usage), x.multiplier_bps)), 0) as micros
+    -- What runs still in progress have used so far (recorded by each step),
+    -- at the customer price. It counts toward the month AND toward its own
+    -- run, so a cap is seen while a run is going, not only after it settles.
+    -- A hold settles into r atomically (status 'held' -> 'settled'), so
+    -- nothing is counted twice.
+    select x.source_ref,
+           coalesce(public.ai_credit_customer_micros(public.ai_credit_provider_cost(rt, x.usage), x.multiplier_bps), 0) as micros
       from public.ai_credit_reservations x
-      join public.ai_provider_rates rt on rt.id = x.rate_id
-     where p_scan is not null and x.company_entity_id = p_company and x.feature = 'affiliate_research'
-       and x.status = 'held' and x.source_ref = p_scan::text and x.usage is not null
+      join public.ai_provider_rates rt on rt.id = x.rate_id, b
+     where x.company_entity_id = p_company and x.feature = 'affiliate_research'
+       and x.status = 'held' and x.usage is not null and x.created_at >= b.month_start
   )
   select jsonb_build_object(
     'month_start', (select month_start from b),
-    'month_micros', coalesce((select sum(micros) from r), 0),
+    'month_micros', coalesce((select sum(micros) from r), 0) + coalesce((select sum(micros) from open_run), 0),
     'scan_micros', case when p_scan is null then null
                         else coalesce((select sum(micros) from r where source_ref = p_scan::text), 0)
-                             + (select micros from open_run) end,
+                             + coalesce((select sum(micros) from open_run where source_ref = p_scan::text), 0) end,
     'nightly_enabled', coalesce(s.nightly_enabled, false),
     'night_max_customers', coalesce(s.night_max_customers, 300),
     'night_max_micros', coalesce(s.night_max_micros, 3000000),
