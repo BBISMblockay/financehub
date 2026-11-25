@@ -981,7 +981,7 @@ const pill = (t, kind = '') => `<span class="bcn-pill${kind ? ` bcn-pill--${kind
 // shorter instructions, info hovers as needed). Never the only place
 // something important is said -- it is detail, not the instruction.
 const info = (text) => `<span class="af-info" tabindex="0" role="note" title="${esc(text)}" aria-label="${esc(text)}">i</span>`;
-const STATUS_TONE = { active: 'pos', approved: 'pos', signed_up: 'pos', marked_paid: 'pos', sent: 'accent', exported: 'accent', invited: 'accent', qualified: 'accent', under_review: 'accent', rejected: 'neg', suppressed: 'neg', terminated: 'neg', void: 'neg', bounced: 'neg', declined: 'neg' };
+const STATUS_TONE = { applied: 'accent', active: 'pos', approved: 'pos', signed_up: 'pos', marked_paid: 'pos', sent: 'accent', exported: 'accent', invited: 'accent', qualified: 'accent', under_review: 'accent', rejected: 'neg', suppressed: 'neg', terminated: 'neg', void: 'neg', bounced: 'neg', declined: 'neg' };
 const statusPill = (s) => pill(s, STATUS_TONE[s] || '');
 // A creator SILO found is not an approved anything yet: shortlisting them
 // only lines them up for a message (Blake 2026-11-20). The stored status is
@@ -2637,7 +2637,8 @@ function renderProspects() {
   // "Add to program…" moved off the row and into More (Blake 2026-11-25): it
   // is still one menu per person, just not one open on every row.
   const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));
-  const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : shownRow(g).status);
+  // An application not yet decided reads "applied", the ladder's second step.
+const headPill = (g) => { const r = shownRow(g); return prospectPill(g.suppressed ? 'suppressed' : r.source === 'applied' && ['new', 'qualified'].includes(r.status) ? 'applied' : r.status); };
   const programsOf = (g) => [...new Set(g.rows.map((x) => progName(x.program_id)))].filter(Boolean).join(', ');
   const who = (x) => {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
@@ -3478,10 +3479,12 @@ function affStuck(a) {
     const code = liveCodeOf(a.id);
     if (a.status === 'terminated') return { sub: a.terms_accepted_at ? 'ended' : 'ended before signing up' };
     if (!a.terms_accepted_at) {
-      const sub = invite && invite.status !== 'sent' ? `invite not delivered · ${invite.reason || invite.to_email || ''}`
-        : invite ? `invite sent ${fmtDate(invite.created_at)} · not signed up yet`
-        : 'no invite email on record';
-      return { sub, bad: !!(invite && invite.status !== 'sent'), from, act: canInvite ? btn(invite || a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }, 'primary') : '' };
+      if (invite && invite.status !== 'sent') return { sub: `invite not delivered · ${invite.reason || invite.to_email || ''}`, bad: true, from, act: canInvite ? btn('Resend', 'invite-send', { id: from.id }, 'primary') : '' };
+      // The link went out: the next step is the rep's, not ours, so the row
+      // says so and offers no button. Resend stays in the ··· menu (Blake
+      // 2026-11-25: "no action on silo user, on rep at this invited step").
+      if (invite) return { sub: `${affPath(a)} · waiting on ${repName(a)} · sent ${fmtDate(invite.created_at)}`, from };
+      return { sub: 'no invite email on record', from, act: canInvite ? btn(a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }, 'primary') : '' };
     }
     const signed = `joined ${fmtDate(a.terms_accepted_at)}`;
     if (waiting.length) return { sub: `${signed} · code ${waiting[0].code} not in Shopify yet`, bad: true, act: MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }, 'primary') : '' };
@@ -3489,9 +3492,25 @@ function affStuck(a) {
     const used = codesOf(a).find((c) => c.code === code)?.verified_at;
     return { sub: `${signed} · ${code} live · ${used ? 'used on an order' : 'no orders yet'}` };
 }
+// Who the next step belongs to, in words: a person's first name, or the
+// whole name when it is not a plain two- or three-word person's name.
+function repName(a) {
+  const n = String(a.contact_name || a.display_name || '').trim();
+  const w = n.split(/\s+/);
+  return w.length >= 2 && w.length <= 3 && w.every((x) => /^[A-Z][A-Za-z.'-]*$/.test(x)) ? w[0] : (n || 'them');
+}
+// One ladder for both ways in (Blake 2026-11-25): invited (we reached out)
+// -> applied (in Inbound, ours to decide) -> approved (link sent, theirs to
+// sign up) -> active. The pill is one word; how they came in is the subline.
+const affApplied = (a) => S.d.prospectById[a.from_prospect_id]?.source === 'applied';
+const affPath = (a) => (affApplied(a) ? 'via Sign-up' : 'via Outreach');
+function affPill(a) {
+  if (a.status !== 'invited' || a.terms_accepted_at) return statusPill(a.status);
+  return pill(affApplied(a) ? 'approved' : 'invited', 'accent');
+}
 function affSignal(a) {
   const st = affStuck(a);
-  return `<div class="af-signal">${statusPill(a.status)}</div><div class="af-sub${st.bad ? ' af-sub--bad' : ''}">${esc(st.sub)}</div>`;
+  return `<div class="af-signal">${affPill(a)}</div><div class="af-sub${st.bad ? ' af-sub--bad' : ''}">${esc(st.sub)}</div>`;
 }
 // One button -- the thing that moves this person along -- and a menu with
 // everything else, the same shape Discovery uses.
@@ -3512,7 +3531,7 @@ const affStuckLine = (a) => affStuck(a).sub;
 const sameAffiliatePerson = (x, y) => String(x.contact_email || x.id).trim().toLowerCase() === String(y.contact_email || y.id).trim().toLowerCase();
 // What the More menu shows for one membership: where they are stuck, then
 // every button, stacked so each is easy to hit.
-const affMoreBody = (a, addProgram = true) => `${affSteps(a)}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${affActions(a, addProgram).replace('<div class="af-actions">', '').replace(/<\/div>$/, '')}</div>`;
+const affMoreBody = (a, addProgram = true) => `${affSteps(a, true)}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${affActions(a, addProgram).replace('<div class="af-actions">', '').replace(/<\/div>$/, '')}</div>`;
 function affActions(a, addProgram = true) {
   const d = S.d;
   const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
@@ -3539,7 +3558,7 @@ function affActions(a, addProgram = true) {
     return `<div class="af-actions">${b.join('')}</div>`;
   }
 
-function affSteps(a) {
+function affSteps(a, inMenu = false) {
   const d = S.d;
   const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
     // Where this person is stuck, and the one thing that unsticks them
@@ -3552,7 +3571,7 @@ function affSteps(a) {
     const step1 = a.terms_accepted_at ? `${pill('Signed up', 'pos')} <span class="af-muted">${fmtDate(a.terms_accepted_at)}</span>`
       : a.status === 'terminated' ? pill('Ended before signing up')
       : invite && invite.status !== 'sent' ? `${pill('Invite not delivered', 'neg')} <span class="af-muted">${esc(invite.reason || invite.to_email || '')}</span>${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`
-      : invite ? `${pill('Invite sent', 'accent')} <span class="af-muted">${fmtDate(invite.created_at)} to ${esc(invite.to_email || a.contact_email)} · not signed up yet</span>${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`
+      : invite ? `${pill(from?.source === 'applied' ? 'Approved, link sent' : 'Invite sent', 'accent')} <span class="af-muted">${fmtDate(invite.created_at)} to ${esc(invite.to_email || a.contact_email)} · waiting on ${esc(repName(a))} to sign up</span>${inMenu ? `${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}` : ''}`
       : `${pill(a.status === 'invited' ? 'Invited' : 'Not signed up', 'accent')} <span class="af-muted">no invite email on record</span>${fixEmail}${canInvite ? btn(a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }) : ''}`;
     const code = liveCodeOf(a.id);
     const all = codesOf(a);
@@ -3597,7 +3616,7 @@ function renderAffiliates() {
           <div class="af-catalog-sub">${esc(a.contact_email)}</div>
           <div class="af-catalog-meta">${esc(terms)}</div>
         </div>
-        ${statusPill(a.status)}
+        ${affPill(a)}
       </header>
       ${steps}
       <div class="af-codes">${codesHtml}</div>
@@ -3618,7 +3637,7 @@ function renderAffiliates() {
   const shownP = (showEnded ? endedP : currentP).map((x) => ({ ...x, all: x.rows, rows: showEnded ? x.rows : x.rows.filter((a) => a.status !== 'terminated') }));
   const ended = d.affiliates.filter((a) => a.status === 'terminated');
   const affShown = shownP.flatMap((x) => x.rows);
-  const membership = (a, addProgram) => `<div class="af-allprog"><div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(a.program_id))}<div class="af-muted">${esc(effRate(a))} · ${esc(termsOf(a))}</div></div>${statusPill(a.status)}</div>
+  const membership = (a, addProgram) => `<div class="af-allprog"><div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(a.program_id))}<div class="af-muted">${esc(effRate(a))} · ${esc(termsOf(a))}</div></div>${affPill(a)}</div>
       <div class="af-sub">${esc(affStuckLine(a))}</div><div class="af-codes">${codesHtmlOf(a)}</div>${linksBlockOf(a) ? `<div class="af-catalog-links">${linksBlockOf(a)}</div>` : ''}${affRowActions(a)}</div>`;
   const personCard = (x) => {
     const a = x.rows[0];
