@@ -1723,7 +1723,8 @@ function renderCustomers() {
     // with a second signal, otherwise "Name match" to check by eye.
     const tierPill = v.trust ? `<span class="bcn-pill bcn-pill--${v.trust === 'likely' ? 'pos' : 'warn'} af-score-pill" title="${esc(v.tip || v.why || '')}">${esc(v.pill)}</span> ` : '';
     const title = [v.why, v.quote].filter(Boolean).join(' · ');
-    const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('Not them', 'cust-social-reject', { id: r.id }, 'ghost')}` : '';
+    // A red x on the match (Blake 2026-11-25); the hover says what it does.
+    const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('✕', 'cust-social-reject', { id: r.id }, 'ghost', { title: 'Not them: remove this match. They are not searched again.', cls: 'af-x-btn' })}` : '';
     return `${tierPill}<span class="af-mono"${title ? ` title="${esc(title)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}${notThem}`;
   };
   const consentCell = (row) => {
