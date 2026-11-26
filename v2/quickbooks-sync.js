@@ -325,74 +325,125 @@
     return (items || []).filter((i) => keys.has(i.key) && (action === 'mark' ? i.canMark === true : i.sendable === true));
   }
 
-  /* Does QuickBooks still hold what SILO sent? Judged per entry SILO posted,
-     against the nightly read-back of QuickBooks' own ledger
-     (quickbooks_ledger_mirror_*), for the days that read covers: the same day,
-     and the same net amount on every account. An entry changed, moved or
-     deleted in QuickBooks differs. What was entered in QuickBooks by hand is
-     not SILO's entry and is not a difference. An entry is matched by its
-     QuickBooks transaction id, never by document number. */
-  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  function agreementSql(companyId) {
-    if (!UUID.test(String(companyId || ''))) throw new Error('Select a company first');
-    const co = `'${String(companyId).toLowerCase()}'::uuid`;
-    return [
-      'with covered as (select id, qbo_connection_id, period_start, read_through from public.quickbooks_ledger_mirror_periods',
-      `  where company_entity_id = ${co} and read_at is not null),`,
-      'sent as (select p.id, p.connection_id, p.qbo_journal_entry_id as txn, (p.payload ->> \'TxnDate\')::date as day,',
-      '    l.value #>> \'{JournalEntryLineDetail,AccountRef,value}\' as acct,',
-      '    sum(case when l.value #>> \'{JournalEntryLineDetail,PostingType}\' = \'Debit\' then 1 else -1 end * (l.value ->> \'Amount\')::numeric) as amt',
-      '  from public.quickbooks_journal_postings p',
-      '  cross join lateral jsonb_array_elements(coalesce(p.payload -> \'Line\', \'[]\'::jsonb)) l',
-      `  where p.company_entity_id = ${co} and p.status = 'posted' and p.qbo_journal_entry_id is not null`,
-      '  group by 1, 2, 3, 4, 5),',
-      'judged as (select s.* from sent s where exists (select 1 from covered c',
-      '  where c.qbo_connection_id = s.connection_id and s.day between c.period_start and c.read_through)),',
-      'entry as (select distinct id, connection_id, txn, day from judged),',
-      'held as (select e.id, m.qbo_account_id as acct, sum(m.signed_amount) as amt, bool_and(m.transaction_date = e.day) as same_day',
-      '  from entry e join covered c on c.qbo_connection_id = e.connection_id',
-      '  join public.quickbooks_ledger_mirror_lines m on m.period_id = c.id',
-      `   and m.company_entity_id = ${co} and m.qbo_transaction_id = e.txn and m.transaction_type = 'Journal Entry'`,
-      '  group by 1, 2),',
-      'pair as (select coalesce(s.id, h.id) as id, abs(round(coalesce(s.amt, 0), 2) - round(coalesce(h.amt, 0), 2)) as off, h.same_day',
-      '  from judged s full join held h on h.id = s.id and h.acct = s.acct),',
-      'verdict as (select id, sum(off) as off, coalesce(bool_or(same_day is false), false) as moved from pair group by 1)',
-      'select to_char(e.day, \'YYYY-MM\') as month, count(*) as entries,',
-      '  count(*) filter (where v.off <> 0 or v.moved) as changed, sum(v.off) / 2 as amount',
-      'from entry e join verdict v on v.id = e.id group by 1 order by 1',
-    ].join(' ');
-  }
+  /* Does QuickBooks still hold what SILO sent? The database answers per
+     entry (quickbooks_sent_entries_check_v, 20261125235000): 'as_sent',
+     'changed' (edited, moved or deleted in QuickBooks), 'settled' (changed,
+     and a person accepted QuickBooks' version) or 'unread' (no read-back
+     reaches it yet). This folds those rows into one verdict a month.
 
-  /* month -> { state, entries, changed, amount, through }. A month is judged
-     only where QuickBooks has been read back for it; any other month has no
-     entry here and the screen says nothing about it. Anything unread or
-     malformed is no verdict, never "agree". */
-  function agreement(periods, rows) {
+     month -> { state, entries, unread, changed, settled, amount, through,
+     open }. A month is judged only where QuickBooks has been read back for it;
+     any other month has no entry here and the screen says nothing about it.
+     "agree" is said of a whole month, so it needs EVERY entry SILO posted in
+     it to have been compared: one that no read reaches yet makes the month
+     'partial'. A difference still open always shows. Anything unreadable or
+     not understood is no verdict, never "agree". */
+  const ENTRY_STATUS = ['as_sent', 'changed', 'settled', 'unread'];
+  function agreement(periods, entries) {
     const out = {};
-    if (!known(periods) || !known(rows)) return out;
+    if (!known(periods) || !known(entries)) return out;
     for (const p of periods) {
       const month = String(p.period_start || '').slice(0, 7);
       if (!/^\d{4}-\d{2}$/.test(month) || !p.read_through) continue;
       if (!out[month] || String(p.read_through) < out[month].through) {
-        out[month] = { state: 'agree', entries: 0, changed: 0, amount: 0, through: String(p.read_through) };
+        out[month] = { state: 'agree', entries: 0, unread: 0, changed: 0, settled: 0, amount: 0, through: String(p.read_through), open: [] };
       }
     }
-    for (const r of rows) {
-      const m = out[r.month];
+    const spoiled = new Set();
+    for (const e of entries) {
+      const month = String(e.entry_date || '').slice(0, 7);
+      const m = out[month];
       if (!m) continue;
-      const entries = num(r.entries); const changed = num(r.changed); const amount = num(r.amount);
-      if (entries === null || changed === null || amount === null) { delete out[r.month]; continue; }
-      Object.assign(m, { entries, changed, amount, state: changed > 0 || amount !== 0 ? 'differs' : 'agree' });
+      const off = e.status === 'changed' ? num(e.differs_by) : 0;
+      // A changed entry with no state to name could not be accepted as shown.
+      if (!ENTRY_STATUS.includes(e.status) || !e.posting_id || off === null || (e.status === 'changed' && !e.held_state)) { spoiled.add(month); continue; }
+      if (e.status === 'unread') { m.unread += 1; continue; }
+      m.entries += 1;
+      if (e.status === 'settled') m.settled += 1;
+      if (e.status === 'changed') { m.changed += 1; m.amount += off; m.open.push(e); }
     }
+    for (const month of spoiled) delete out[month];
+    for (const m of Object.values(out)) m.state = m.changed > 0 ? 'differs' : m.unread > 0 ? 'partial' : 'agree';
     return out;
   }
   function agreementLabel(a) {
     if (!a) return null;
     if (a.state === 'agree') return { text: 'QuickBooks and SILO agree', tone: 'pos' };
+    if (a.state === 'partial') return { text: `${howMany(a.unread, 'entry', 'entries')} not compared with QuickBooks yet`, tone: null };
     return { text: a.amount ? `Differs by ${money(a.amount)}` : `${howMany(a.changed, 'entry', 'entries')} changed in QuickBooks`, tone: 'neg' };
   }
+  // What happened to one entry in QuickBooks, in a person's words.
+  function changeText(e) {
+    if (e.missing) return 'Not in QuickBooks any more (deleted, or moved out of the months read)';
+    const off = num(e.differs_by);
+    const parts = [];
+    if (off) parts.push(`differs by ${money(off)}`);
+    if (e.moved) {
+      const a = e.held_first_day; const b = e.held_last_day;
+      parts.push(a && b ? (a === b ? `now dated ${a}` : `now dated ${a} to ${b}`) : 'moved to another day');
+    }
+    return parts.length ? `Changed in QuickBooks: ${parts.join(', ')}` : 'Changed in QuickBooks';
+  }
+  // The accounts that differ: what SILO sent against what QuickBooks has now.
+  // Amounts are +debit / -credit in the data and said as words here.
+  const side = (v) => { const n = num(v); return n === null ? 'unknown' : n === 0 ? 'nothing' : `${money(Math.abs(n))} ${n > 0 ? 'debit' : 'credit'}`; };
+  function changeDetail(e) {
+    if (!Array.isArray(e.accounts)) return [];
+    return e.accounts.filter((a) => a && typeof a === 'object')
+      .map((a) => `${a.account || 'Account'}: SILO sent ${side(a.sent)}, QuickBooks has ${side(a.quickbooks)}`);
+  }
 
-  const API = { sections, chosen, agreementSql, agreement, agreementLabel, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
+  /* Accept QuickBooks' version of each open entry AS IT WAS SHOWN: the state
+     on the screen goes with the request, and the server refuses an entry
+     QuickBooks has changed since ('moved_on'). The company is re-checked
+     before each; the first error stops the run. -> { done, again, error } */
+  async function settleAll(api, open) {
+    const out = { done: 0, again: 0, error: null };
+    for (const e of open) {
+      try {
+        await api.stillActive();
+        const r = await api.accept(e.posting_id, e.held_state);
+        if (r && r.ok === true) out.done += 1;
+        else if (r && r.status === 'moved_on') out.again += 1;
+      } catch (err) { out.error = err; break; }
+    }
+    return out;
+  }
+
+  /* Mirror now: ask the server to read QuickBooks one month at a time until
+     every month has been tried since the button was pressed. The server picks
+     the company and the months; this only counts. api.mirror(since) ->
+     { status, body }. Stops on the first answer it does not understand: the
+     server may be refusing, and asking again cannot help. */
+  const MIRROR_REFUSAL = {
+    reconnect_required: 'QuickBooks needs to be connected again in Books & setup.',
+    not_allowed: 'Reading QuickBooks needs finance access.',
+    ledger_mirror_disabled: 'Reading QuickBooks is switched off.',
+    quickbooks_busy: 'QuickBooks is busy. Try again in a few minutes.',
+  };
+  async function mirror(api, since, onProgress, limit = 20) {
+    const out = { read: 0, failed: 0, stopped: null, reason: '' };
+    for (let n = 0; ; n += 1) {
+      if (n >= limit) { out.stopped = 'limit'; break; }
+      let res;
+      try { await api.stillActive(); res = await api.mirror(since); }
+      catch (e) { out.stopped = e && e.code === 'COMPANY_CHANGED' ? 'company' : 'error'; break; }
+      const b = res && res.body;
+      if (!res || res.status < 200 || res.status >= 300 || !b || typeof b !== 'object') {
+        out.stopped = 'refused'; out.reason = MIRROR_REFUSAL[b && b.error_code] || ''; break;
+      }
+      if (b.done === true) break;
+      if (b.done !== false || typeof b.ok !== 'boolean') { out.stopped = 'refused'; break; }
+      if (b.ok) out.read += 1;
+      else { out.failed += 1; out.reason = MIRROR_REFUSAL[b.error_code] || out.reason; }
+      if (onProgress) onProgress({ ...out, remaining: Number.isInteger(b.remaining) ? b.remaining : null });
+      // The same refusal will meet every other month: stop asking.
+      if (!b.ok && (b.error_code === 'reconnect_required' || b.error_code === 'quickbooks_busy')) { out.stopped = 'refused'; break; }
+    }
+    return out;
+  }
+
+  const API = { sections, chosen, agreement, agreementLabel, changeText, changeDetail, settleAll, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
 
   // ─────────────────────────────────────────────────────────── data ──
   async function result(query) {
@@ -424,7 +475,7 @@
     // The read-back is extra: a database without it, or a read that fails,
     // leaves the months without a verdict and changes nothing else.
     const optional = async (read) => { try { const r = await read(); if (r.error) return null; return Array.isArray(r.data) ? r.data : null; } catch (_) { return null; } };
-    const [settings, batches, base, view, claims, byHand, ledger, periods, differences] = await Promise.all([
+    const [settings, batches, base, view, claims, byHand, ledger, periods, sentEntries] = await Promise.all([
       attempt('settings', async () => (await result(db.from('accounting_settings').select('bookkeeping_mode').eq('company_entity_id', company.id).maybeSingle())).data),
       attempt('months', () => allRows(db, company.id, 'card_import_batches_v',
         'id,source_name,label,status,entry_date,period_start,period_end,txn_count,uncoded_count,excluded_count,coded_amount,qbo_doc_number,qbo_journal_entry_id,source_posting_enabled,source_posting_start_on,approval_hash')),
@@ -441,14 +492,20 @@
       }),
       attempt('ledger', async () => { const r = await db.rpc('silo_ledger_batch_status'); if (r.error) { if (r.error.code === 'PGRST202' || r.error.code === '42883') return []; throw new Error(r.error.message); } return r.data || []; }),
       optional(() => db.from('quickbooks_ledger_mirror_periods').select('period_start,read_through').eq('company_entity_id', company.id).not('read_at', 'is', null).limit(1000)),
-      optional(() => db.rpc('chat_run_readonly_query', { query: agreementSql(company.id), p_offset: 0 })),
+      // Fewer rows than the cap, or it is not the whole list and says nothing.
+      optional(async () => {
+        const r = await db.from('quickbooks_sent_entries_check_v')
+          .select('posting_id,qbo_doc_number,memo,entry_date,status,differs_by,missing,moved,held_state,held_first_day,held_last_day,accounts')
+          .eq('company_entity_id', company.id).order('posting_id').limit(5000);
+        return !r.error && Array.isArray(r.data) && r.data.length >= 5000 ? { error: { message: 'too many' } } : r;
+      }),
     ]);
     const after = await config.ensureActiveCompany(db);
     if (after?.id !== company.id) throw new Error('Company changed while loading. Refresh to retry.');
     const totals = new Map((view || []).map((v) => [v.id, v]));
     const adjustments = known(base) && known(view) ? base.map((a) => ({ ...a, ...(totals.get(a.id) || {}) })) : undefined;
     const facts = { companyId: company.id, today, mode: settings === undefined ? undefined : (settings?.bookkeeping_mode || 'silo'), batches, adjustments, claims, byHand, ledger };
-    return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts), agreement: agreement(periods, differences) };
+    return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts), agreement: agreement(periods, sentEntries) };
   }
 
   // ───────────────────────────────────────────────────────────── UI ──
@@ -482,6 +539,7 @@
       const items = st.model?.items;
       const band = $('qsSummary'); band.replaceChildren();
       const btn = $('btnSync'); const more = $('btnMarkSelected');
+      $('btnMirror').disabled = st.busy || !st.model?.canSend;
       if (!items) { btn.disabled = true; more.disabled = true; $('qsSyncNote').textContent = ''; return; }
       const s = summarize(items);
       const head = el('div', null, 'qs-summary-head');
@@ -584,11 +642,32 @@
         const sum = el('summary');
         sum.append(el('strong', monthName(m.month)), el('span', howMany(m.items.length, 'entry', 'entries'), 'qs-muted'));
         const verdict = agreementLabel(st.model.agreement?.[m.month]);
-        if (verdict) sum.append(el('span', verdict.text, `bcn-pill bcn-pill--${verdict.tone}`));
+        if (verdict) sum.append(el('span', verdict.text, verdict.tone ? `bcn-pill bcn-pill--${verdict.tone}` : 'qs-muted'));
         else sum.append(el('span', 'Not compared with QuickBooks yet', 'qs-muted'));
         const table = el('table', null, 'bcn-table qs-table'); const tb = el('tbody');
         for (const i of m.items) tb.append(row(i, false));
-        table.append(tb); d.append(sum, table); months.append(d);
+        table.append(tb); d.append(sum);
+        // What QuickBooks changed, and the one way to settle it: QuickBooks is
+        // the master copy, so its version is the one to accept.
+        const a = st.model.agreement?.[m.month];
+        if (a && a.open.length) {
+          const box = el('div', null, 'qs-settle');
+          const list = el('ul');
+          for (const e of a.open) {
+            const li = el('li', `${e.qbo_doc_number || 'Entry'}${e.memo ? ` · ${e.memo}` : ''} · ${e.entry_date}: ${changeText(e)}`);
+            const detail = changeDetail(e);
+            if (detail.length) { const sub = el('ul'); for (const line of detail) sub.append(el('li', line)); li.append(sub); }
+            list.append(li);
+          }
+          box.append(list);
+          if (st.model.canSend) {
+            const b = el('button', `Use QuickBooks’ version · ${a.open.length}`, 'bcn-btn'); b.type = 'button'; b.disabled = st.busy;
+            b.addEventListener('click', () => settle(m.month, b));
+            box.append(b, el('small', 'SILO’s books already follow QuickBooks for this month. This accepts the change so the month is settled.'));
+          }
+          d.append(box);
+        }
+        d.append(table); months.append(d);
       }
     }
     const draw = () => { prune(); drawSummary(); drawList(); };
@@ -650,6 +729,43 @@
       setStatus(problem ? `${said} Stopped: ${problem}` : said, problem ? 'neg' : 'pos', problem ? 0 : 6000);
     }
 
+    // Accept QuickBooks' version of every changed entry in one month.
+    async function settle(month, button) {
+      const open = st.model?.agreement?.[month]?.open || [];
+      if (st.busy || !st.model?.canSend || !open.length) return;
+      st.busy = true; st.token += 1; button.disabled = true;
+      // Each entry is accepted AS SHOWN: the server refuses one QuickBooks has
+      // changed since this page read it, and it is listed again after the refresh.
+      const out = await settleAll(api(), open);
+      let problem = null;
+      if (out.error) problem = `Stopped: ${out.error.code === 'COMPANY_CHANGED' ? 'The active company changed. Refresh before changing anything.' : friendly(out.error.message)}`;
+      else if (out.again) problem = `${howMany(out.again, 'entry', 'entries')} changed again in QuickBooks since this page loaded. Look again before accepting.`;
+      st.busy = false;
+      await refresh(true);
+      const said = `${howMany(out.done, 'entry', 'entries')} settled to QuickBooks’ version.`;
+      setStatus(problem ? `${said} ${problem}` : said, problem ? 'neg' : 'pos', problem ? 0 : 6000);
+    }
+
+    async function mirrorNow() {
+      if (st.busy || !st.model?.canSend) return;
+      st.busy = true; st.token += 1; draw();
+      const prog = $('qsProgress'); prog.hidden = false;
+      const meter = $('qsProgressBar'); const text = $('qsProgressText');
+      meter.removeAttribute('value'); text.textContent = 'Reading QuickBooks…';
+      const out = await mirror(api(), new Date().toISOString(), (p) => {
+        const tried = p.read + p.failed;
+        if (p.remaining !== null) { meter.max = tried + p.remaining; meter.value = tried; }
+        text.textContent = `Reading QuickBooks… ${howMany(tried, 'month', 'months')} done${p.remaining ? `, ${p.remaining} to go` : ''}`;
+      });
+      st.busy = false; prog.hidden = true; meter.value = 0;
+      const parts = [`${howMany(out.read, 'month', 'months')} read from QuickBooks`];
+      if (out.failed) parts.push(`${out.failed} could not be read`);
+      const why = out.reason || (out.stopped === 'company' ? 'The active company changed.' : out.stopped === 'limit' ? 'Press Mirror now again to read the rest.'
+        : out.stopped ? 'QuickBooks could not be read right now.' : '');
+      setStatus(`${parts.join(' · ')}.${why ? ` ${why}` : ''}`, out.failed || (out.stopped && out.stopped !== 'limit') ? 'neg' : 'pos');
+      await refresh(true);
+    }
+
     function api() {
       const rpc = async (name, args) => (await result(db.rpc(name, args))).data;
       return {
@@ -660,6 +776,16 @@
         preview: (id) => rpc('card_import_batch_preview', { p_batch_id: id }),
         approve: (id, hash) => rpc('approve_reviewed_card_import_batch', { p_batch_id: id, p_expected_hash: hash }),
         mark: (kind, id, on) => rpc('set_entry_entered_in_quickbooks', { p_kind: kind, p_id: id, p_marked: on }),
+        accept: (id, state) => rpc('quickbooks_accept_quickbooks_version', { p_posting_id: id, p_expected_state: state }),
+        async mirror(since) {
+          const { data: { session } } = await db.auth.getSession();
+          const res = await fetch(`${config.SUPABASE_URL}/functions/v1/quickbooks-ledger-mirror-scheduled`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}`, apikey: config.SUPABASE_ANON_KEY },
+            body: JSON.stringify({ since }),
+          });
+          return { status: res.status, body: await res.json().catch(() => null) };
+        },
         async post(body) {
           try {
             const { data: { session } } = await db.auth.getSession();
@@ -724,6 +850,7 @@
     $('btnRefresh').addEventListener('click', () => { if (!st.busy) refresh(); });
     $('qsConfirmCancel').addEventListener('click', () => $('qsConfirm').close());
     $('btnMarkSelected').addEventListener('click', markSelected);
+    $('btnMirror').addEventListener('click', mirrorNow);
     $('qsAll').addEventListener('change', () => {
       if (!st.model?.items) return;
       for (const i of st.model.items) { if (!i.sendable) continue; if ($('qsAll').checked) st.ticked.add(i.key); else st.ticked.delete(i.key); }

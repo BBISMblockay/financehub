@@ -23,7 +23,6 @@ process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message 
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const db = new PGlite();
@@ -73,7 +72,8 @@ insert into accounting_accounts values
   ('${CO}', '${CONN}', '40', 'Visa', 'Credit Card');
 insert into quickbooks_accounts values ('${CO}', '${CONN}', '50', 'Old Loan', 'Long Term Liability');
 create table quickbooks_journal_postings(id uuid primary key default gen_random_uuid(), company_entity_id uuid,
-  connection_id uuid, payload jsonb, qbo_journal_entry_id text, qbo_doc_number text, status text);
+  connection_id uuid, payload jsonb, qbo_journal_entry_id text, qbo_doc_number text, status text,
+  source text, source_ref text, memo text);
 -- The ledger view this migration reads for every day it has not read back.
 create table ledger_fixture(company_entity_id uuid, origin text, entry_date date, qbo_account_id text,
   qbo_account_name text, account_type text, posting_type text, amount numeric, signed_amount numeric,
@@ -478,62 +478,243 @@ await test('an entry SILO sent and someone changed is marked edited', async () =
   assert.deepEqual(await sources(), ['silo']);
 });
 
-// ── the sync page's "QuickBooks and SILO agree" (v2/quickbooks-sync.js) ─────
-// The page's own SQL, run the way the report engine wraps it.
-// QBSYNC_MUTATION=<name> breaks one rule of it; the suite must then fail.
-const AGREE_MUTATIONS = {
-  'agree-ignores-amount': [`abs(round(coalesce(s.amt, 0), 2) - round(coalesce(h.amt, 0), 2)) as off`, `0::numeric as off`],
-  'agree-ignores-day': [`coalesce(bool_or(same_day is false), false) as moved`, `false as moved`],
-  'agree-judges-unread': [`judged as (select s.* from sent s where exists (select 1 from covered c`, `judged as (select s.* from sent s where true or exists (select 1 from covered c`],
-  'agree-counts-unposted': [` and p.status = 'posted' and p.qbo_journal_entry_id is not null`, ` and p.qbo_journal_entry_id is not null`],
-  'agree-by-any-type': [` and m.qbo_transaction_id = e.txn and m.transaction_type = 'Journal Entry'`, ` and m.qbo_transaction_id = e.txn`],
-  'agree-unchecked-company': [`if (!UUID.test(String(companyId || ''))) throw new Error('Select a company first');`, ``],
+// ── settle and Mirror now (20261125235000) ──────────────────────────────────
+// SETTLE_MUTATION=<name> breaks one rule of that migration; the suite must fail.
+let SETTLE = readFileSync(
+  new URL('../../supabase/migrations/20261125235000_quickbooks_settle_and_mirror_now.sql', import.meta.url), 'utf8');
+const GATE = `not public.can_manage_journal_entries() then\n    raise exception 'Finance access is required' using errcode = '42501';\n  end if;\n`;
+const SETTLE_MUTATIONS = {
+  // the statement production refuses is left as it was
+  'patch-skipped': [`  execute replace(v_def, v_bare, v_safe);`, ``],
+  // months refused only by that statement still wait six hours
+  'no-retry-reset': [` where read_at is null and last_error = 'UPDATE requires a WHERE clause';`, ` where false;`],
+  // anyone signed in can start a read
+  'due-any-user': [`${GATE}  -- \`since\``, `false then\n    raise exception 'x';\n  end if;\n  -- \`since\``],
+  // a read can be started for every company at once
+  'due-any-company': [`     where s.company_entity_id = v_company`, `     where true`],
+  // a month already tried in this run is handed out again, for ever
+  'due-ignores-since': [`coalesce(p.last_attempt_at, '-infinity')) < p_since`, `coalesce(p.last_attempt_at, '-infinity')) < 'infinity'::timestamptz`],
+  // an old button press can be replayed
+  'due-stale-since': [` or p_since < now() - interval '30 minutes'`, ``],
+  'check-ignores-amount': [`abs(round(coalesce(s.amt, 0), 2) - round(coalesce(h.amt, 0), 2)) as off`, `0::numeric as off`],
+  'check-ignores-day': [`and (st.first_day <> e.entry_date or st.last_day <> e.entry_date) end as moved`, `and false end as moved`],
+  'check-judges-unread': [`when not j.was_read then 'unread'`, `when false then 'unread'`],
+  'check-counts-unposted': [`   where p.status = 'posted' and p.qbo_journal_entry_id is not null`, `   where p.qbo_journal_entry_id is not null`],
+  'check-any-type': [`     and m.qbo_transaction_id = e.txn and m.transaction_type = 'Journal Entry'`, `     and m.qbo_transaction_id = e.txn`],
+  'check-any-connection': [`where c.company_entity_id = p.company_entity_id and c.qbo_connection_id = p.connection_id`, `where c.company_entity_id = p.company_entity_id`],
+  // anyone signed in can settle
+  'accept-any-user': [`${GATE}  -- The posting row`, `false then\n    raise exception 'x';\n  end if;\n  -- The posting row`],
+  // another company's entry can be settled
+  'accept-any-company': [`    where p.id = p_posting_id and p.company_entity_id = v_company for update;`, `    where p.id = p_posting_id for update;`],
+  // an entry that was never changed gets an acceptance
+  'accept-unchanged': [`v_row.status is distinct from 'changed' or`, `false or`],
+  // an acceptance covers whatever QuickBooks does next
+  // a click on an old screen accepts whatever QuickBooks holds now
+  'accept-unseen-version': [`  if p_expected_state is null or v_row.held_state is distinct from p_expected_state then`, `  if false then`],
+  // the accounts shown are not the ones that differ
+  'detail-shows-unchanged': [`order by name, acct) filter (where off <> 0), '[]'::jsonb) as accounts`, `order by name, acct), '[]'::jsonb) as accounts`],
+  'detail-swaps-sides': [`jsonb_build_object('account', name, 'sent', sent_amt, 'quickbooks', held_amt)`, `jsonb_build_object('account', name, 'sent', held_amt, 'quickbooks', sent_amt)`],
+  'stale-acceptance-stands': [`s.accepted_state = j.held_state then 'settled'`, `true then 'settled'`],
+  'browser-writes-settlements': [`revoke all on public.quickbooks_entry_settlements from public, anon, authenticated;`, `grant all on public.quickbooks_entry_settlements to authenticated;`],
+  'anon-can-accept': [`revoke all on function public.quickbooks_accept_quickbooks_version(uuid, text) from public, anon, authenticated;`, ``],
+  'anon-can-start-a-read': [`revoke all on function public.quickbooks_ledger_mirror_my_due(timestamptz, integer) from public, anon, authenticated;`, ``],
 };
-let syncSource = readFileSync(new URL('../../v2/quickbooks-sync.js', import.meta.url), 'utf8');
-if (process.env.QBSYNC_MUTATION) {
-  const m = AGREE_MUTATIONS[process.env.QBSYNC_MUTATION];
-  if (!m) throw new Error(`unknown QBSYNC_MUTATION ${process.env.QBSYNC_MUTATION}`);
-  if (syncSource.split(m[0]).length !== 2) throw new Error(`mutation ${process.env.QBSYNC_MUTATION} no longer matches the page`);
-  syncSource = syncSource.replace(m[0], m[1]);
+const SETTLE_MUTATION = process.env.SETTLE_MUTATION || '';
+if (SETTLE_MUTATION) {
+  const m = SETTLE_MUTATIONS[SETTLE_MUTATION];
+  if (!m) throw new Error(`unknown SETTLE_MUTATION ${SETTLE_MUTATION}`);
+  if (SETTLE.split(m[0]).length !== 2) throw new Error(`mutation ${SETTLE_MUTATION} no longer matches the migration`);
+  SETTLE = SETTLE.replace(m[0], m[1]);
+  console.log(`# mutation ${SETTLE_MUTATION} applied`);
 }
-const syncWindow = {};
-vm.runInNewContext(syncSource, { window: syncWindow, Date, Map, Set, Number, Array, Object, Promise, Error, String, Math, Boolean });
-const Sync = syncWindow.SiloQuickBooksSync;
-const agree = async (co = CO) => (await q(`select * from (${Sync.agreementSql(co)}) user_query limit 1000 offset 0`))
-  .map((r) => `${r.month} entries=${r.entries} changed=${r.changed} off=${Number(r.amount).toFixed(2)}`);
+const MIRROR_FUNCTIONS = ['quickbooks_ledger_mirror_store', 'quickbooks_ledger_mirror_failed', 'quickbooks_ledger_mirror_due',
+  'quickbooks_ledger_mirror_my_due', 'quickbooks_accept_quickbooks_version'];
+// Production refuses an UPDATE or DELETE with no WHERE (safeupdate); PGlite
+// does not, so the function bodies are read for one.
+const bareWrites = async () => {
+  const found = [];
+  for (const { proname, prosrc } of await q(`select proname, prosrc from pg_proc where proname = any($1)`, [MIRROR_FUNCTIONS])) {
+    const body = prosrc.replace(/--[^\n]*/g, '');
+    for (const stmt of body.match(/\b(update\s+(?!set\b)[\w.]+\s+set\b|delete\s+from\b)[^;]*;/gi) || []) {
+      if (!/\bwhere\b/i.test(stmt)) found.push(`${proname}: ${stmt.replace(/\s+/g, ' ').slice(0, 60)}`);
+    }
+  }
+  return found;
+};
+// Who is asking is a setting here, so a test can be someone else.
+await db.exec(`
+create or replace function active_company_id() returns uuid language sql stable as $$
+  select coalesce(nullif(current_setting('test.company', true), ''), '${CO}')::uuid $$;
+create or replace function can_manage_journal_entries() returns boolean language sql stable as $$
+  select coalesce(nullif(current_setting('test.finance', true), ''), 'true')::boolean $$;
+create schema if not exists auth;
+create or replace function auth.uid() returns uuid language sql stable as $$ select '00000000-0000-4000-b000-000000000001'::uuid $$;
+`);
+const as = async ({ company = '', finance = '' }, fn) => {
+  await db.exec(`set test.company = '${company}'; set test.finance = '${finance}'`);
+  try { return await fn(); } finally { await db.exec(`set test.company = ''; set test.finance = ''`); }
+};
 
-await test('the sync page: an entry QuickBooks still holds as sent agrees; a change, a move or a delete differs', async () => {
-  // A posted entry in a month nobody has read back, one that failed, and a
-  // different kind of QuickBooks transaction that happens to share J7's id.
+await test('the statement production refused is patched, and the months it failed are due again', async () => {
+  assert.equal((await bareWrites()).length, 1, 'the first migration\'s bare UPDATE should be what this scan finds');
+  await db.query(`insert into quickbooks_ledger_mirror_periods(company_entity_id, qbo_connection_id, period_start, period_end, accounting_basis, last_attempt_at, last_error)
+    values ($1, $2, '2026-01-01', '2026-01-31', 'Accrual', now(), 'UPDATE requires a WHERE clause'),
+           ($1, $2, '2026-02-01', '2026-02-28', 'Accrual', now(), 'the month does not balance')`, [CO, CONN_STRAY]);
+  await db.exec(SETTLE);
+  assert.deepEqual(await bareWrites(), []);
+  assert.deepEqual((await q(`select period_start::text d, last_error e from quickbooks_ledger_mirror_periods
+                              where qbo_connection_id = $1 order by 1`, [CONN_STRAY])),
+    [{ d: '2026-01-01', e: null }, { d: '2026-02-01', e: 'the month does not balance' }]);
+  await db.query(`delete from quickbooks_ledger_mirror_periods where qbo_connection_id = $1`, [CONN_STRAY]);
+  // Applying it again changes nothing, and the patched function still stores.
+  await db.exec(SETTLE);
+  assert.deepEqual(await bareWrites(), []);
+  assert.equal((await store(september())).ok, true);
+});
+
+const checked = async () => (await q(`select * from quickbooks_sent_entries_check_v where company_entity_id = $1 order by qbo_doc_number`, [CO]))
+  .map((r) => `${r.qbo_doc_number} ${r.status}${r.status === 'unread' ? '' : ` off=${Number(r.differs_by).toFixed(2)}${r.missing ? ' missing' : ''}${r.moved ? ' moved' : ''}`}`);
+const postingId = async (doc) => (await q(`select id from quickbooks_journal_postings where qbo_doc_number = $1`, [doc]))[0].id;
+const shown = async (id) => (await q(`select held_state from quickbooks_sent_entries_check_v where posting_id = $1`, [id]))[0]?.held_state ?? null;
+// As the page does it: accept the state that is on the screen (or one passed in).
+const accept = async (id, state) => (await q(`select public.quickbooks_accept_quickbooks_version($1::uuid, $2) r`,
+  [id, state === undefined ? await shown(id) : state]))[0].r;
+const moved = (rows) => rows.map((r) => (r[2] === 'J7' ? ['2026-09-12', ...r.slice(1)] : r));
+const without = (rows) => rows.filter((r) => r[2] !== 'J7');
+const CHANGED = september({ ...SEPT_ROWS, rent: [['2026-09-10', 'Journal Entry', 'J7', 'SILO-AAA', '', 'Rent', '-Split-', 500]], rentWh: [] });
+const MOVED = september({ ...SEPT_ROWS, rent: moved(SEPT_ROWS.rent), rentWh: moved(SEPT_ROWS.rentWh), visa: moved(SEPT_ROWS.visa) });
+const DELETED = september({ ...SEPT_ROWS, rent: without(SEPT_ROWS.rent), rentWh: without(SEPT_ROWS.rentWh), visa: without(SEPT_ROWS.visa) });
+
+await test('every entry SILO sent is checked against what QuickBooks holds now', async () => {
+  // A posted entry in a month nobody has read back, and one that failed.
   await posting('J200', 'SILO-DEC', '2026-12-05', [['30', 'Debit', 9], ['40', 'Credit', 9]]);
   await posting('J201', 'SILO-BAD', '2026-09-20', [['30', 'Debit', 77], ['40', 'Credit', 77]], 'failed');
+  // November is read through the 25th. An entry dated the 27th is posted but
+  // no read reaches it; so is one inside the read but on another QuickBooks
+  // connection. Neither is judged, and neither is left out.
+  await posting('J300', 'SILO-N27', '2026-11-27', [['30', 'Debit', 5], ['40', 'Credit', 5]]);
+  await db.query(`insert into quickbooks_journal_postings(company_entity_id, connection_id, payload, qbo_journal_entry_id, qbo_doc_number, status)
+    values ($1, '00000000-0000-4000-c000-0000000000ee', $2::jsonb, 'J301', 'SILO-N10', 'posted')`,
+    [CO, JSON.stringify({ TxnDate: '2026-11-10', Line: [{ Amount: 4, JournalEntryLineDetail: { AccountRef: { value: '30' }, PostingType: 'Debit' } }] })]);
+  const REST = ['SILO-DEC unread', 'SILO-N10 unread', 'SILO-N27 unread'];
+  const sept = async (expected) => assert.deepEqual(await checked(), [expected, ...REST]);
   await store(september());
-  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=0 off=0.00']);
+  await sept('SILO-AAA as_sent off=0.00');
   // 100 moved from the warehouse account to its parent.
-  await store(september({ ...SEPT_ROWS,
-    rent: [['2026-09-10', 'Journal Entry', 'J7', 'SILO-AAA', '', 'Rent', '-Split-', 500]], rentWh: [] }));
-  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=100.00']);
+  await store(CHANGED);
+  await sept('SILO-AAA changed off=100.00');
+  const seen = async () => { const [r] = await q(`select held_first_day::text a, held_last_day::text b, accounts from quickbooks_sent_entries_check_v where qbo_doc_number = 'SILO-AAA'`);
+    return `${r.a}..${r.b} ${r.accounts.map((x) => `${x.account}:${Number(x.sent)}>${Number(x.quickbooks)}`).join(' ')}`.trim(); };
+  // What a person is shown before accepting: the day QuickBooks holds it on, and
+  // each account that differs with what SILO sent against what QuickBooks has.
+  assert.equal(await seen(), '2026-09-10..2026-09-10 Rent:400>500 Rent:Warehouse:100>0');
   // Same amounts, two days later.
-  const moved = (rows) => rows.map((r) => (r[2] === 'J7' ? ['2026-09-12', ...r.slice(1)] : r));
-  await store(september({ ...SEPT_ROWS, rent: moved(SEPT_ROWS.rent), rentWh: moved(SEPT_ROWS.rentWh), visa: moved(SEPT_ROWS.visa) }));
-  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=0.00']);
+  await store(MOVED);
+  await sept('SILO-AAA changed off=0.00 moved');
+  assert.equal(await seen(), '2026-09-12..2026-09-12');
   // Deleted in QuickBooks: the whole entry is the difference.
-  const without = (rows) => rows.filter((r) => r[2] !== 'J7');
-  await store(september({ ...SEPT_ROWS, rent: without(SEPT_ROWS.rent), rentWh: without(SEPT_ROWS.rentWh), visa: without(SEPT_ROWS.visa) }));
-  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=500.00']);
+  await store(DELETED);
+  await sept('SILO-AAA changed off=500.00 missing');
+  assert.match(await seen(), /^null\.\.null .*:400>0 .*:100>0 .*:-500>0$/);
   // A deposit that carries the same id is not SILO's journal entry.
   await store(september({ ...SEPT_ROWS,
     rent: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 400]],
     rentWh: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 100]],
     visa: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 500]] }));
-  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=500.00']);
+  await sept('SILO-AAA changed off=500.00 missing');
   await store(september());
-  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=0 off=0.00']);
-  // Another company is never judged from this one's entries, and a value that
-  // is not a company id never reaches the SQL.
-  assert.deepEqual(await agree('00000000-0000-4000-a000-0000000000ff'), []);
-  assert.throws(() => Sync.agreementSql(`${CO}' or true --`), /Select a company/);
-  assert.throws(() => Sync.agreementSql(null), /Select a company/);
+  await sept('SILO-AAA as_sent off=0.00');
+});
+
+await test('accepting QuickBooks\' version settles exactly the version accepted', async () => {
+  const j7 = await postingId('SILO-AAA');
+  const status = async () => (await checked())[0];
+  const settlements = async () => (await q(`select count(*)::int n from quickbooks_entry_settlements`))[0].n;
+  // Nothing to accept on an entry QuickBooks holds as sent, or one not read yet.
+  assert.deepEqual(await accept(j7), { ok: false, status: 'as_sent' });
+  assert.deepEqual(await accept(await postingId('SILO-DEC')), { ok: false, status: 'unread' });
+  assert.equal(await settlements(), 0);
+  await store(CHANGED);
+  // Not a finance user, not this company's entry, not an entry at all.
+  await assert.rejects(as({ finance: 'false' }, () => accept(j7)), /Finance access is required/);
+  await assert.rejects(as({ company: CO2 }, () => accept(j7)), /not in this company/);
+  await assert.rejects(accept('00000000-0000-4000-a000-0000000000aa'), /not in this company/);
+  assert.equal(await settlements(), 0);
+  assert.deepEqual(await accept(j7), { ok: true, status: 'settled' });
+  assert.equal(await status(), 'SILO-AAA settled off=100.00');
+  assert.deepEqual(await q(`select company_entity_id co, accepted_by who from quickbooks_entry_settlements`),
+    [{ co: CO, who: '00000000-0000-4000-b000-000000000001' }]);
+  // Accepting again is refused: there is nothing new to accept.
+  assert.deepEqual(await accept(j7), { ok: false, status: 'settled' });
+  // QuickBooks changes it again: the earlier acceptance does not cover that.
+  const sawChanged = await shown(j7);
+  await store(MOVED);
+  assert.equal(await status(), 'SILO-AAA changed off=0.00 moved');
+  // A click made on the OLD screen (a read-back landed in between) accepts
+  // nothing: the person never saw this version. Nor does a click naming no state.
+  assert.deepEqual(await accept(j7, sawChanged), { ok: false, status: 'moved_on' });
+  assert.deepEqual(await accept(j7, null), { ok: false, status: 'moved_on' });
+  assert.equal(await status(), 'SILO-AAA changed off=0.00 moved');
+  assert.equal((await q(`select accepted_state s from quickbooks_entry_settlements`))[0].s, sawChanged);
+  assert.deepEqual(await accept(j7), { ok: true, status: 'settled' });
+  await store(DELETED);
+  assert.equal(await status(), 'SILO-AAA changed off=500.00 missing');
+  assert.deepEqual(await accept(j7), { ok: true, status: 'settled' });
+  assert.equal(await status(), 'SILO-AAA settled off=500.00 missing');
+  assert.equal(await settlements(), 1);
+  // Put back as sent: it simply agrees again.
+  await store(september());
+  assert.equal(await status(), 'SILO-AAA as_sent off=0.00');
+});
+
+await test('Mirror now: a finance user is handed their own company\'s months, newest first, each once', async () => {
+  const due = async (since = `now() - interval '10 minutes'`) =>
+    (await q(`select company_entity_id co, qbo_connection_id conn, period_start::text d, read_through::text t, accounting_basis b, remaining n
+                from public.quickbooks_ledger_mirror_my_due(${since})`))[0] || null;
+  await assert.rejects(as({ finance: 'false' }, () => due()), /Finance access is required/);
+  await assert.rejects(due(`now() - interval '31 minutes'`), /Start the read again/);
+  await assert.rejects(due(`now() + interval '5 minutes'`), /Start the read again/);
+  await assert.rejects(due('null'), /Start the read again/);
+  // A company whose connection is switched off (an earlier test did that) has nothing to read.
+  assert.equal(await as({ company: CO2 }, () => due()), null);
+  await db.exec(`update quickbooks_connections set is_active = true where id = '${CONN2}'`);
+  // Everything this company has was last tried before the button was pressed.
+  await db.exec(`update quickbooks_ledger_mirror_periods set last_attempt_at = now() - interval '1 hour', read_at = read_at - interval '1 hour' where true`);
+  assert.deepEqual(await due(), { co: CO, conn: CONN, d: '2026-11-01', t: '2026-11-25', b: 'Accrual', n: 13 });
+  // September is read during this run, so it is not handed out again.
+  await store(september());
+  const seen = [];
+  for (let i = 0; i < 20; i += 1) {
+    const next = await due();
+    if (!next) break;
+    assert.equal(next.co, CO); assert.equal(next.n, 12 - seen.length);
+    seen.push(next.d);
+    await db.query(`select public.quickbooks_ledger_mirror_failed($1::uuid, $2::uuid, $3::date, 'test_attempt')`, [CO, CONN, next.d]);
+  }
+  assert.deepEqual(seen, ['2026-11-01', '2026-10-01', '2026-08-01', '2026-07-01', '2026-06-01', '2026-05-01', '2026-04-01',
+    '2026-03-01', '2026-02-01', '2026-01-01', '2025-12-01', '2025-11-01']);
+  // Someone in another company is handed that company's months, never this one's.
+  const other = await as({ company: CO2 }, () => due());
+  assert.equal(other.co, CO2); assert.equal(other.conn, CONN2); assert.equal(other.n, 13);
+  await db.exec(`update quickbooks_connections set is_active = false where id = '${CONN2}'`);
+  await db.exec(`delete from quickbooks_ledger_mirror_periods where read_at is null and last_error = 'test_attempt';
+                 update quickbooks_ledger_mirror_periods set last_error = null where last_error = 'test_attempt'`);
+});
+
+await test('only the settle function writes acceptances, and nothing here is open to a signed-out caller', async () => {
+  const [p] = await q(`select
+    has_table_privilege('authenticated', 'public.quickbooks_entry_settlements', 'INSERT,UPDATE,DELETE') t_write,
+    has_table_privilege('anon', 'public.quickbooks_entry_settlements', 'SELECT') t_anon,
+    has_table_privilege('anon', 'public.quickbooks_sent_entries_check_v', 'SELECT') v_anon,
+    has_table_privilege('authenticated', 'public.quickbooks_sent_entries_check_v', 'INSERT,UPDATE,DELETE') v_write,
+    has_function_privilege('anon', 'public.quickbooks_accept_quickbooks_version(uuid, text)', 'execute') f_anon,
+    has_function_privilege('anon', 'public.quickbooks_ledger_mirror_my_due(timestamptz,integer)', 'execute') d_anon,
+    has_function_privilege('authenticated', 'public.quickbooks_accept_quickbooks_version(uuid, text)', 'execute') f_user,
+    has_function_privilege('authenticated', 'public.quickbooks_ledger_mirror_my_due(timestamptz,integer)', 'execute') d_user,
+    (select relrowsecurity from pg_class where oid = 'public.quickbooks_entry_settlements'::regclass) rls,
+    (select count(*)::int from pg_policy where polrelid = 'public.quickbooks_entry_settlements'::regclass and polcmd <> 'r') write_policies`);
+  assert.deepEqual(p, { t_write: false, t_anon: false, v_anon: false, v_write: false, f_anon: false, d_anon: false,
+    f_user: true, d_user: true, rls: true, write_policies: 0 });
 });
 
 await test('a SILO-looking number on someone else\'s entry is not SILO\'s', async () => {
@@ -554,9 +735,12 @@ await test('a SILO-looking number on someone else\'s entry is not SILO\'s', asyn
 
 await test('the migration is idempotent and keeps what was read', async () => {
   const before = await q(`select count(*)::int n from quickbooks_ledger_mirror_lines`);
-  await db.exec(MIGRATION);
-  await db.exec(MIGRATION);
+  // The order apply_all_post_merge.sql runs them in.
+  await db.exec(MIGRATION); await db.exec(SETTLE);
+  await db.exec(MIGRATION); await db.exec(SETTLE);
   assert.deepEqual(await q(`select count(*)::int n from quickbooks_ledger_mirror_lines`), before);
+  assert.deepEqual(await bareWrites(), []);
+  assert.equal((await q(`select count(*)::int n from quickbooks_entry_settlements`))[0].n, 1);
   const [{ description, described }] = await q(`select
       (select description from silo_chat_schema_catalog where relname = 'silo_books_ledger_v') description,
       (select count(*)::int from silo_chat_schema_catalog where relname like 'quickbooks_ledger_mirror_%'
@@ -579,6 +763,26 @@ await test('the production verify check reads ok here', async () => {
                  alter table public.quickbooks_ledger_mirror_lines disable row level security`);
   assert.match((await q(check))[0].status, /^CRITICAL: the QuickBooks ledger mirror is open/);
   await db.exec(`alter table public.quickbooks_ledger_mirror_lines enable row level security`);
+});
+
+await test('the verify check for settle and Mirror now reads ok, and notices what it exists for', async () => {
+  const verify = readFileSync(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const at = verify.indexOf(`select 'QuickBooks settle and Mirror now' as check_name`);
+  assert.ok(at > 0, 'the verify check is gone');
+  const check = verify.slice(at, verify.indexOf('as status;', at) + 'as status;'.length);
+  const status = async () => (await q(check))[0].status;
+  if (!MUTATION && !SETTLE_MUTATION) assert.equal(await status(), 'ok');
+  if (SETTLE_MUTATION === 'patch-skipped') assert.match(await status(), /^BROKEN/);
+  await db.exec(`grant execute on function public.quickbooks_accept_quickbooks_version(uuid, text) to anon`);
+  assert.match(await status(), /^(CRITICAL: a signed-out caller|BROKEN)/);
+  await db.exec(`revoke execute on function public.quickbooks_accept_quickbooks_version(uuid, text) from anon;
+                 grant insert on public.quickbooks_entry_settlements to authenticated`);
+  assert.match(await status(), /^(CRITICAL: quickbooks_entry_settlements is open|CRITICAL: a signed-out|BROKEN)/);
+  await db.exec(`revoke insert on public.quickbooks_entry_settlements from authenticated`);
+  // The first migration alone puts the refused statement back.
+  await db.exec(MIGRATION);
+  assert.match(await status(), /^BROKEN — the QuickBooks read-back cannot store/);
+  await db.exec(SETTLE);
 });
 
 console.log(`\n${passed} passed`);

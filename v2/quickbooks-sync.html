@@ -50,6 +50,9 @@
     .qs-done-month > summary strong { min-width: 150px; }
     .qs-done-month > summary .qs-muted { font-size: 12px; }
     .qs-done-month > table { margin-bottom: 10px; }
+    .qs-settle { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 4px 4px 12px 20px; font-size: 13px; }
+    .qs-settle ul { flex: 1 1 100%; margin: 0; padding-left: 18px; color: var(--bcn-ink-2); }
+    .qs-settle small { color: var(--bcn-ink-3); font-size: 12px; }
     .qs-list { overflow-x: auto; }
     table.bcn-table.qs-table td, table.bcn-table.qs-table th { text-align: left; white-space: normal; vertical-align: top; }
     table.bcn-table.qs-table td.bcn-num { text-align: right; white-space: nowrap; }
@@ -93,7 +96,7 @@
         <h1 class="bcn-header-title">QuickBooks sync</h1>
         <p class="bcn-header-sub" id="qsToday">Reading your company’s books…</p>
       </div>
-      <div class="bcn-header-actions"><button type="button" id="btnRefresh" class="bcn-btn">Refresh</button></div>
+      <div class="bcn-header-actions"><button type="button" id="btnMirror" class="bcn-btn" disabled title="Read QuickBooks again now, so SILO’s books and this page match it">Mirror now</button><button type="button" id="btnRefresh" class="bcn-btn">Refresh</button></div>
     </header>
     <div class="aw-page">
       <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>

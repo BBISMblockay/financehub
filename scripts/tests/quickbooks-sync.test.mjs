@@ -65,14 +65,32 @@ const MUTATIONS = {
   'todo-shows-open': [`todo: list.filter((i) => i.status === 'fix' || i.status === 'waiting'),`, `todo: list.filter((i) => i.status === 'fix' || i.status === 'waiting' || i.status === 'open'),`],
   // a month nobody read back is called agreed
   'agree-unread-month': [`      if (!m) continue;
-      const entries = num(r.entries);`, `      if (!m) { out[r.month] = { state: 'agree' }; continue; }
-      const entries = num(r.entries);`],
+      const off =`, `      if (!m) { out[month] = { open: [] }; continue; }
+      const off =`],
   // a changed entry is called agreed
-  'agree-despite-change': [`state: changed > 0 || amount !== 0 ? 'differs' : 'agree' });`, `state: 'agree' });`],
+  'agree-despite-change': [`m.state = m.changed > 0 ? 'differs' :`, `m.state = false ? 'differs' :`],
   // an unreadable comparison is called agreed
-  'agree-when-unread': [`if (!known(periods) || !known(rows)) return out;`, `if (!known(periods)) return out; rows = rows || [];`],
-  // a malformed row is read as no difference
-  'agree-on-garbage': [`if (entries === null || changed === null || amount === null) { delete out[r.month]; continue; }`, `if (entries === null || changed === null || amount === null) continue;`],
+  'agree-when-unread': [`if (!known(periods) || !known(entries)) return out;`, `if (!known(periods)) return out; entries = entries || [];`],
+  // a row that is not understood is read as no difference
+  'agree-on-garbage': [`{ spoiled.add(month); continue; }`, `{ continue; }`],
+  // a month with an entry nobody compared is called agreed
+  'agree-despite-unread': [`: m.unread > 0 ? 'partial' : 'agree';`, `: 'agree';`],
+  // an accepted change is still shown as open
+  'settled-still-open': [`if (e.status === 'changed') { m.changed += 1;`, `if (e.status === 'changed' || e.status === 'settled') { m.changed += 1;`],
+  // the click accepts whatever QuickBooks holds now, not what was shown
+  'settle-without-shown-state': [`const r = await api.accept(e.posting_id, e.held_state);`, `const r = await api.accept(e.posting_id);`],
+  // an entry QuickBooks changed again is counted as settled
+  'settle-counts-moved-on': [`if (r && r.ok === true) out.done += 1;`, `if (r) out.done += 1;`],
+  // a credit is shown as a debit
+  'detail-loses-side': ["n > 0 ? 'debit' : 'credit'", "'debit'"],
+  // the date QuickBooks now holds is not shown
+  'moved-hides-new-date': ["parts.push(a && b ? (a", "parts.push(false ? (a"],
+  // Mirror now keeps reading after the company changed
+  'mirror-ignores-company': [`try { await api.stillActive(); res = await api.mirror(since); }`, `try { res = await api.mirror(since); }`],
+  // Mirror now keeps asking after an answer it does not understand
+  'mirror-continues-after-refusal': [`      if (b.done !== false || typeof b.ok !== 'boolean') { out.stopped = 'refused'; break; }\n`, ``],
+  // a refusal is counted as a month read
+  'mirror-reads-http-error': [`if (!res || res.status < 200 || res.status >= 300 || !b || typeof b !== 'object') {`, `if (!res || !b || typeof b !== 'object') {`],
   'score-open-months': [`const total = synced + waiting + fix;`, `const total = synced + waiting + fix + count('open');`],
 };
 
@@ -306,17 +324,19 @@ test('precheck turns a waiting month into a fix before anyone presses Sync', asy
 test('the page wires the module and leaves no write path of its own', () => {
   const page = fs.readFileSync(new URL('../../v2/quickbooks-sync.html', import.meta.url), 'utf8');
   for (const id of ['status', 'qsSummary', 'btnSync', 'qsSyncNote', 'qsProgress', 'qsProgressBar', 'qsProgressText', 'qsRows', 'qsEmpty', 'qsConfirm', 'qsConfirmList', 'qsAck', 'qsConfirmGo', 'qsConfirmCancel', 'btnRefresh', 'qsToday',
-    'qsAll', 'qsTodoTable', 'qsMore', 'btnMarkSelected', 'qsLater', 'qsLaterSum', 'qsLaterRows', 'qsDone', 'qsMonths']) {
+    'btnMirror', 'qsAll', 'qsTodoTable', 'qsMore', 'btnMarkSelected', 'qsLater', 'qsLaterSum', 'qsLaterRows', 'qsDone', 'qsMonths']) {
     assert.ok(page.includes(`id="${id}"`), id);
   }
   assert.ok(page.indexOf('nav-config.js') < page.indexOf('silo-chrome.js'));
   const raw = fs.readFileSync(new URL('../../v2/quickbooks-sync.js', import.meta.url), 'utf8');
   assert.doesNotMatch(raw + page, /\balert\(/);
   assert.doesNotMatch(raw, /\.from\([^;]*?\.(insert|update|upsert|delete)\(/, 'no table writes from the page');
-  assert.equal((raw.match(/\.from\(/g) || []).length, 3, 'three table reads: settings, the paged lists, the read-back months');
+  assert.equal((raw.match(/\.from\(/g) || []).length, 4, 'four table reads: settings, the paged lists, the read-back months, the entry check');
   const rpcs = [...raw.matchAll(/rpc\('([a-z_]+)'/g)].map((m) => m[1]).sort();
-  assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'chat_run_readonly_query', 'is_exec_or_owner', 'quickbooks_entered_by_hand_list', 'set_entry_entered_in_quickbooks', 'silo_business_today', 'silo_ledger_batch_status'].sort());
+  assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'is_exec_or_owner', 'quickbooks_accept_quickbooks_version', 'quickbooks_entered_by_hand_list', 'set_entry_entered_in_quickbooks', 'silo_business_today', 'silo_ledger_batch_status'].sort());
   assert.doesNotMatch(raw, /innerHTML/);
+  // The only two functions it calls: the send, and the read-only read-back.
+  assert.deepEqual([...raw.matchAll(/functions\/v1\/([a-z-]+)/g)].map((m) => m[1]).sort(), ['quickbooks-ledger-mirror-scheduled', 'quickbooks-post-journal']);
 });
 
 export const mutationNames = Object.keys(MUTATIONS);
@@ -482,38 +502,124 @@ test('only a ticked row is sent or marked, and only while it still may be', () =
   same(ids(S.chosen(noMarks, new Set(['batch:w1']), 'mark')), []);
 });
 
+const entry = (id, date, status, extra = {}) => ({ held_state: status === 'unread' ? null : `h-${id}`, posting_id: id, qbo_doc_number: `SILO-${id}`, memo: '', entry_date: date, status,
+  differs_by: status === 'unread' ? null : 0, missing: status === 'unread' ? null : false, moved: status === 'unread' ? null : false, ...extra });
+const PERIODS = [{ period_start: '2026-09-01', read_through: '2026-09-30' }, { period_start: '2026-08-01', read_through: '2026-08-31' }, { period_start: '2026-07-01', read_through: '2026-07-31' }];
+
 test('a month is judged only where QuickBooks was read back, and only from a clean comparison', () => {
-  const periods = [{ period_start: '2026-09-01', read_through: '2026-09-30' }, { period_start: '2026-08-01', read_through: '2026-08-31' }, { period_start: '2026-07-01', read_through: '2026-07-31' }];
-  const got = S.agreement(periods, [
-    { month: '2026-09', entries: 3, changed: 0, amount: 0 },
-    { month: '2026-08', entries: 2, changed: 1, amount: '120.5' },
-    { month: '2026-10', entries: 1, changed: 0, amount: 0 },       // never read back
+  const got = S.agreement(PERIODS, [
+    entry('a', '2026-09-03', 'as_sent'), entry('b', '2026-09-10', 'as_sent'),
+    entry('c', '2026-09-12', 'settled', { differs_by: '40' }),             // changed, and accepted
+    entry('d', '2026-08-05', 'as_sent'), entry('e', '2026-08-31', 'changed', { differs_by: '120.5' }),
+    entry('f', '2026-10-02', 'as_sent'),                                   // never read back
   ]);
   same(Object.keys(got).sort(), ['2026-07', '2026-08', '2026-09']);
-  assert.equal(got['2026-09'].state, 'agree');
+  assert.equal(got['2026-09'].state, 'agree', 'an accepted change is settled');
+  assert.equal(got['2026-09'].settled, 1); assert.equal(got['2026-09'].entries, 3);
   assert.equal(got['2026-08'].state, 'differs');
+  same(got['2026-08'].open.map((e) => e.posting_id), ['e']);
   assert.equal(got['2026-07'].state, 'agree', 'read back, and SILO sent nothing that month');
   same(S.agreementLabel(got['2026-09']), { text: 'QuickBooks and SILO agree', tone: 'pos' });
   same(S.agreementLabel(got['2026-08']), { text: 'Differs by 120.50', tone: 'neg' });
   same(S.agreementLabel({ state: 'differs', changed: 1, amount: 0 }), { text: '1 entry changed in QuickBooks', tone: 'neg' });
   same(S.agreementLabel({ state: 'differs', changed: 2, amount: 0 }), { text: '2 entries changed in QuickBooks', tone: 'neg' });
   assert.equal(S.agreementLabel(undefined), null);
+  // One entry in the month has not been compared: the month is not called agreed.
+  const part = S.agreement(PERIODS, [entry('a', '2026-09-03', 'as_sent'), entry('b', '2026-09-28', 'unread')])['2026-09'];
+  assert.equal(part.state, 'partial');
+  same(S.agreementLabel(part), { text: '1 entry not compared with QuickBooks yet', tone: null });
+  // ...and a difference already found still shows.
+  assert.equal(S.agreement(PERIODS, [entry('a', '2026-09-03', 'unread'), entry('b', '2026-09-04', 'changed', { moved: true })])['2026-09'].state, 'differs');
   // The comparison could not be read: no month is called agreed.
-  same(S.agreement(periods, null), {});
+  same(S.agreement(PERIODS, null), {});
   same(S.agreement(null, []), {});
-  // A row that is not numbers takes its month's verdict away.
-  same(Object.keys(S.agreement(periods, [{ month: '2026-09', entries: 'x', changed: 0, amount: 0 }])).sort(), ['2026-07', '2026-08']);
+  // A row that is not understood takes its month's verdict away.
+  for (const odd of [entry('a', '2026-09-03', 'weird'), entry('a', '2026-09-03', 'changed', { differs_by: 'lots' }), { ...entry('a', '2026-09-03', 'as_sent'), posting_id: null }, entry('a', '2026-09-03', 'changed', { held_state: null })]) {
+    same(Object.keys(S.agreement(PERIODS, [odd])).sort(), ['2026-07', '2026-08']);
+  }
+});
+
+test('what happened to an entry in QuickBooks is said plainly, with the date and accounts it now holds', () => {
+  assert.equal(S.changeText({ missing: true, differs_by: 500 }), 'Not in QuickBooks any more (deleted, or moved out of the months read)');
+  assert.equal(S.changeText({ missing: false, moved: false, differs_by: '100' }), 'Changed in QuickBooks: differs by 100.00');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0, held_first_day: '2026-09-15', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: now dated 2026-09-15');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 25, held_first_day: '2026-09-12', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: differs by 25.00, now dated 2026-09-12 to 2026-09-15');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0 }), 'Changed in QuickBooks: moved to another day');
+  same(S.changeDetail({ accounts: [{ account: 'Rent', sent: 400, quickbooks: 500 }, { account: 'Rent:Warehouse', sent: '100', quickbooks: 0 }, { account: 'Visa', sent: -500, quickbooks: '-450' }] }),
+    ['Rent: SILO sent 400.00 debit, QuickBooks has 500.00 debit', 'Rent:Warehouse: SILO sent 100.00 debit, QuickBooks has nothing', 'Visa: SILO sent 500.00 credit, QuickBooks has 450.00 credit']);
+  same(S.changeDetail({ accounts: null }), []);
+  same(S.changeDetail({ accounts: [{ account: '', sent: 'x', quickbooks: 1 }] }), ['Account: SILO sent unknown, QuickBooks has 1.00 debit']);
+});
+
+test('settling sends the version that was on the screen, and says when QuickBooks has moved on', async () => {
+  const calls = [];
+  const answers = { a: { ok: true, status: 'settled' }, b: { ok: false, status: 'moved_on' }, c: { ok: false, status: 'as_sent' } };
+  const api = { stillActive: async () => {}, accept: async (id, state) => { calls.push([id, state]); return answers[id]; } };
+  const open = ['a', 'b', 'c'].map((id) => entry(id, '2026-08-31', 'changed'));
+  same(await S.settleAll(api, open), { done: 1, again: 1, error: null });
+  same(calls, [['a', 'h-a'], ['b', 'h-b'], ['c', 'h-c']]);
+  // The company changed, or the call failed: stop there.
+  let n = 0;
+  const moved = { stillActive: async () => { n += 1; if (n === 2) { const e = new Error('x'); e.code = 'COMPANY_CHANGED'; throw e; } }, accept: async () => ({ ok: true }) };
+  const out = await S.settleAll(moved, open);
+  assert.equal(out.done, 1); assert.equal(out.error.code, 'COMPANY_CHANGED');
+});
+
+const mirrorApi = (answers, { active = () => {} } = {}) => {
+  const calls = [];
+  return { calls, stillActive: async () => active(calls.length), mirror: async (since) => { calls.push(since);
+    const a = answers[Math.min(calls.length - 1, answers.length - 1)]; if (a instanceof Error) throw a; return a; } };
+};
+const month = (ok, remaining, code) => ({ status: 200, body: { done: false, ok, changed: ok, lines: 1, remaining, ...(code ? { error_code: code } : {}) } });
+const DONE = { status: 200, body: { done: true } };
+
+test('Mirror now reads until the server says done, and counts what it read', async () => {
+  const api = mirrorApi([month(true, 2), month(false, 1, 'report_refused'), month(true, 0), DONE]);
+  const seen = [];
+  const out = await S.mirror(api, 'T0', (p) => seen.push(`${p.read}/${p.failed}/${p.remaining}`));
+  same(out, { read: 2, failed: 1, stopped: null, reason: '' });
+  same(seen, ['1/0/2', '1/1/1', '2/1/0']);
+  same(api.calls, ['T0', 'T0', 'T0', 'T0'], 'the same press every time');
+});
+
+test('Mirror now stops on anything it cannot confirm', async () => {
+  // Refused outright: one call, and the reason in words.
+  const refused = mirrorApi([{ status: 403, body: { error_code: 'not_allowed' } }]);
+  same(await S.mirror(refused, 'T0'), { read: 0, failed: 0, stopped: 'refused', reason: 'Reading QuickBooks needs finance access.' });
+  assert.equal(refused.calls.length, 1);
+  // An answer that is not one of the server's.
+  for (const odd of [{ status: 200, body: {} }, { status: 200, body: null }, { status: 200, body: { done: false } }, { status: 500, body: { done: true } }, null]) {
+    const api = mirrorApi([odd]);
+    const out = await S.mirror(api, 'T0');
+    assert.equal(out.stopped, 'refused'); assert.equal(out.read, 0); assert.equal(api.calls.length, 1);
+  }
+  // QuickBooks needs connecting again: the next month would say the same.
+  const reconnect = mirrorApi([month(false, 5, 'reconnect_required'), month(true, 4)]);
+  const r = await S.mirror(reconnect, 'T0');
+  assert.equal(r.stopped, 'refused'); assert.match(r.reason, /connected again/); assert.equal(reconnect.calls.length, 1);
+  // The network failed.
+  assert.equal((await S.mirror(mirrorApi([new Error('offline')]), 'T0')).stopped, 'error');
+  // The company changed under it: nothing more is asked.
+  const moved = mirrorApi([month(true, 3)], { active: (n) => { if (n >= 1) { const e = new Error('x'); e.code = 'COMPANY_CHANGED'; throw e; } } });
+  const m = await S.mirror(moved, 'T0');
+  assert.equal(m.stopped, 'company'); assert.equal(m.read, 1); assert.equal(moved.calls.length, 1);
+  // A server that never finishes is not asked for ever.
+  const endless = mirrorApi([month(true, 1)]);
+  const e = await S.mirror(endless, 'T0', null, 5);
+  assert.equal(e.stopped, 'limit'); assert.equal(endless.calls.length, 5);
 });
 
 test('load: the read-back is read when it is there and its absence changes nothing else', async () => {
+  const sent = [entry('p1', '2026-10-04', 'as_sent')];
   const withMirror = { ...tables('silo'), quickbooks_ledger_mirror_periods: [{ period_start: '2026-10-01', read_through: '2026-10-31' }],
-    chat_run_readonly_query: [{ month: '2026-10', entries: 1, changed: 0, amount: 0 }] };
-  const company = { ensureActiveCompany: async () => ({ id: '11111111-1111-4111-8111-111111111111', name: 'Co' }) };
-  const a = await S.load(fakeDb(withMirror), { ...company });
-  same(a.agreement, { '2026-10': { state: 'agree', entries: 1, changed: 0, amount: 0, through: '2026-10-31' } });
+    quickbooks_sent_entries_check_v: sent };
+  const a = await S.load(fakeDb(withMirror), company);
+  same(a.agreement, { '2026-10': { state: 'agree', entries: 1, unread: 0, changed: 0, settled: 0, amount: 0, through: '2026-10-31', open: [] } });
   same(a.errors, []);
-  for (const broken of [fakeDb({ ...withMirror, quickbooks_ledger_mirror_periods: 'missing' }), fakeDb(withMirror, ['chat_run_readonly_query']), fakeDb(tables('silo'))]) {
-    const b = await S.load(broken, { ...company });
+  const tooMany = Array.from({ length: 5000 }, (_, n) => entry(`p${n}`, '2026-10-04', 'as_sent'));
+  for (const broken of [fakeDb({ ...withMirror, quickbooks_ledger_mirror_periods: 'missing' }), fakeDb({ ...withMirror, quickbooks_sent_entries_check_v: 'missing' }),
+    fakeDb(withMirror, ['quickbooks_sent_entries_check_v']), fakeDb({ ...withMirror, quickbooks_sent_entries_check_v: tooMany }), fakeDb(tables('silo'))]) {
+    const b = await S.load(broken, company);
     same(b.agreement, {});
     same(b.errors, []);
     assert.equal(b.items.filter((i) => i.sendable).length, a.items.filter((i) => i.sendable).length);
