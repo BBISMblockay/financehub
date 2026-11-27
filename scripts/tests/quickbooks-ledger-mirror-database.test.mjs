@@ -482,6 +482,11 @@ await test('an entry SILO sent and someone changed is marked edited', async () =
 // SETTLE_MUTATION=<name> breaks one rule of that migration; the suite must fail.
 let SETTLE = readFileSync(
   new URL('../../supabase/migrations/20261125235000_quickbooks_settle_and_mirror_now.sql', import.meta.url), 'utf8');
+// 20261127200000 replaces the check view with the same rules, read fast. It
+// rides with SETTLE so every test and every mutation below judges the view
+// production will actually have.
+SETTLE += '\n' + readFileSync(
+  new URL('../../supabase/migrations/20261127200000_quickbooks_sent_entries_check_fast.sql', import.meta.url), 'utf8');
 const GATE = `not public.can_manage_journal_entries() then\n    raise exception 'Finance access is required' using errcode = '42501';\n  end if;\n`;
 const SETTLE_MUTATIONS = {
   // the statement production refuses is left as it was
@@ -517,14 +522,18 @@ const SETTLE_MUTATIONS = {
   'stale-acceptance-stands': [`s.accepted_state = j.held_state then 'settled'`, `true then 'settled'`],
   'browser-writes-settlements': [`revoke all on public.quickbooks_entry_settlements from public, anon, authenticated;`, `grant all on public.quickbooks_entry_settlements to authenticated;`],
   'anon-can-accept': [`revoke all on function public.quickbooks_accept_quickbooks_version(uuid, text) from public, anon, authenticated;`, ``],
+  // the chart is asked again for every account of every entry (16 s on production)
+  'chart-per-row': [`    left join chart ch on ch.company_entity_id = e.company_entity_id and ch.qbo_connection_id = e.connection_id
+                      and ch.qbo_account_id = coalesce(s.acct, h.acct)`, `    left join lateral (select a.name from public.accounting_accounts a where a.company_entity_id = e.company_entity_id and a.qbo_connection_id = e.connection_id and a.qbo_account_id = coalesce(s.acct, h.acct) limit 1) ch on true`],
   'anon-can-start-a-read': [`revoke all on function public.quickbooks_ledger_mirror_my_due(timestamptz, integer) from public, anon, authenticated;`, ``],
 };
 const SETTLE_MUTATION = process.env.SETTLE_MUTATION || '';
 if (SETTLE_MUTATION) {
   const m = SETTLE_MUTATIONS[SETTLE_MUTATION];
   if (!m) throw new Error(`unknown SETTLE_MUTATION ${SETTLE_MUTATION}`);
-  if (SETTLE.split(m[0]).length !== 2) throw new Error(`mutation ${SETTLE_MUTATION} no longer matches the migration`);
-  SETTLE = SETTLE.replace(m[0], m[1]);
+  const hits = SETTLE.split(m[0]).length - 1;
+  if (hits !== 1 && hits !== 2) throw new Error(`mutation ${SETTLE_MUTATION} no longer matches the migration`);
+  SETTLE = SETTLE.split(m[0]).join(m[1]);
   console.log(`# mutation ${SETTLE_MUTATION} applied`);
 }
 const MIRROR_FUNCTIONS = ['quickbooks_ledger_mirror_store', 'quickbooks_ledger_mirror_failed', 'quickbooks_ledger_mirror_due',
@@ -783,6 +792,15 @@ await test('the verify check for settle and Mirror now reads ok, and notices wha
   await db.exec(MIGRATION);
   assert.match(await status(), /^BROKEN — the QuickBooks read-back cannot store/);
   await db.exec(SETTLE);
+});
+
+await test('the check view reads the chart once, not once per account', async () => {
+  await db.exec(SETTLE);
+  const [{ def }] = await q(`select pg_get_viewdef('public.quickbooks_sent_entries_check_v'::regclass) as def`);
+  assert.equal((def.match(/accounting_accounts/g) || []).length, 1, 'one read of the chart');
+  const chart = def.slice(def.indexOf('chart AS MATERIALIZED'), def.indexOf('entry AS MATERIALIZED'));
+  assert.match(chart, /accounting_accounts/, 'and that read is the materialized chart step');
+  assert.doesNotMatch(chart, /\be\./, 'which does not depend on an entry');
 });
 
 console.log(`\n${passed} passed`);

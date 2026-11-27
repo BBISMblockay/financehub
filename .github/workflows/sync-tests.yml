@@ -354,6 +354,7 @@ on:
       - 'supabase/migrations/*rules_auto_apply_and_entered_by_hand.sql'
       - 'supabase/migrations/*quickbooks_ledger_mirror.sql'
       - 'supabase/migrations/*quickbooks_settle_and_mirror_now.sql'
+      - 'supabase/migrations/*quickbooks_sent_entries_check_fast.sql'
       - 'supabase/functions/quickbooks-ledger-mirror-scheduled/**'
       - 'scripts/quickbooks-ledger-mirror.mjs'
       - '.github/workflows/quickbooks-ledger-mirror.yml'
@@ -1917,7 +1918,7 @@ jobs:
             fi
           done
           # Settle and Mirror now (20261125235000), on the same books.
-          for m in patch-skipped no-retry-reset due-any-user due-any-company due-ignores-since due-stale-since check-ignores-amount check-ignores-day check-judges-unread check-counts-unposted check-any-type check-any-connection accept-any-user accept-any-company accept-unchanged accept-unseen-version detail-shows-unchanged detail-swaps-sides stale-acceptance-stands browser-writes-settlements anon-can-accept anon-can-start-a-read; do
+          for m in patch-skipped no-retry-reset due-any-user due-any-company due-ignores-since due-stale-since check-ignores-amount check-ignores-day check-judges-unread check-counts-unposted check-any-type check-any-connection accept-any-user accept-any-company accept-unchanged accept-unseen-version detail-shows-unchanged detail-swaps-sides stale-acceptance-stands browser-writes-settlements anon-can-accept anon-can-start-a-read chart-per-row; do
             if SETTLE_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
