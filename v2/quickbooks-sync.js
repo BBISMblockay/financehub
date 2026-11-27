@@ -366,26 +366,58 @@
     for (const m of Object.values(out)) m.state = m.changed > 0 ? 'differs' : m.unread > 0 ? 'partial' : 'agree';
     return out;
   }
-  /* The month's verdict is about BALANCES, never about entries (Blake,
-     2026-11-27: "not journal driven, coa and balance driven"). For a month
-     QuickBooks was read back, SILO's statements are built from QuickBooks' own
-     lines, so every account balance matches as of that read. An entry SILO
-     sent that was later edited in QuickBooks does not change that: it is a
-     note beside the verdict and detail behind it, never a "differs". */
-  function agreementLabel(a) {
-    if (!a) return null;
-    // Anything not compared yet comes first: no green while part of the month is unread.
-    if (a.state === 'partial' || a.unread > 0) {
-      return { text: `${howMany(a.unread, 'entry', 'entries')} not compared with QuickBooks yet`, tone: null,
-        note: a.changed > 0 ? `${howMany(a.changed, 'entry', 'entries')} edited in QuickBooks` : '' };
+  /* SILO against QuickBooks, account by account (Blake, 2026-11-27: "not
+     journal driven, coa and balance driven"; "if office supply = office
+     supply, we are good"). rows = quickbooks_balance_check_months_v: for each
+     month read back, how many accounts moved the same amount in SILO's books
+     and in QuickBooks' own reports, and the accounts that did not. Folded to
+     one fact a month. A row that is not understood takes its month's verdict
+     away: no verdict is never a match. */
+  const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+  function balanceChecks(rows) {
+    const out = {};
+    if (!known(rows)) return out;
+    const spoiled = new Set();
+    for (const r of rows) {
+      const month = String((r && r.period_start) || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(month)) continue;
+      const compared = count(r.compared); const matched = count(r.matched); const differing = count(r.differing);
+      const accounts = known(r.accounts) ? r.accounts.map((a) => ({ account: String((a && a.account) || ''), type: String((a && a.type) || ''), silo: num(a && a.silo), quickbooks: num(a && a.quickbooks) })) : null;
+      const ok = typeof r.checked === 'boolean' && compared !== null && matched !== null && differing !== null
+        && matched + differing === compared && accounts && accounts.length === differing
+        && accounts.every((a) => a.silo !== null && a.quickbooks !== null)
+        && (r.checked || compared === 0) && !out[month];
+      if (!ok) { spoiled.add(month); continue; }
+      out[month] = { checked: r.checked, failed: !r.checked && !!r.balances_error, through: r.read_through ? String(r.read_through) : '',
+        compared, matched, differing, differsBy: num(r.differs_by) || 0, accounts };
     }
-    const month = String(a.through || '').slice(0, 7);
-    const last = /^\d{4}-\d{2}$/.test(month) ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : '';
-    const whole = !a.through || a.through >= last;
+    for (const month of spoiled) delete out[month];
+    return out;
+  }
+  /* What a month line says. b = that month's balance check, a = what became
+     of the entries SILO sent (agreement()). The verdict comes from the
+     ACCOUNTS only: green needs a balance check that compared every account
+     and found none different. Entries are a note beside it, never the
+     verdict: who posted what is not the question. */
+  function monthVerdict(b, a) {
+    if (!b) return null;
     const notes = [];
-    if (!whole) notes.push(`read through ${a.through}`);
-    if (a.state === 'differs') notes.push(`${howMany(a.changed, 'entry', 'entries')} edited in QuickBooks`);
-    return { text: 'Balances match QuickBooks', tone: 'pos', note: notes.join(' · ') };
+    if (a && a.unread > 0) notes.push(`${howMany(a.unread, 'entry', 'entries')} not looked up in QuickBooks yet`);
+    if (a && a.changed > 0) notes.push(`${howMany(a.changed, 'entry', 'entries')} edited in QuickBooks`);
+    if (!b.checked) {
+      return { text: 'Balances not checked yet', tone: null,
+        note: [b.failed ? 'QuickBooks’ balances could not be read on the last try' : '', ...notes].filter(Boolean).join(' · ') };
+    }
+    if (b.differing > 0) {
+      return { text: `${howMany(b.differing, 'account differs', 'accounts differ')} from QuickBooks`, tone: 'neg',
+        note: [`${b.matched} of ${b.compared} match`, ...notes].join(' · ') };
+    }
+    if (b.compared === 0) return { text: 'No accounts to compare', tone: null, note: notes.join(' · ') };
+    const month = String(b.through || '').slice(0, 7);
+    const last = /^\d{4}-\d{2}$/.test(month) ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : '';
+    const whole = !!b.through && b.through >= last;
+    if (!whole) notes.unshift(`read through ${b.through || 'part of the month'}`);
+    return { text: b.compared === 1 ? 'The 1 account matches QuickBooks' : `All ${b.compared} accounts match QuickBooks`, tone: 'pos', note: notes.join(' · ') };
   }
   // What happened to one entry in QuickBooks, in a person's words.
   function changeText(e) {
@@ -458,7 +490,7 @@
     return out;
   }
 
-  const API = { sections, chosen, agreement, agreementLabel, changeText, changeDetail, settleAll, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
+  const API = { sections, chosen, agreement, balanceChecks, monthVerdict, changeText, changeDetail, settleAll, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
 
   // ─────────────────────────────────────────────────────────── data ──
   async function result(query) {
@@ -490,7 +522,7 @@
     // The read-back is extra: a database without it, or a read that fails,
     // leaves the months without a verdict and changes nothing else.
     const optional = async (read) => { try { const r = await read(); if (r.error) return null; return Array.isArray(r.data) ? r.data : null; } catch (_) { return null; } };
-    const [settings, batches, base, view, claims, byHand, ledger, periods, sentEntries] = await Promise.all([
+    const [settings, batches, base, view, claims, byHand, ledger, periods, sentEntries, balanceRows] = await Promise.all([
       attempt('settings', async () => (await result(db.from('accounting_settings').select('bookkeeping_mode').eq('company_entity_id', company.id).maybeSingle())).data),
       attempt('months', () => allRows(db, company.id, 'card_import_batches_v',
         'id,source_name,label,status,entry_date,period_start,period_end,txn_count,uncoded_count,excluded_count,coded_amount,qbo_doc_number,qbo_journal_entry_id,source_posting_enabled,source_posting_start_on,approval_hash')),
@@ -514,13 +546,17 @@
           .eq('company_entity_id', company.id).order('posting_id').limit(5000);
         return !r.error && Array.isArray(r.data) && r.data.length >= 5000 ? { error: { message: 'too many' } } : r;
       }),
+      // One row a month: SILO's accounts against QuickBooks' own balances.
+      optional(() => db.from('quickbooks_balance_check_months_v')
+        .select('period_start,read_through,checked,balances_error,compared,matched,differing,differs_by,accounts')
+        .eq('company_entity_id', company.id).order('period_start', { ascending: false }).limit(1000)),
     ]);
     const after = await config.ensureActiveCompany(db);
     if (after?.id !== company.id) throw new Error('Company changed while loading. Refresh to retry.');
     const totals = new Map((view || []).map((v) => [v.id, v]));
     const adjustments = known(base) && known(view) ? base.map((a) => ({ ...a, ...(totals.get(a.id) || {}) })) : undefined;
     const facts = { companyId: company.id, today, mode: settings === undefined ? undefined : (settings?.bookkeeping_mode || 'silo'), batches, adjustments, claims, byHand, ledger };
-    return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts), agreement: agreement(periods, sentEntries) };
+    return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts), agreement: agreement(periods, sentEntries), balances: balanceChecks(balanceRows) };
   }
 
   // ───────────────────────────────────────────────────────────── UI ──
@@ -649,24 +685,53 @@
         $('qsLater').hidden = false;
       }
 
-      // In QuickBooks: one line a month. The entries, and their QuickBooks
-      // numbers, are behind it.
-      $('qsDone').hidden = parts.months.length === 0;
-      for (const m of parts.months) {
-        const d = el('details', null, 'qs-done-month'); d.dataset.month = m.month || ''; d.open = wasOpen.has(d.dataset.month);
+      // One board: a line a month, newest first. Each says whether SILO's
+      // accounts match QuickBooks' for that month; the accounts that differ,
+      // and the entries SILO sent, are behind it.
+      const sent = new Map(parts.months.map((m) => [m.month, m.items]));
+      const balances = st.model.balances || {};
+      const monthKeys = [...new Set([...sent.keys(), ...Object.keys(balances)])].sort((x, y) => (x < y ? 1 : x > y ? -1 : 0));
+      $('qsDone').hidden = monthKeys.length === 0;
+      for (const key of monthKeys) {
+        const entries = sent.get(key) || [];
+        const check = balances[key];
+        const a = st.model.agreement?.[key];
+        const d = el('details', null, 'qs-done-month'); d.dataset.month = key || ''; d.open = wasOpen.has(d.dataset.month);
         const sum = el('summary');
-        sum.append(el('strong', monthName(m.month)), el('span', howMany(m.items.length, 'entry', 'entries'), 'qs-muted'));
-        const verdict = agreementLabel(st.model.agreement?.[m.month]);
+        sum.append(el('strong', monthName(key)));
+        const verdict = monthVerdict(check, a);
         if (verdict) {
           sum.append(el('span', verdict.text, verdict.tone ? `bcn-pill bcn-pill--${verdict.tone}` : 'qs-muted'));
           if (verdict.note) sum.append(el('span', verdict.note, 'qs-muted'));
-        } else sum.append(el('span', 'Not compared with QuickBooks yet', 'qs-muted'));
-        const table = el('table', null, 'bcn-table qs-table'); const tb = el('tbody');
-        for (const i of m.items) tb.append(row(i, false));
-        table.append(tb); d.append(sum);
-        // What QuickBooks changed, and the one way to settle it: QuickBooks is
-        // the master copy, so its version is the one to accept.
-        const a = st.model.agreement?.[m.month];
+        } else {
+          sum.append(el('span', 'Not compared with QuickBooks yet', 'qs-muted'));
+        }
+        if (entries.length) sum.append(el('span', `${howMany(entries.length, 'entry', 'entries')} sent by SILO`, 'qs-muted'));
+        d.append(sum);
+        // The accounts that do not match, with both sides. Nothing here is
+        // sent to QuickBooks: QuickBooks is the source, SILO follows it.
+        if (check && check.checked && check.differing > 0) {
+          const table = el('table', null, 'bcn-table qs-table'); const head = el('thead'); const hr = el('tr');
+          for (const [label, cls] of [['Account', ''], ['SILO', 'qs-r'], ['QuickBooks', 'qs-r'], ['Difference', 'qs-r']]) {
+            const th = el('th', label, cls); th.scope = 'col'; hr.append(th);
+          }
+          head.append(hr);
+          const tb = el('tbody');
+          for (const acc of check.accounts) {
+            const tr = el('tr');
+            const name = el('td', acc.account || 'Unnamed account');
+            if (acc.type) name.append(' ', el('span', acc.type, 'qs-muted'));
+            tr.append(name, el('td', money(acc.silo), 'bcn-num'), el('td', money(acc.quickbooks), 'bcn-num'),
+              el('td', money(Math.abs(acc.silo - acc.quickbooks)), 'bcn-num'));
+            tb.append(tr);
+          }
+          table.append(head, tb);
+          const box = el('div', null, 'qs-settle');
+          box.append(el('small', 'What moved on each account this month, debits positive. Read QuickBooks again after a change there, and SILO follows it.'));
+          d.append(table, box);
+        }
+        // What QuickBooks changed in an entry SILO sent, and the one way to
+        // clear it from the list: QuickBooks' version is the one SILO keeps.
         if (a && a.open.length) {
           const box = el('div', null, 'qs-settle');
           const list = el('ul');
@@ -679,12 +744,17 @@
           box.append(list);
           if (st.model.canSend) {
             const b = el('button', `Use QuickBooks’ version · ${a.open.length}`, 'bcn-btn'); b.type = 'button'; b.disabled = st.busy;
-            b.addEventListener('click', () => settle(m.month, b));
-            box.append(b, el('small', 'Edited in QuickBooks after SILO sent them. SILO’s books already use QuickBooks’ version, so the balances match. Accepting clears them from this list.'));
+            b.addEventListener('click', () => settle(key, b));
+            box.append(b, el('small', 'Edited in QuickBooks after SILO sent them. SILO’s books already use QuickBooks’ version. Accepting clears them from this list and sends nothing to QuickBooks.'));
           }
           d.append(box);
         }
-        d.append(table); months.append(d);
+        if (entries.length) {
+          const table = el('table', null, 'bcn-table qs-table'); const tb = el('tbody');
+          for (const i of entries) tb.append(row(i, false));
+          table.append(tb); d.append(table);
+        }
+        months.append(d);
       }
     }
     const draw = () => { prune(); drawSummary(); drawList(); };

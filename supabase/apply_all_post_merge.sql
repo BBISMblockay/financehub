@@ -19978,6 +19978,11 @@ $c$select (select count(*) from v_po_header_summary
 -- (same rows; the chart is read once). Must run AFTER 20261125235000, which it replaces.
 \i migrations/20261127200000_quickbooks_sent_entries_check_fast.sql
 
+-- 20261127213000: SILO against QuickBooks account by account (QuickBooks' own balances per
+-- month beside the ledger lines, and the views that compare them with SILO's books). Must run
+-- AFTER 20261125150000 (its tables and due function) and after silo_books_ledger_v exists.
+\i migrations/20261127213000_quickbooks_balance_check.sql
+
 -- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
 -- not contact), so worked finds leave Affiliate Studio's working lists.
 \i migrations/20261125210000_affiliate_customer_review.sql

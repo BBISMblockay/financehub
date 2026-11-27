@@ -70,13 +70,20 @@ const MUTATIONS = {
       const off =`],
   // a changed entry is called agreed
   // a month's verdict is taken from entries again: a red amount while the balances match
-  'verdict-from-entries': [`    return { text: 'Balances match QuickBooks', tone: 'pos', note: notes.join(' · ') };`, `    return a.state === 'differs' ? { text: 'Differs by ' + money(a.amount), tone: 'neg', note: '' } : { text: 'Balances match QuickBooks', tone: 'pos', note: notes.join(' · ') };`],
+  // a month nobody checked is called a match
+  'verdict-without-check': [`    if (!b) return null;\n    const notes = [];`, `    if (!b) return { text: 'All accounts match QuickBooks', tone: 'pos', note: '' };\n    const notes = [];`],
+  // balances that were not read are called a match
+  'unchecked-called-match': [`    if (!b.checked) {`, `    if (false) {`],
+  // an account that differs is still green
+  'difference-called-match': [`    if (b.differing > 0) {`, `    if (false) {`],
   // a month read part of the way is said to match as a whole
-  'partial-month-says-whole': [`if (!whole) notes.push(`, `if (false) notes.push(`],
+  'partial-month-says-whole': [`if (!whole) notes.unshift(`, `if (false) notes.unshift(`],
   // an edited entry is not mentioned at all
-  'edited-entries-unsaid': [`if (a.state === 'differs') notes.push(`, `if (false) notes.push(`],
-  // a month with an entry nobody compared is green because another entry was edited
-  'match-despite-unread': [`if (a.state === 'partial' || a.unread > 0) {`, `if (a.state === 'partial') {`],
+  'edited-entries-unsaid': [`if (a && a.changed > 0) notes.push(`, `if (false) notes.push(`],
+  // the entries decide the month again
+  'verdict-from-entries': [`    if (b.differing > 0) {`, `    if (b.differing > 0 || (a && a.changed > 0)) {`],
+  // a row that is not understood still gives its month a verdict
+  'odd-check-trusted': [`      if (!ok) { spoiled.add(month); continue; }\n      out[month] = { checked: r.checked,`, `      out[month] = { checked: r.checked,`],
   'agree-despite-change': [`m.state = m.changed > 0 ? 'differs' :`, `m.state = false ? 'differs' :`],
   // an unreadable comparison is called agreed
   'agree-when-unread': [`if (!known(periods) || !known(entries)) return out;`, `if (!known(periods)) return out; entries = entries || [];`],
@@ -345,7 +352,7 @@ test('the page wires the module and leaves no write path of its own', () => {
   const pin = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
   assert.ok(page.includes('src="quickbooks-sync.js?v=' + pin + '"'), 'quickbooks-sync.html must load the current quickbooks-sync.js (?v=' + pin + ')');
   assert.doesNotMatch(raw, /\.from\([^;]*?\.(insert|update|upsert|delete)\(/, 'no table writes from the page');
-  assert.equal((raw.match(/\.from\(/g) || []).length, 4, 'four table reads: settings, the paged lists, the read-back months, the entry check');
+  assert.equal((raw.match(/\.from\(/g) || []).length, 5, 'five table reads: settings, the paged lists, the read-back months, the entry check, the balance check');
   const rpcs = [...raw.matchAll(/rpc\('([a-z_]+)'/g)].map((m) => m[1]).sort();
   assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'is_exec_or_owner', 'quickbooks_accept_quickbooks_version', 'quickbooks_entered_by_hand_list', 'set_entry_entered_in_quickbooks', 'silo_business_today', 'silo_ledger_batch_status'].sort());
   assert.doesNotMatch(raw, /innerHTML/);
@@ -518,6 +525,50 @@ test('only a ticked row is sent or marked, and only while it still may be', () =
 
 const entry = (id, date, status, extra = {}) => ({ held_state: status === 'unread' ? null : `h-${id}`, posting_id: id, qbo_doc_number: `SILO-${id}`, memo: '', entry_date: date, status,
   differs_by: status === 'unread' ? null : 0, missing: status === 'unread' ? null : false, moved: status === 'unread' ? null : false, ...extra });
+// One month of quickbooks_balance_check_months_v.
+const check = (month, extra = {}) => ({ period_start: `${month}-01`, read_through: `${month}-30`, checked: true, balances_error: null,
+  compared: 104, matched: 104, differing: 0, differs_by: 0, accounts: [], ...extra });
+
+test('a month is green only when every account matches QuickBooks; entries are a note, never the verdict', () => {
+  const two = [{ account: 'Office Supplies', type: 'Expense', silo: 120.5, quickbooks: '100.50' }, { account: 'Visa', type: 'Credit Card', silo: '-120.50', quickbooks: -100.5 }];
+  const got = S.balanceChecks([check('2026-09'), check('2026-08', { compared: 60, matched: 58, differing: 2, differs_by: '40.00', accounts: two }),
+    check('2026-07', { checked: false, compared: 0, matched: 0 }), check('2026-06', { checked: false, compared: 0, matched: 0, balances_error: 'quickbooks_busy' })]);
+  same(Object.keys(got).sort(), ['2026-06', '2026-07', '2026-08', '2026-09']);
+  same(S.monthVerdict(got['2026-09']), { text: 'All 104 accounts match QuickBooks', tone: 'pos', note: '' });
+  same(S.monthVerdict(got['2026-08']), { text: '2 accounts differ from QuickBooks', tone: 'neg', note: '58 of 60 match' });
+  same(got['2026-08'].accounts, [{ account: 'Office Supplies', type: 'Expense', silo: 120.5, quickbooks: 100.5 }, { account: 'Visa', type: 'Credit Card', silo: -120.5, quickbooks: -100.5 }]);
+  same(S.monthVerdict(S.balanceChecks([check('2026-09', { compared: 1, matched: 0, differing: 1, accounts: [two[0]] })])['2026-09']).text, '1 account differs from QuickBooks');
+  // Not checked is never green, and says so when the read failed.
+  same(S.monthVerdict(got['2026-07']), { text: 'Balances not checked yet', tone: null, note: '' });
+  same(S.monthVerdict(got['2026-06']), { text: 'Balances not checked yet', tone: null, note: 'QuickBooks’ balances could not be read on the last try' });
+  // No balance check for the month: no verdict at all.
+  assert.equal(S.monthVerdict(undefined, { state: 'agree', entries: 3, unread: 0, changed: 0 }), null);
+  // Who posted what does not decide the month: edited or unread entries are notes beside a balance verdict.
+  const edited = { state: 'differs', changed: 2, unread: 0, amount: 7069499.85 };
+  same(S.monthVerdict(got['2026-09'], edited), { text: 'All 104 accounts match QuickBooks', tone: 'pos', note: '2 entries edited in QuickBooks' });
+  assert.doesNotMatch(JSON.stringify(S.monthVerdict(got['2026-09'], edited)), /7069499|7,069,499|Differs by/);
+  same(S.monthVerdict(got['2026-09'], { state: 'partial', changed: 1, unread: 1 }).note, '1 entry not looked up in QuickBooks yet · 1 entry edited in QuickBooks');
+  same(S.monthVerdict(got['2026-08'], edited).note, '58 of 60 match · 2 entries edited in QuickBooks');
+  same(S.monthVerdict(got['2026-07'], edited).note, '2 entries edited in QuickBooks');
+  // A month read only part of the way says how far.
+  const part = S.balanceChecks([check('2026-11', { read_through: '2026-11-25' }), check('2026-02', { read_through: '2026-02-28' })]);
+  same(S.monthVerdict(part['2026-11']), { text: 'All 104 accounts match QuickBooks', tone: 'pos', note: 'read through 2026-11-25' });
+  same(S.monthVerdict(part['2026-11'], edited).note, 'read through 2026-11-25 · 2 entries edited in QuickBooks');
+  same(S.monthVerdict(part['2026-02']).note, '');
+  same(S.monthVerdict(S.balanceChecks([check('2026-09', { compared: 1, matched: 1 })])['2026-09']).text, 'The 1 account matches QuickBooks');
+  same(S.monthVerdict(S.balanceChecks([check('2026-09', { compared: 0, matched: 0 })])['2026-09']), { text: 'No accounts to compare', tone: null, note: '' });
+  // The check could not be read: no month has a verdict.
+  same(S.balanceChecks(null), {});
+  // A row that is not understood takes its month's verdict away, and no other month's.
+  for (const odd of [check('2026-09', { matched: 103 }), check('2026-09', { compared: '104' }), check('2026-09', { checked: 'yes' }),
+    check('2026-09', { differing: 1, matched: 103 }), check('2026-09', { differing: 1, matched: 103, accounts: [{ account: 'X', silo: 'lots', quickbooks: 1 }] }),
+    check('2026-09', { checked: false }), check('2026-09', { accounts: null })]) {
+    same(Object.keys(S.balanceChecks([odd, check('2026-08')])), ['2026-08'], JSON.stringify(odd).slice(0, 90));
+  }
+  // The same month twice (it cannot be both): no verdict.
+  same(Object.keys(S.balanceChecks([check('2026-09'), check('2026-09'), check('2026-08')])), ['2026-08']);
+});
+
 const PERIODS = [{ period_start: '2026-09-01', read_through: '2026-09-30' }, { period_start: '2026-08-01', read_through: '2026-08-31' }, { period_start: '2026-07-01', read_through: '2026-07-31' }];
 
 test('a month is judged only where QuickBooks was read back, and only from a clean comparison', () => {
@@ -533,24 +584,9 @@ test('a month is judged only where QuickBooks was read back, and only from a cle
   assert.equal(got['2026-08'].state, 'differs');
   same(got['2026-08'].open.map((e) => e.posting_id), ['e']);
   assert.equal(got['2026-07'].state, 'agree', 'read back, and SILO sent nothing that month');
-  // The verdict is about balances: a read month matches, and an entry edited in
-  // QuickBooks is a note beside it, never a "differs" and never a red number.
-  same(S.agreementLabel(got['2026-09']), { text: 'Balances match QuickBooks', tone: 'pos', note: '' });
-  same(S.agreementLabel(got['2026-08']), { text: 'Balances match QuickBooks', tone: 'pos', note: '1 entry edited in QuickBooks' });
-  same(S.agreementLabel({ state: 'differs', changed: 2, amount: 7069499.85, through: '2026-09-30' }), { text: 'Balances match QuickBooks', tone: 'pos', note: '2 entries edited in QuickBooks' });
-  for (const a of Object.values(got)) assert.doesNotMatch(JSON.stringify(S.agreementLabel(a)), /Differs|neg|\d{3}\.\d{2}/, 'no entry amount in a month verdict');
-  // A month read only part of the way says how far.
-  same(S.agreementLabel({ state: 'agree', through: '2026-11-25' }), { text: 'Balances match QuickBooks', tone: 'pos', note: 'read through 2026-11-25' });
-  same(S.agreementLabel({ state: 'differs', changed: 1, through: '2026-11-25' }).note, 'read through 2026-11-25 · 1 entry edited in QuickBooks');
-  same(S.agreementLabel({ state: 'agree', through: '2026-02-28' }).note, '');
-  assert.equal(S.agreementLabel(undefined), null);
   // One entry in the month has not been compared: the month is not called agreed.
   const part = S.agreement(PERIODS, [entry('a', '2026-09-03', 'as_sent'), entry('b', '2026-09-28', 'unread')])['2026-09'];
   assert.equal(part.state, 'partial');
-  same(S.agreementLabel(part), { text: '1 entry not compared with QuickBooks yet', tone: null, note: '' });
-  // One entry edited and another not compared (two connections): no green.
-  const mixed = S.agreement(PERIODS, [entry('a', '2026-09-03', 'unread'), entry('b', '2026-09-04', 'changed', { differs_by: '10' })])['2026-09'];
-  same(S.agreementLabel(mixed), { text: '1 entry not compared with QuickBooks yet', tone: null, note: '1 entry edited in QuickBooks' });
   // ...and a difference already found still shows.
   assert.equal(S.agreement(PERIODS, [entry('a', '2026-09-03', 'unread'), entry('b', '2026-09-04', 'changed', { moved: true })])['2026-09'].state, 'differs');
   // The comparison could not be read: no month is called agreed.
