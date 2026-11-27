@@ -69,6 +69,12 @@ const MUTATIONS = {
       const off =`, `      if (!m) { out[month] = { open: [] }; continue; }
       const off =`],
   // a changed entry is called agreed
+  // a month's verdict is taken from entries again: a red amount while the balances match
+  'verdict-from-entries': [`    return { text: 'Balances match QuickBooks', tone: 'pos', note: notes.join(' · ') };`, `    return a.state === 'differs' ? { text: 'Differs by ' + money(a.amount), tone: 'neg', note: '' } : { text: 'Balances match QuickBooks', tone: 'pos', note: notes.join(' · ') };`],
+  // a month read part of the way is said to match as a whole
+  'partial-month-says-whole': [`if (!whole) notes.push(`, `if (false) notes.push(`],
+  // an edited entry is not mentioned at all
+  'edited-entries-unsaid': [`if (a.state === 'differs') notes.push(`, `if (false) notes.push(`],
   'agree-despite-change': [`m.state = m.changed > 0 ? 'differs' :`, `m.state = false ? 'differs' :`],
   // an unreadable comparison is called agreed
   'agree-when-unread': [`if (!known(periods) || !known(entries)) return out;`, `if (!known(periods)) return out; entries = entries || [];`],
@@ -525,15 +531,21 @@ test('a month is judged only where QuickBooks was read back, and only from a cle
   assert.equal(got['2026-08'].state, 'differs');
   same(got['2026-08'].open.map((e) => e.posting_id), ['e']);
   assert.equal(got['2026-07'].state, 'agree', 'read back, and SILO sent nothing that month');
-  same(S.agreementLabel(got['2026-09']), { text: 'QuickBooks and SILO agree', tone: 'pos' });
-  same(S.agreementLabel(got['2026-08']), { text: 'Differs by 120.50', tone: 'neg' });
-  same(S.agreementLabel({ state: 'differs', changed: 1, amount: 0 }), { text: '1 entry changed in QuickBooks', tone: 'neg' });
-  same(S.agreementLabel({ state: 'differs', changed: 2, amount: 0 }), { text: '2 entries changed in QuickBooks', tone: 'neg' });
+  // The verdict is about balances: a read month matches, and an entry edited in
+  // QuickBooks is a note beside it, never a "differs" and never a red number.
+  same(S.agreementLabel(got['2026-09']), { text: 'Balances match QuickBooks', tone: 'pos', note: '' });
+  same(S.agreementLabel(got['2026-08']), { text: 'Balances match QuickBooks', tone: 'pos', note: '1 entry edited in QuickBooks' });
+  same(S.agreementLabel({ state: 'differs', changed: 2, amount: 7069499.85, through: '2026-09-30' }), { text: 'Balances match QuickBooks', tone: 'pos', note: '2 entries edited in QuickBooks' });
+  for (const a of Object.values(got)) assert.doesNotMatch(JSON.stringify(S.agreementLabel(a)), /Differs|neg|\d{3}\.\d{2}/, 'no entry amount in a month verdict');
+  // A month read only part of the way says how far.
+  same(S.agreementLabel({ state: 'agree', through: '2026-11-25' }), { text: 'Balances match QuickBooks', tone: 'pos', note: 'read through 2026-11-25' });
+  same(S.agreementLabel({ state: 'differs', changed: 1, through: '2026-11-25' }).note, 'read through 2026-11-25 · 1 entry edited in QuickBooks');
+  same(S.agreementLabel({ state: 'agree', through: '2026-02-28' }).note, '');
   assert.equal(S.agreementLabel(undefined), null);
   // One entry in the month has not been compared: the month is not called agreed.
   const part = S.agreement(PERIODS, [entry('a', '2026-09-03', 'as_sent'), entry('b', '2026-09-28', 'unread')])['2026-09'];
   assert.equal(part.state, 'partial');
-  same(S.agreementLabel(part), { text: '1 entry not compared with QuickBooks yet', tone: null });
+  same(S.agreementLabel(part), { text: '1 entry not compared with QuickBooks yet', tone: null, note: '' });
   // ...and a difference already found still shows.
   assert.equal(S.agreement(PERIODS, [entry('a', '2026-09-03', 'unread'), entry('b', '2026-09-04', 'changed', { moved: true })])['2026-09'].state, 'differs');
   // The comparison could not be read: no month is called agreed.
@@ -547,9 +559,9 @@ test('a month is judged only where QuickBooks was read back, and only from a cle
 
 test('what happened to an entry in QuickBooks is said plainly, with the date and accounts it now holds', () => {
   assert.equal(S.changeText({ missing: true, differs_by: 500 }), 'Not in QuickBooks any more (deleted, or moved out of the months read)');
-  assert.equal(S.changeText({ missing: false, moved: false, differs_by: '100' }), 'Changed in QuickBooks: differs by 100.00');
+  assert.equal(S.changeText({ missing: false, moved: false, differs_by: '100' }), 'Changed in QuickBooks: 100.00 moved between accounts');
   assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0, held_first_day: '2026-09-15', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: now dated 2026-09-15');
-  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 25, held_first_day: '2026-09-12', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: differs by 25.00, now dated 2026-09-12 to 2026-09-15');
+  assert.equal(S.changeText({ missing: false, moved: true, differs_by: 25, held_first_day: '2026-09-12', held_last_day: '2026-09-15' }), 'Changed in QuickBooks: 25.00 moved between accounts, now dated 2026-09-12 to 2026-09-15');
   assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0 }), 'Changed in QuickBooks: moved to another day');
   same(S.changeDetail({ accounts: [{ account: 'Rent', sent: 400, quickbooks: 500 }, { account: 'Rent:Warehouse', sent: '100', quickbooks: 0 }, { account: 'Visa', sent: -500, quickbooks: '-450' }] }),
     ['Rent: SILO sent 400.00 debit, QuickBooks has 500.00 debit', 'Rent:Warehouse: SILO sent 100.00 debit, QuickBooks has nothing', 'Visa: SILO sent 500.00 credit, QuickBooks has 450.00 credit']);
