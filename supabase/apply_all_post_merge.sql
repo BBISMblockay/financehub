@@ -19974,6 +19974,10 @@ $c$select (select count(*) from v_po_header_summary
 -- be settled to QuickBooks' version. Must run AFTER 20261125150000, which it patches.
 \i migrations/20261125235000_quickbooks_settle_and_mirror_now.sql
 
+-- 20261127200000: the sent-entries check view answers inside a signed-in user's 8 s limit
+-- (same rows; the chart is read once). Must run AFTER 20261125235000, which it replaces.
+\i migrations/20261127200000_quickbooks_sent_entries_check_fast.sql
+
 -- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
 -- not contact), so worked finds leave Affiliate Studio's working lists.
 \i migrations/20261125210000_affiliate_customer_review.sql

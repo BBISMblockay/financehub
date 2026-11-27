@@ -11092,6 +11092,8 @@ select 'QuickBooks settle and Mirror now' as check_name,
       or to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)') is null
       or to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)') is null
       then 'MISSING — run 20261125235000_quickbooks_settle_and_mirror_now.sql'
+    when position('chart AS MATERIALIZED' in pg_get_viewdef(to_regclass('public.quickbooks_sent_entries_check_v'))) = 0
+      then 'BROKEN — the sent-entries check reads the chart per account and times out for a signed-in user; run 20261127200000_quickbooks_sent_entries_check_fast.sql'
     when position('::numeric, 0) where true;' in coalesce(pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)')), '')) = 0
       then 'BROKEN — the QuickBooks read-back cannot store a month (UPDATE without WHERE); re-run 20261125235000'
     when has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'), 'execute')
