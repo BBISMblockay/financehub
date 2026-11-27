@@ -366,18 +366,33 @@
     for (const m of Object.values(out)) m.state = m.changed > 0 ? 'differs' : m.unread > 0 ? 'partial' : 'agree';
     return out;
   }
+  /* The month's verdict is about BALANCES, never about entries (Blake,
+     2026-11-27: "not journal driven, coa and balance driven"). For a month
+     QuickBooks was read back, SILO's statements are built from QuickBooks' own
+     lines, so every account balance matches as of that read. An entry SILO
+     sent that was later edited in QuickBooks does not change that: it is a
+     note beside the verdict and detail behind it, never a "differs". */
   function agreementLabel(a) {
     if (!a) return null;
-    if (a.state === 'agree') return { text: 'QuickBooks and SILO agree', tone: 'pos' };
-    if (a.state === 'partial') return { text: `${howMany(a.unread, 'entry', 'entries')} not compared with QuickBooks yet`, tone: null };
-    return { text: a.amount ? `Differs by ${money(a.amount)}` : `${howMany(a.changed, 'entry', 'entries')} changed in QuickBooks`, tone: 'neg' };
+    // Anything not compared yet comes first: no green while part of the month is unread.
+    if (a.state === 'partial' || a.unread > 0) {
+      return { text: `${howMany(a.unread, 'entry', 'entries')} not compared with QuickBooks yet`, tone: null,
+        note: a.changed > 0 ? `${howMany(a.changed, 'entry', 'entries')} edited in QuickBooks` : '' };
+    }
+    const month = String(a.through || '').slice(0, 7);
+    const last = /^\d{4}-\d{2}$/.test(month) ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : '';
+    const whole = !a.through || a.through >= last;
+    const notes = [];
+    if (!whole) notes.push(`read through ${a.through}`);
+    if (a.state === 'differs') notes.push(`${howMany(a.changed, 'entry', 'entries')} edited in QuickBooks`);
+    return { text: 'Balances match QuickBooks', tone: 'pos', note: notes.join(' · ') };
   }
   // What happened to one entry in QuickBooks, in a person's words.
   function changeText(e) {
     if (e.missing) return 'Not in QuickBooks any more (deleted, or moved out of the months read)';
     const off = num(e.differs_by);
     const parts = [];
-    if (off) parts.push(`differs by ${money(off)}`);
+    if (off) parts.push(`${money(off)} moved between accounts`);
     if (e.moved) {
       const a = e.held_first_day; const b = e.held_last_day;
       parts.push(a && b ? (a === b ? `now dated ${a}` : `now dated ${a} to ${b}`) : 'moved to another day');
@@ -642,8 +657,10 @@
         const sum = el('summary');
         sum.append(el('strong', monthName(m.month)), el('span', howMany(m.items.length, 'entry', 'entries'), 'qs-muted'));
         const verdict = agreementLabel(st.model.agreement?.[m.month]);
-        if (verdict) sum.append(el('span', verdict.text, verdict.tone ? `bcn-pill bcn-pill--${verdict.tone}` : 'qs-muted'));
-        else sum.append(el('span', 'Not compared with QuickBooks yet', 'qs-muted'));
+        if (verdict) {
+          sum.append(el('span', verdict.text, verdict.tone ? `bcn-pill bcn-pill--${verdict.tone}` : 'qs-muted'));
+          if (verdict.note) sum.append(el('span', verdict.note, 'qs-muted'));
+        } else sum.append(el('span', 'Not compared with QuickBooks yet', 'qs-muted'));
         const table = el('table', null, 'bcn-table qs-table'); const tb = el('tbody');
         for (const i of m.items) tb.append(row(i, false));
         table.append(tb); d.append(sum);
@@ -663,7 +680,7 @@
           if (st.model.canSend) {
             const b = el('button', `Use QuickBooks’ version · ${a.open.length}`, 'bcn-btn'); b.type = 'button'; b.disabled = st.busy;
             b.addEventListener('click', () => settle(m.month, b));
-            box.append(b, el('small', 'SILO’s books already follow QuickBooks for this month. This accepts the change so the month is settled.'));
+            box.append(b, el('small', 'Edited in QuickBooks after SILO sent them. SILO’s books already use QuickBooks’ version, so the balances match. Accepting clears them from this list.'));
           }
           d.append(box);
         }

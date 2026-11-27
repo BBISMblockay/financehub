@@ -87,7 +87,14 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
   checked before each, stopping at the first refusal. **Undo** stays on a marked row.
 - Open months and rows SILO does not send are not tasks: one quiet line, the rows behind it.
 - **In QuickBooks** is one line per month; the entries and their QuickBooks numbers are behind it.
-- **QuickBooks and SILO agree / Differs by X** on each of those months comes from the read-back
+- **The month verdict is about balances, not entries** (Blake, 2026-11-27: "not journal driven, coa and
+  balance driven"). A month QuickBooks was read back for says **Balances match QuickBooks**: SILO's
+  statements for it are built from QuickBooks' own lines, so every account balance is QuickBooks' as of
+  that read ("read through <day>" when the month is not complete). Entries SILO sent that were later
+  edited in QuickBooks are a quiet note beside it ("3 entries edited in QuickBooks") and detail behind
+  it; they never make a month "differ" and no entry amount appears in the verdict. What follows describes
+  where that entry detail comes from.
+- **Entry detail** on each of those months comes from the read-back
   (`quickbooks_ledger_mirror_*`) through the view `quickbooks_sent_entries_check_v` (20261125235000), read
   as the signed-in finance user. One row per entry SILO posted: `unread`, `as_sent`, `changed` or
   `settled`. An entry is judged only for days a read covers on its own connection: same day, same net
