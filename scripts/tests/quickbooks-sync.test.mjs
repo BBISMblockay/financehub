@@ -75,6 +75,8 @@ const MUTATIONS = {
   'partial-month-says-whole': [`if (!whole) notes.push(`, `if (false) notes.push(`],
   // an edited entry is not mentioned at all
   'edited-entries-unsaid': [`if (a.state === 'differs') notes.push(`, `if (false) notes.push(`],
+  // a month with an entry nobody compared is green because another entry was edited
+  'match-despite-unread': [`if (a.state === 'partial' || a.unread > 0) {`, `if (a.state === 'partial') {`],
   'agree-despite-change': [`m.state = m.changed > 0 ? 'differs' :`, `m.state = false ? 'differs' :`],
   // an unreadable comparison is called agreed
   'agree-when-unread': [`if (!known(periods) || !known(entries)) return out;`, `if (!known(periods)) return out; entries = entries || [];`],
@@ -546,6 +548,9 @@ test('a month is judged only where QuickBooks was read back, and only from a cle
   const part = S.agreement(PERIODS, [entry('a', '2026-09-03', 'as_sent'), entry('b', '2026-09-28', 'unread')])['2026-09'];
   assert.equal(part.state, 'partial');
   same(S.agreementLabel(part), { text: '1 entry not compared with QuickBooks yet', tone: null, note: '' });
+  // One entry edited and another not compared (two connections): no green.
+  const mixed = S.agreement(PERIODS, [entry('a', '2026-09-03', 'unread'), entry('b', '2026-09-04', 'changed', { differs_by: '10' })])['2026-09'];
+  same(S.agreementLabel(mixed), { text: '1 entry not compared with QuickBooks yet', tone: null, note: '1 entry edited in QuickBooks' });
   // ...and a difference already found still shows.
   assert.equal(S.agreement(PERIODS, [entry('a', '2026-09-03', 'unread'), entry('b', '2026-09-04', 'changed', { moved: true })])['2026-09'].state, 'differs');
   // The comparison could not be read: no month is called agreed.

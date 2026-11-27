@@ -374,7 +374,11 @@
      note beside the verdict and detail behind it, never a "differs". */
   function agreementLabel(a) {
     if (!a) return null;
-    if (a.state === 'partial') return { text: `${howMany(a.unread, 'entry', 'entries')} not compared with QuickBooks yet`, tone: null, note: '' };
+    // Anything not compared yet comes first: no green while part of the month is unread.
+    if (a.state === 'partial' || a.unread > 0) {
+      return { text: `${howMany(a.unread, 'entry', 'entries')} not compared with QuickBooks yet`, tone: null,
+        note: a.changed > 0 ? `${howMany(a.changed, 'entry', 'entries')} edited in QuickBooks` : '' };
+    }
     const month = String(a.through || '').slice(0, 7);
     const last = /^\d{4}-\d{2}$/.test(month) ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : '';
     const whole = !a.through || a.through >= last;
