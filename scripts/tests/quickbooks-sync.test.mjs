@@ -2,6 +2,7 @@
 // module. QBSYNC_MUTATION=<name> breaks one protection in the source text;
 // every mutation below must make this suite fail (run-mutations at the end of
 // the file lists them, and CI runs each).
+import crypto from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -330,6 +331,11 @@ test('the page wires the module and leaves no write path of its own', () => {
   assert.ok(page.indexOf('nav-config.js') < page.indexOf('silo-chrome.js'));
   const raw = fs.readFileSync(new URL('../../v2/quickbooks-sync.js', import.meta.url), 'utf8');
   assert.doesNotMatch(raw + page, /\balert\(/);
+  // The script is pinned to its content, so a browser can never run an old
+  // copy of it against the new page (seen 2026-11-27: old list code, new markup,
+  // and an empty page under "To do").
+  const pin = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
+  assert.ok(page.includes('src="quickbooks-sync.js?v=' + pin + '"'), 'quickbooks-sync.html must load the current quickbooks-sync.js (?v=' + pin + ')');
   assert.doesNotMatch(raw, /\.from\([^;]*?\.(insert|update|upsert|delete)\(/, 'no table writes from the page');
   assert.equal((raw.match(/\.from\(/g) || []).length, 4, 'four table reads: settings, the paged lists, the read-back months, the entry check');
   const rpcs = [...raw.matchAll(/rpc\('([a-z_]+)'/g)].map((m) => m[1]).sort();
