@@ -53,7 +53,9 @@
     ['finance/card-coding','Transactions','transactions.html'],
     ['finance/invoicing','Invoicing','invoicing.html'],
     ['finance/accounting-export','Shopify journal','accounting-export.html'],
-    ['finance/qbo-reports','Reports','qbo-reports.html'],
+    // Reports opens SILO's own statements (2026-11-26). The connected ledger's
+    // reports stay one click away at qbo-reports.html, linked from that page.
+    ['finance/qbo-reports','Reports','silo-books.html'],
     ['finance/schedules','Schedules','schedules.html'],
     ['finance/fixed-assets','Fixed assets','fixed-assets.html'],
     ['finance/books','Books & setup','accounting-books.html'],

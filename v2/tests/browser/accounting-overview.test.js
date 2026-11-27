@@ -38,7 +38,7 @@ const finished = page => page.waitForFunction(() => document.getElementById('wor
   assert.equal(await nav.locator('.accounting-suite-links a').count(),5);
   assert.equal(await nav.locator('details.accounting-suite-more').count(),1,'the More tab');
   assert.equal(await nav.locator('[aria-current="page"]').getAttribute('href'),'/v2/accounting.html');
-  const onRow = ['transactions.html','invoicing.html','qbo-reports.html','accounting-month-end.html'];
+  const onRow = ['transactions.html','invoicing.html','silo-books.html','accounting-month-end.html'];
   const inMore = ['accounting-export.html','schedules.html','fixed-assets.html','cash-forecast.html'];
   for (const href of [...onRow,...inMore]) {
     assert.equal(await nav.locator(`a[href="/v2/${href}"]`).count(),1,href);
