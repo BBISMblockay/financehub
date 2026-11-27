@@ -1925,7 +1925,7 @@ jobs:
             fi
           done
           # SILO against QuickBooks account by account (20261127213000).
-          for m in stale-balances-trusted computed-called-match cent-ignored one-sided-dropped error-keeps-rows open-to-browser never-due other-day-taken; do
+          for m in stale-balances-trusted computed-called-match cent-ignored one-sided-dropped error-keeps-rows open-to-browser never-due other-day-taken stale-read-writes token-not-rotated empty-month-unchecked; do
             if BALANCE_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi

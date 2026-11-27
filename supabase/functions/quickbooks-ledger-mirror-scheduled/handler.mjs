@@ -335,7 +335,7 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
     }
 
     try {
-      const { data, error } = await db.rpc('quickbooks_ledger_mirror_store', {
+      const { data, error } = await db.rpc('quickbooks_ledger_mirror_read_store', {
         p_company: work.company_entity_id, p_connection: work.qbo_connection_id,
         p_period_start: work.period_start, p_read_through: work.read_through,
         p_report: report, p_account_types: types });
@@ -344,7 +344,9 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
       // A refusal is already on the month's row, with its reason; only the
       // fact of it leaves here.
       if (data.ok !== true) return reply({ done: false, ok: false, changed: false, lines: 0, error_code: 'report_refused', ...more });
-      const balances = await readBalances();
+      // The token names THIS read: a newer read of the month makes the
+      // database ignore whatever this one goes on to say about balances.
+      const balances = uuid(data.read_token) ? await readBalances(data.read_token) : false;
       return reply({ done: false, ok: true, changed: data.changed === true, lines, balances, ...more });
     } catch {
       return fail('store_failed');
@@ -353,7 +355,7 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
     // The month's lines are stored. Now QuickBooks' own balances for the same
     // days. Whatever happens here is recorded on the month and reported as one
     // boolean; it never turns a good ledger read into a failed one.
-    async function readBalances() {
+    async function readBalances(readToken) {
       let rows = null, code = null;
       try {
         const before = shiftDay(work.period_start, -1);
@@ -371,7 +373,7 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
         const { data, error } = await db.rpc('quickbooks_ledger_mirror_balances_store', {
           p_company: work.company_entity_id, p_connection: work.qbo_connection_id,
           p_period_start: work.period_start, p_read_through: work.read_through,
-          p_rows: rows, p_error: code });
+          p_token: readToken, p_rows: rows, p_error: code });
         return !error && data?.ok === true;
       } catch { return false; }
     }

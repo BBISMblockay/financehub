@@ -16,7 +16,9 @@
 --
 --   quickbooks_ledger_mirror_balances        one row per month and account, as
 --                                            QuickBooks' reports state it
---   quickbooks_ledger_mirror_balances_store  the only writer; service role only
+--   quickbooks_ledger_mirror_read_store      the line store plus a token for the read
+--   quickbooks_ledger_mirror_balances_store  the only writer; service role only,
+--                                            and only for the read that holds the token
 --   quickbooks_balance_check_v               per account: SILO, QuickBooks,
 --                                            and whether they match
 --   quickbooks_balance_check_months_v        per month: accounts compared,
@@ -49,10 +51,11 @@
 -- Generic: no company, account or date is named. No BEGIN/COMMIT of its own.
 -- Idempotent. Rollback: drop view public.quickbooks_balance_check_months_v;
 -- drop view public.quickbooks_balance_check_v; drop function
--- public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,jsonb,text);
+-- public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text);
+-- drop function public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb);
 -- drop table public.quickbooks_ledger_mirror_balances; alter table
 -- public.quickbooks_ledger_mirror_periods drop column balances_read_at, drop
--- column balances_hash, drop column balances_error; and re-run
+-- column balances_hash, drop column balances_error, drop column read_token; and re-run
 -- 20261125150000's quickbooks_ledger_mirror_due.
 
 -- ──────────────────────────────────────────────────────────────────────────
@@ -63,7 +66,11 @@ alter table public.quickbooks_ledger_mirror_periods
   -- content_hash of the lines these balances were fetched beside.
   add column if not exists balances_hash    text,
   -- Why the last attempt to read balances stored none. NULL when it stored them.
-  add column if not exists balances_error   text;
+  add column if not exists balances_error   text,
+  -- Names the most recent accepted read of the month's lines. Balances are
+  -- stored only by the read that still holds it, so a slower, older read can
+  -- neither attach its balances to newer lines nor clear a newer check.
+  add column if not exists read_token       uuid;
 
 create table if not exists public.quickbooks_ledger_mirror_balances (
   id                 bigint generated always as identity primary key,
@@ -91,8 +98,46 @@ create policy ledger_mirror_finance_read on public.quickbooks_ledger_mirror_bala
          and ((select public.can_manage_journal_entries()) or (select public.is_exec_or_owner())));
 
 -- ──────────────────────────────────────────────────────────────────────────
--- 2. The only writer
+-- 2. One read, one token
 -- ──────────────────────────────────────────────────────────────────────────
+-- The line store (20261125150000, patched by 20261125235000) exactly as it is,
+-- plus a fresh token for the month when it accepts the report -- in the SAME
+-- transaction, so still under the line store's lock. The reader calls this,
+-- then fetches QuickBooks' balances, then hands the token back to
+-- quickbooks_ledger_mirror_balances_store. Two reads of one month that overlap
+-- each get their own token and only the later one's balances are taken.
+-- Returns what the line store returns, with read_token added when ok.
+create or replace function public.quickbooks_ledger_mirror_read_store(
+  p_company uuid, p_connection uuid, p_period_start date, p_read_through date,
+  p_report jsonb, p_account_types jsonb default null)
+returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_result jsonb;
+  v_token  uuid := gen_random_uuid();
+begin
+  v_result := public.quickbooks_ledger_mirror_store(p_company, p_connection, p_period_start, p_read_through,
+                                                    p_report, p_account_types);
+  if coalesce((v_result ->> 'ok')::boolean, false) is not true then
+    return v_result;
+  end if;
+  update public.quickbooks_ledger_mirror_periods
+     set read_token = v_token
+   where company_entity_id = p_company and qbo_connection_id = p_connection and period_start = p_period_start;
+  return v_result || jsonb_build_object('read_token', v_token);
+end $$;
+
+revoke all on function public.quickbooks_ledger_mirror_read_store(uuid, uuid, date, date, jsonb, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.quickbooks_ledger_mirror_read_store(uuid, uuid, date, date, jsonb, jsonb)
+  to service_role;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- 3. The only writer of balances
+-- ──────────────────────────────────────────────────────────────────────────
+-- p_token  the read_token quickbooks_ledger_mirror_read_store handed this read.
+--          If the month has been read again since, NOTHING is changed and the
+--          answer is {ok:false, superseded:true}: the newer read owns the month.
 -- p_rows   [{"id","name","type","activity","ending"}], one per account, already
 --          reduced by the reader from QuickBooks' reports. activity and ending
 --          are numbers or null.
@@ -103,7 +148,7 @@ create policy ledger_mirror_finance_read on public.quickbooks_ledger_mirror_bala
 -- Returns {ok, accounts} or {ok:false, error}.
 create or replace function public.quickbooks_ledger_mirror_balances_store(
   p_company uuid, p_connection uuid, p_period_start date, p_read_through date,
-  p_rows jsonb, p_error text default null)
+  p_token uuid, p_rows jsonb, p_error text default null)
 returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -131,6 +176,10 @@ begin
    where company_entity_id = p_company and qbo_connection_id = p_connection and period_start = p_period_start;
   if not found or v_period.read_at is null then
     raise exception 'quickbooks_ledger_mirror_balances_store: that month has no accepted read';
+  end if;
+  -- A newer read of the month has taken over: leave everything as that read has it.
+  if p_token is null or v_period.read_token is distinct from p_token then
+    return jsonb_build_object('ok', false, 'superseded', true, 'error', 'superseded by a newer read');
   end if;
 
   if v_err is null then
@@ -178,13 +227,13 @@ begin
   return jsonb_build_object('ok', false, 'error', v_err);
 end $$;
 
-revoke all on function public.quickbooks_ledger_mirror_balances_store(uuid, uuid, date, date, jsonb, text)
+revoke all on function public.quickbooks_ledger_mirror_balances_store(uuid, uuid, date, date, uuid, jsonb, text)
   from public, anon, authenticated;
-grant execute on function public.quickbooks_ledger_mirror_balances_store(uuid, uuid, date, date, jsonb, text)
+grant execute on function public.quickbooks_ledger_mirror_balances_store(uuid, uuid, date, date, uuid, jsonb, text)
   to service_role;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- 3. What to read next: a month read before balances existed is due once
+-- 4. What to read next: a month read before balances existed is due once
 -- ──────────────────────────────────────────────────────────────────────────
 -- 20261125150000's function with one more reason: an accepted read that has
 -- neither balances nor a recorded reason for having none. A month whose
@@ -232,7 +281,7 @@ revoke all on function public.quickbooks_ledger_mirror_due(integer, integer) fro
 grant execute on function public.quickbooks_ledger_mirror_due(integer, integer) to service_role;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- 4. The comparison
+-- 5. The comparison
 -- ──────────────────────────────────────────────────────────────────────────
 -- One row per month and account that either side has. status:
 --   'match'         both moved the same amount, to the cent
@@ -311,8 +360,10 @@ with rows as materialized (
     from rows group by 1, 2
 )
 select p.company_entity_id, p.period_start, p.read_through,
-       (a.period_start is not null) as checked,
-       case when a.period_start is null then p.balances_read_at end is not null as stale,
+       -- From the read itself, not from how many accounts it found: a month
+       -- with nothing in it on either side is checked, with nothing to compare.
+       (p.balances_read_at is not null and p.balances_hash is not distinct from p.content_hash) as checked,
+       (p.balances_read_at is not null and p.balances_hash is distinct from p.content_hash) as stale,
        p.balances_read_at as checked_at, p.balances_error,
        coalesce(a.compared, 0) as compared, coalesce(a.matched, 0) as matched,
        coalesce(a.differing, 0) as differing, coalesce(a.not_compared, 0) as not_compared,

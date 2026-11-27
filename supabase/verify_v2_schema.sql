@@ -11127,10 +11127,13 @@ select 'QuickBooks balance check' as check_name,
     when to_regclass('public.quickbooks_ledger_mirror_balances') is null
       or to_regclass('public.quickbooks_balance_check_v') is null
       or to_regclass('public.quickbooks_balance_check_months_v') is null
-      or to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,jsonb,text)') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)') is null
       then 'MISSING — run 20261127213000_quickbooks_balance_check.sql'
-    when has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,jsonb,text)'), 'execute')
-      or has_function_privilege('authenticated', to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,jsonb,text)'), 'execute')
+    when has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)'), 'execute')
+      or has_function_privilege('authenticated', to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)'), 'execute')
+      or has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)'), 'execute')
+      or has_function_privilege('authenticated', to_regprocedure('public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)'), 'execute')
       then 'CRITICAL: a browser can write QuickBooks balances'
     when exists (select 1 from pg_class c where c.oid = to_regclass('public.quickbooks_ledger_mirror_balances')
                     and (not c.relrowsecurity
@@ -11144,6 +11147,8 @@ select 'QuickBooks balance check' as check_name,
       then 'CRITICAL: a balance check view is not security_invoker, or anon can read it'
     when position('balances_hash' in pg_get_viewdef(to_regclass('public.quickbooks_balance_check_v'))) = 0
       then 'BROKEN — balances read beside other ledger lines would count; re-run 20261127213000'
+    when position('read_token' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)'))) = 0
+      then 'BROKEN — an older read could overwrite or clear a newer balance check; re-run 20261127213000'
     when position('balances_read_at' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_due(integer,integer)'))) = 0
       then 'BROKEN — months read before balances existed are never read again for them; re-run 20261127213000'
     else 'ok'
