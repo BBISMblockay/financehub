@@ -499,6 +499,9 @@
   const modelInput = () => ({
     sales: state.sales, inventory: state.inventory, openPo: state.openPo,
     projections: state.projections, filters: filters(), overrides: state.overrides,
+    // locations carry the channel a projection belongs to; without them a
+    // channel's plan would be every location's projection added together.
+    locations: state.locations,
   });
 
   /* ---- boot ------------------------------------------------------------ */
@@ -588,8 +591,12 @@
         loadPaged('sales_monthly_product_type_rollup_v'),
         loadPaged('inventory_workboard_v'),
         loadPaged('v_po_open_planning_lines', '*', true),
-        loadPaged('revenue_projections', 'projection_date, location_id, projected_sales, scenario', true),
-        loadPaged('locations', 'id, location_code, location_name', true),
+        // NOT optional: a read that fails must not look like "no projections",
+        // which would quietly put the plan back on last year while the page
+        // still said it was planning from projections.
+        loadPaged('revenue_projections', 'projection_date, location_id, projected_sales, scenario')
+          .catch((e) => { state.projFailed = String(e?.message || e); return []; }),
+        loadPaged('locations', 'id, location_code, location_name, store_type', true),
       ]);
       state.sales = sales.map(M.mapSalesRow);
       state.inventory = inventory.map(M.mapInventoryRow);
@@ -602,7 +609,12 @@
       if (!el('sc-from').value && months.length) el('sc-from').value = months[months.length - 1];
       if (!el('sc-to').value && months.length) el('sc-to').value = M.addMonths(months[months.length - 1], 11);
       setLift(state.lift);
-      setStatus('Ready.', 'pos', 1200);
+      if (state.projFailed && el('sc-plan-source').value === 'projections') {
+        setStatus('The revenue projections could not be read, so these months are planned from last year'
+          + ' instead: ' + state.projFailed, 'neg');
+      } else {
+        setStatus('Ready.', 'pos', 1200);
+      }
     } catch (e) {
       console.error(e);
       setStatus('Could not load the planning data: ' + (e?.message || e), 'neg');
@@ -623,7 +635,9 @@
     const sel = el('sc-loc'), cur = sel.value || '';
     sel.innerHTML = '<option value="">All locations</option>'
       + state.locations.map((l) => `<option value="${esc(String(l.id))}">${esc(l.location_code || l.location_name || l.id)}</option>`).join('');
-    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
+    const want = state._pendingLoc != null ? state._pendingLoc : cur;
+    state._pendingLoc = null;
+    sel.value = [...sel.options].some((o) => o.value === want) ? want : '';
   }
 
   /* ---- render ---------------------------------------------------------- */
@@ -648,7 +662,8 @@
     el('sc-status-line').textContent =
       `${scenario.monthRows.length} months · ${state.sales.length.toLocaleString()} history rows · `
       + `${state.inventory.length.toLocaleString()} inventory rows · ${state.openPo.length.toLocaleString()} open PO lines · `
-      + `mode ${t.mode}`;
+      + `mode ${t.mode}`
+      + (state.projFailed ? ' · projections unavailable, planning from last year' : '');
   }
 
   function renderAssumptions(scenario, f) {
@@ -851,6 +866,9 @@
           mode: el('sc-mode').value, source: el('sc-plan-source').value, type: el('sc-type').value,
           channel: el('sc-channel').value, from: el('sc-from').value, to: el('sc-to').value,
           buffer: el('sc-buffer').value, search: el('sc-search').value,
+          // these three change the numbers too, so a reload must not drop them
+          totalOverride: el('sc-total-override').value,
+          loc: el('sc-loc').value, projScenario: el('sc-proj-scenario').value,
         },
         at: new Date().toISOString(),
       }));
@@ -867,7 +885,12 @@
         el('sc-channel').value = d.f.channel || '__ALL__';
         el('sc-from').value = d.f.from || ''; el('sc-to').value = d.f.to || '';
         el('sc-buffer').value = d.f.buffer ?? 10; el('sc-search').value = d.f.search || '';
+        el('sc-total-override').value = d.f.totalOverride || '';
+        el('sc-proj-scenario').value = d.f.projScenario || 'active';
         state._pendingType = d.f.type;
+        // the location list is built after the data loads, so this one is
+        // applied by renderLocationOptions rather than set here.
+        state._pendingLoc = d.f.loc;
       }
     } catch (_) { /* nothing stored */ }
   }

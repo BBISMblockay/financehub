@@ -104,6 +104,54 @@ test('plan from Projections uses them, and falls back to history for a month the
   assert.equal(draft.monthRows.find((r) => r.month === '2026-02').plan_revenue, 11000);
 });
 
+/* Review of PR #1427, P1: a projection is stored per location and carries no
+ * channel, so with Online selected the plan was every location's projection
+ * added together -- the retail revenue inflated the Online plan. */
+test('a projection belongs to its location\'s channel, so a channel filter narrows the plan', () => {
+  const locations = [
+    { id: 7, location_code: 'online', location_name: 'Online', store_type: 'online' },
+    { id: 8, location_code: 'scottsdale', location_name: 'Scottsdale', store_type: 'retail' },
+  ];
+  const ctx = (extra) => ({
+    ...base,
+    locations,
+    filters: { ...base.filters, productType: 'Tees', planSource: 'projections', ...extra },
+    overrides: {},
+  });
+
+  assert.equal(M.channelOfLocation(locations[0]), 'online');
+  assert.equal(M.channelOfLocation(locations[1]), 'retail');
+  assert.equal(M.channelOfLocation({ location_code: 'faire_wholesale' }), 'wholesale',
+    'no store_type: the name still classifies it');
+  assert.equal(M.channelOfLocation({ location_code: 'shop_33', store_type: 'ecommerce' }), 'online',
+    'store_type is read first, even when the name says nothing');
+
+  const all = M.computeScenario(ctx({}), 0);
+  assert.equal(all.monthRows[0].plan_revenue, 50000, 'every channel: both locations');
+
+  const online = M.computeScenario(ctx({ channel: 'online' }), 0);
+  assert.equal(online.monthRows[0].plan_revenue, 30000, 'Online only, not 50000');
+  assert.equal(online.monthRows[0].plan_source, 'projections');
+
+  const retail = M.computeScenario(ctx({ channel: 'retail' }), 0);
+  assert.equal(retail.monthRows[0].plan_revenue, 20000);
+
+  // a channel with no projection of its own falls back to history, it is not zero
+  const wholesale = M.computeScenario(ctx({ channel: 'wholesale' }), 0);
+  assert.equal(wholesale.monthRows[0].plan_source, 'history');
+
+  // an unclassified location is left out of a channel's plan, never counted in
+  const unknown = M.computeScenario({
+    ...ctx({ channel: 'online' }),
+    locations: [{ id: 7, location_code: 'online', store_type: 'online' }],
+  }, 0);
+  assert.equal(unknown.monthRows[0].plan_revenue, 30000);
+
+  // with no locations in context there is nothing to attribute by
+  const noLocs = M.computeScenario({ ...ctx({ channel: 'online' }), locations: [] }, 0);
+  assert.equal(noLocs.monthRows[0].plan_revenue, 50000);
+});
+
 test('a typed plan, mix or price wins over the history, and says so', () => {
   const s = M.computeScenario(withFilters({ productType: 'Tees' }, {
     rev: { '2026-01': 100000 }, mix: { '2026-01': 50 }, asp: { '2026-01': 25 },

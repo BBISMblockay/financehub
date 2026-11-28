@@ -63,6 +63,26 @@
       || loc.includes('popup') || loc.includes('pop_up')) return 'wholesale';
     return 'retail';
   }
+  /* A LOCATION's channel, so a revenue projection -- which is stored per
+     location, with no channel of its own -- can be attributed to one. Its own
+     store_type is read first, then the same words the sales rows are read by. */
+  function channelOfLocation(row) {
+    const t = norm(row && row.store_type).toLowerCase();
+    if (t.includes('online') || t.includes('ecom') || t.includes('web')) return 'online';
+    if (t.includes('wholesale') || t.includes('faire') || t.includes('event')) return 'wholesale';
+    if (t.includes('retail') || t.includes('store')) return 'retail';
+    return channelOfInventory({
+      location_tag: norm(row && (row.location_code || row.location_name)),
+    });
+  }
+  function locationChannels(locations) {
+    const out = new Map();
+    for (const l of locations || []) {
+      if (l && l.id != null) out.set(String(l.id), channelOfLocation(l));
+    }
+    return out;
+  }
+
   function channelOfInventory(row) {
     const loc = norm(pick(row, ['location_tag', 'location', 'location_label', 'location_name'], 'unknown')).toLowerCase();
     if (loc === 'online') return 'online';
@@ -202,10 +222,22 @@
     const allRevenue = inMonth.reduce((s, r) => s + r.revenue, 0);
     const typeRevenue = typeRows.reduce((s, r) => s + r.revenue, 0);
     const typeUnits = typeRows.reduce((s, r) => s + r.units, 0);
+    // A projection is stored per location, so a channel filter has to be
+    // applied through the locations themselves: with Online selected, summing
+    // every location's projection would hand the Online plan the retail
+    // revenue too. A location the workspace has not classified is left out of
+    // a channel's plan rather than counted in it. With no locations in context
+    // there is nothing to attribute by, and every row counts as before.
+    const locChannels = ctx.locationChannels instanceof Map
+      ? ctx.locationChannels
+      : locationChannels(ctx.locations);
+    const channelWanted = filters.channel && filters.channel !== '__ALL__' ? filters.channel : null;
     const projRevenue = projections
       .filter((r) => r.month_key === month
         && (!filters.projScenario || r.scenario === filters.projScenario)
-        && (!filters.locationId || String(r.location_id) === String(filters.locationId)))
+        && (!filters.locationId || String(r.location_id) === String(filters.locationId))
+        && (!channelWanted || locChannels.size === 0
+          || locChannels.get(String(r.location_id)) === channelWanted))
       .reduce((s, r) => s + r.projected_sales, 0);
 
     const revOverride = num(overrides.rev?.[month]);
@@ -387,6 +419,10 @@
       sales, filtered, filters,
       overrides: input.overrides || {},
       projections: input.projections || [],
+      locations: input.locations || [],
+      // built once: every month's plan needs it, and a channel filter is
+      // meaningless for a projection without it.
+      locationChannels: locationChannels(input.locations),
       months: selectMonths(sales, filters),
     };
   }
@@ -432,7 +468,7 @@
   return {
     CHANNELS, SCENARIOS,
     num, norm, pick, monthKey, addMonths, sameMonthPriorYear, buildMonthRange, normalizeTitleKey,
-    channelOf, channelOfInventory, mapSalesRow, mapInventoryRow, mapOpenPORow, mapProjRow,
+    channelOf, channelOfInventory, channelOfLocation, locationChannels, mapSalesRow, mapInventoryRow, mapOpenPORow, mapProjRow,
     filterRows, selectMonths, baselineMonthFor, salesTotalsByChannel, inventoryTotalsByChannel,
     openPOUnitsTotal, openPOUnitsByChannelFromShare,
     computeScenario, computeLadder, monthlyFacts, productFamilies,
