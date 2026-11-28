@@ -1,4 +1,6 @@
-// Browser verification of get-silo.com index: early-access landing + auth router.
+// Browser verification of get-silo.com index: the marketing landing + auth router.
+// The home page became the Marketing / Affiliate Studio page on 2026-11-28; the
+// router half of this suite is unchanged, because that half did not change.
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -59,7 +61,7 @@ async function fixture({ session = null, unavailable = false } = {}) {
     }
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     const filePath = path.join(root, relative);
-    const allowedPrefix = /^(index\.html|pages\/|v2\/|assets\/(landing\/|silo-icon|brands\/)|legal\/)/;
+    const allowedPrefix = /^(index\.html|pages\/|v2\/|assets\/(landing\/|landing-v2\/|silo-icon|brands\/)|legal\/)/;
     if (!allowedPrefix.test(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();
@@ -80,22 +82,25 @@ try {
     await page.goto('https://get-silo.com/');
     assert.equal(await page.locator('html').getAttribute('data-mode'), 'landing');
     assert.equal(await page.locator('#router').isVisible(), false);
-    assert.equal(await page.getByRole('heading', { name: 'What you get' }).isVisible(), true);
-    assert.equal(await page.locator('#lpAccess').isVisible(), true);
-    assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
+    assert.equal(await page.getByRole('heading', { name: /Talk to your business/ }).isVisible(), true);
+    assert.equal(await page.locator('#create').isVisible(), true);
+    assert.equal(await page.locator('#lpInterestForm').isVisible(), true);
+    // Nothing may scroll sideways: the screenshots are full-bleed on phones.
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(overflow <= 0, `${name}: horizontal overflow of ${overflow}px`);
     await page.screenshot({ path: path.join(screenshots, `index-${name}.png`), fullPage: true });
-    pass(`${name}: early-access landing with honest walkthrough placeholder`);
+    pass(`${name}: marketing landing renders with the signup card and no sideways scroll`);
   }
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('https://get-silo.com/');
-  await page.getByRole('link', { name: /Create your SILO/ }).click();
-  await page.waitForFunction(() => location.hash === '#lpAccess');
+  await page.getByRole('link', { name: /Create your SILO/ }).first().click();
+  await page.waitForFunction(() => location.hash === '#create');
   assert.equal(await page.locator('#lpInterestForm').isVisible(), true);
   pass('Create your SILO reaches the intake form on the same page');
 
   assert.equal(await page.getByRole('button', { name: 'Create your SILO', exact: true }).isVisible(), true);
-  await page.locator('header .lp-signin').click();
+  await page.locator('header.top a[href="/pages/login.html"]').click();
   await page.waitForURL('**/pages/login.html');
   assert.equal(await page.locator('#formPassword').isVisible(), true);
   pass('Sign in reaches login from the landing header');
@@ -132,7 +137,7 @@ try {
 
   const offline = await fixture({ unavailable: true });
   await offline.page.goto('https://get-silo.com/');
-  assert.equal(await offline.page.getByRole('link', { name: /Create your SILO/ }).isVisible(), true);
+  assert.equal(await offline.page.getByRole('link', { name: /Create your SILO/ }).first().isVisible(), true);
   assert.equal(await offline.page.locator('#lpInterestForm').isVisible(), true);
   await offline.context.close();
   pass('unavailable assets do not remove public navigation or the intake form');
