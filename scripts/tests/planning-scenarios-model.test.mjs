@@ -147,9 +147,15 @@ test('a projection belongs to its location\'s channel, so a channel filter narro
   }, 0);
   assert.equal(unknown.monthRows[0].plan_revenue, 30000);
 
-  // with no locations in context there is nothing to attribute by
+  // Cycle 2 of the review: with no locations the projections cannot be
+  // attributed at all, so a channel's plan must NOT be every location's
+  // projection added together. It falls back to last year instead.
   const noLocs = M.computeScenario({ ...ctx({ channel: 'online' }), locations: [] }, 0);
-  assert.equal(noLocs.monthRows[0].plan_revenue, 50000);
+  assert.equal(noLocs.monthRows[0].plan_source, 'history');
+  assert.notEqual(noLocs.monthRows[0].plan_revenue, 50000);
+  // without a channel there is nothing to attribute, and the plan stands
+  const noLocsAll = M.computeScenario({ ...ctx({}), locations: [] }, 0);
+  assert.equal(noLocsAll.monthRows[0].plan_revenue, 50000);
 });
 
 test('a typed plan, mix or price wins over the history, and says so', () => {

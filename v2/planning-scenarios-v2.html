@@ -596,7 +596,10 @@
         // still said it was planning from projections.
         loadPaged('revenue_projections', 'projection_date, location_id, projected_sales, scenario')
           .catch((e) => { state.projFailed = String(e?.message || e); return []; }),
-        loadPaged('locations', 'id, location_code, location_name, store_type', true),
+        // NOT optional either: without locations a projection cannot be given
+        // a channel, and the model then refuses to use projections for one.
+        loadPaged('locations', 'id, location_code, location_name, store_type')
+          .catch((e) => { state.locFailed = String(e?.message || e); return []; }),
       ]);
       state.sales = sales.map(M.mapSalesRow);
       state.inventory = inventory.map(M.mapInventoryRow);
@@ -609,7 +612,10 @@
       if (!el('sc-from').value && months.length) el('sc-from').value = months[months.length - 1];
       if (!el('sc-to').value && months.length) el('sc-to').value = M.addMonths(months[months.length - 1], 11);
       setLift(state.lift);
-      if (state.projFailed && el('sc-plan-source').value === 'projections') {
+      if (state.locFailed && el('sc-plan-source').value === 'projections') {
+        setStatus('The locations could not be read, so a projection cannot be matched to a channel.'
+          + ' These months are planned from last year instead: ' + state.locFailed, 'neg');
+      } else if (state.projFailed && el('sc-plan-source').value === 'projections') {
         setStatus('The revenue projections could not be read, so these months are planned from last year'
           + ' instead: ' + state.projFailed, 'neg');
       } else {
@@ -663,7 +669,8 @@
       `${scenario.monthRows.length} months · ${state.sales.length.toLocaleString()} history rows · `
       + `${state.inventory.length.toLocaleString()} inventory rows · ${state.openPo.length.toLocaleString()} open PO lines · `
       + `mode ${t.mode}`
-      + (state.projFailed ? ' · projections unavailable, planning from last year' : '');
+      + (state.projFailed ? ' · projections unavailable, planning from last year' : '')
+      + (state.locFailed ? ' · locations unavailable, a channel cannot use projections' : '');
   }
 
   function renderAssumptions(scenario, f) {

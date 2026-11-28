@@ -232,12 +232,15 @@
       ? ctx.locationChannels
       : locationChannels(ctx.locations);
     const channelWanted = filters.channel && filters.channel !== '__ALL__' ? filters.channel : null;
-    const projRevenue = projections
+    // No location map and a channel selected means the projections CANNOT be
+    // attributed. Summing them anyway is the bug this filter exists to stop, so
+    // the plan falls back to last year's actuals instead and says so.
+    const canAttribute = !channelWanted || locChannels.size > 0;
+    const projRevenue = !canAttribute ? 0 : projections
       .filter((r) => r.month_key === month
         && (!filters.projScenario || r.scenario === filters.projScenario)
         && (!filters.locationId || String(r.location_id) === String(filters.locationId))
-        && (!channelWanted || locChannels.size === 0
-          || locChannels.get(String(r.location_id)) === channelWanted))
+        && (!channelWanted || locChannels.get(String(r.location_id)) === channelWanted))
       .reduce((s, r) => s + r.projected_sales, 0);
 
     const revOverride = num(overrides.rev?.[month]);
