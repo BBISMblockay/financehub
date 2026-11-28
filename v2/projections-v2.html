@@ -357,10 +357,12 @@
       },
       _exec() { return Promise.resolve({ data: api._rows(), error: null }); },
       then(res, rej) { return api._exec().then(res, rej); },
-      async upsert(rows) {
+      async upsert(rows, opts) {
         for (const p of rows) {
           const i = PROJ.findIndex((x) => x.projection_date === p.projection_date && String(x.location_id) === String(p.location_id));
-          if (i >= 0) PROJ[i] = { ...PROJ[i], ...p }; else PROJ.push({ ...p, id: pid++ });
+          // ignoreDuplicates mirrors ON CONFLICT DO NOTHING, so the demo shows
+          // the same "left as they are" behaviour the database gives.
+          if (i >= 0) { if (!opts?.ignoreDuplicates) PROJ[i] = { ...PROJ[i], ...p }; } else PROJ.push({ ...p, id: pid++ });
         }
         return { data: rows, error: null };
       },
@@ -387,9 +389,13 @@
     from: (t) => builder(t),
     rpc: async (name, args) => {
       if (name !== 'chat_run_readonly_query') return { data: [], error: null };
-      const m = /between '(\d{4}-\d{2}-\d{2})'::date and '(\d{4}-\d{2}-\d{2})'::date/.exec(String(args?.query || ''));
-      const from = m ? m[1] : '1900-01-01', to = m ? m[2] : '2999-12-31';
-      const rows = HIST.filter((r) => r.day_date >= from && r.day_date <= to);
+      // The page asks for an explicit list of days; the shim honours that list
+      // so the demo reads the same history the live page would.
+      // The page asks for one block of days per query; the shim honours the
+      // block so the demo reads the same history the live page would.
+      const q = String(args?.query || '');
+      const m = /between '(\d{4}-\d{2}-\d{2})'::date and '(\d{4}-\d{2}-\d{2})'::date/.exec(q);
+      const rows = m ? HIST.filter((r) => r.day_date >= m[1] && r.day_date <= m[2]) : HIST.slice();
       const off = Number(args?.p_offset) || 0;
       return { data: rows.slice(off, off + 1000), error: null };
     },
@@ -605,22 +611,46 @@
    * locations -> sales_by_day through silo_location_slug(), which is the one
    * definition of that join — the page does not re-slugify in JS. */
   async function loadActuals(range) {
-    const earliest = L.addDays(range.from, -364 * 3 - 10);
-    const sql = `select l.id as location_id, s.day_date::text as day_date,
-        sum(s.total_net_sales) as net
-      from public.sales_by_day_verification_v s
-      join public.locations l
-        on public.silo_location_slug(coalesce(nullif(l.location_code, ''), l.location_name)) = s.location_tag
-      where s.day_date between '${earliest}'::date and '${range.to}'::date
-      group by 1, 2
-      order by 2, 1`;
+    // Only the days a basis can read, and ONE BLOCK OF DAYS PER QUERY.
+    //
+    // Both halves of that matter, measured on production as the signed-in
+    // person (a browser query gets 8s): the original three-year range took
+    // 19.5s and the page showed nothing. Asking for just the days the bases
+    // read is 187 days in four blocks — but as one query with four OR'd ranges
+    // the planner bitmap-ORs them into 130k heap rows and still takes 9s, while
+    // the same four blocks asked for one at a time are about 0.2s each. So this
+    // loops the blocks. Each statement is small, and a read that fills its last
+    // page is reported rather than quietly used as if it were complete.
+    const blocks = L.historyRanges(state.dates.length ? state.dates : L.datesBetween(range.from, range.to), range.from);
+    if (!blocks.length) { state.actuals = new Map(); return; }
     const rows = [];
-    for (let offset = 0; offset < L.PAGE_ROWS * 40; offset += L.PAGE_ROWS) {
-      const { data, error } = await db.rpc('chat_run_readonly_query', { query: sql, p_offset: offset });
-      if (error) throw new Error('History could not be read: ' + (error.message || error));
-      if (!Array.isArray(data)) throw new Error('History could not be read');
-      rows.push(...data);
-      if (data.length < L.PAGE_ROWS) break;
+    for (const b of blocks) {
+      // The join carries company_entity_id as well as the slug: two companies
+      // can own locations whose names slugify the same, and the tag alone would
+      // pool their sales. RLS scopes what comes back either way; this keeps the
+      // join itself honest, and it is what keeps the read on an index.
+      const sql = `select l.id as location_id, s.day_date::text as day_date,
+          sum(s.total_net_sales) as net
+        from public.sales_by_day_verification_v s
+        join public.locations l
+          on l.company_entity_id = s.company_entity_id
+         and public.silo_location_slug(coalesce(nullif(l.location_code, ''), l.location_name)) = s.location_tag
+        where s.day_date between '${b.from}'::date and '${b.to}'::date
+        group by 1, 2
+        order by 2, 1`;
+      let complete = false, pages = 0;
+      for (let offset = 0; offset < L.PAGE_ROWS * 40; offset += L.PAGE_ROWS) {
+        const { data, error } = await db.rpc('chat_run_readonly_query', { query: sql, p_offset: offset });
+        if (error) throw new Error('History could not be read: ' + (error.message || error));
+        if (!Array.isArray(data)) throw new Error('History could not be read');
+        rows.push(...data);
+        pages++;
+        if (data.length < L.PAGE_ROWS) { complete = true; break; }
+      }
+      if (!complete) {
+        throw new Error(`History for ${b.from} to ${b.to} came back in ${pages} full pages, `
+          + 'so some days are missing. Plan a shorter period.');
+      }
     }
     state.actuals = L.indexActuals(rows);
   }
@@ -802,8 +832,9 @@
   /* One upsert per batch, on the same (projection_date, location_id) key and
    * the same columns the live page writes, so the two pages cannot disagree
    * about what a projection is. Units and notes already on a row are kept. */
-  async function writeDays(rows, source) {
+  async function writeDays(rows, source, opts) {
     if (!rows.length) return true;
+    const ifAbsent = !!(opts && opts.ifAbsent);
     const payload = rows.map((r) => {
       const existing = state.planRow.get(L.actualKey(r.location_id, r.date));
       return {
@@ -817,10 +848,27 @@
         ...(company?.id ? { company_entity_id: company.id } : {}),
       };
     });
+    // ifAbsent is a real insert-if-absent at the database boundary
+    // (ON CONFLICT DO NOTHING), not a check this page made before writing. So
+    // a day another planner filled while this sheet was open keeps THEIR
+    // number: "only the days with no plan" cannot overwrite anything, however
+    // stale this page's idea of the plan has become.
     const { error } = await db.from('revenue_projections')
-      .upsert(payload, { onConflict: 'projection_date,location_id' });
+      .upsert(payload, { onConflict: 'projection_date,location_id', ignoreDuplicates: ifAbsent });
     if (error) { setStatus('Save failed: ' + error.message, 'neg'); return false; }
     return true;
+  }
+
+  /* After an insert-if-absent write, the stored plan is the authority on what
+   * actually landed: a day that now holds a different number was planned by
+   * someone else while this sheet was open, and it was left alone. */
+  function daysLeftAlone(rows) {
+    let n = 0;
+    for (const r of rows) {
+      const stored = state.plan.get(L.actualKey(r.location_id, r.date));
+      if (stored == null || Math.round(stored) !== Math.round(r.value)) n++;
+    }
+    return n;
   }
 
   async function deleteDay(locId, date) {
@@ -864,11 +912,12 @@
     if (!r.writes.length) return;
     el('fill-apply').disabled = true;
     setStatus(`Filling ${r.writes.length} days…`, 'info');
+    const emptyOnly = el('fill-scope').value !== 'all';
     const undoRows = r.writes.map((w) => ({
-      date: w.date, location_id: w.location_id,
+      date: w.date, location_id: w.location_id, wrote: w.value,
       value: state.plan.has(L.actualKey(w.location_id, w.date)) ? state.plan.get(L.actualKey(w.location_id, w.date)) : null,
     }));
-    const ok = await writeDays(r.writes, 'history_fill');
+    const ok = await writeDays(r.writes, 'history_fill', { ifAbsent: emptyOnly });
     el('fill-apply').disabled = false;
     if (!ok) return;
     state.undo = undoRows;
@@ -876,21 +925,36 @@
     el('pv-fill-drawer').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    setStatus(`Filled ${r.writes.length} days · ${money(r.total)}. Undo is available.`, 'pos', 4000);
+    const held = emptyOnly ? daysLeftAlone(r.writes) : 0;
+    setStatus(`Filled ${r.writes.length - held} days · ${money(r.total)}.`
+      + (held ? ` ${held} day${held === 1 ? '' : 's'} had been planned by someone else and were left as they are.` : '')
+      + ' Undo is available.', 'pos', 4600);
   }
 
+  /* Undo puts back only the days that STILL hold the number this operation
+   * wrote. The stored plan is re-read first, so a day someone has edited since
+   * is left alone rather than reverted or deleted out from under them. */
   async function undo() {
     if (!state.undo?.length) return;
     setStatus('Undoing…', 'info');
-    const restore = state.undo.filter((r) => r.value != null);
-    const remove = state.undo.filter((r) => r.value == null);
+    await loadPlan(L.monthRange(state.month));
+    const mine = state.undo.filter((r) => {
+      if (r.wrote == null) return true;
+      const stored = state.plan.get(L.actualKey(r.location_id, r.date));
+      return stored != null && Math.round(stored) === Math.round(r.wrote);
+    });
+    const held = state.undo.length - mine.length;
+    const restore = mine.filter((r) => r.value != null);
+    const remove = mine.filter((r) => r.value == null);
     let ok = true;
     if (restore.length) ok = await writeDays(restore.map((r) => ({ ...r })), 'manual') && ok;
     for (const r of remove) ok = await deleteDay(r.location_id, r.date) && ok;
     state.undo = null; el('pv-undo').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    setStatus(ok ? 'Put back as it was.' : 'Undo finished with errors — reload to see the stored plan.', ok ? 'pos' : 'neg', 3000);
+    const note = held ? ` ${held} day${held === 1 ? '' : 's'} changed since and were left alone.` : '';
+    setStatus(ok ? `Put back as it was.${note}` : 'Undo finished with errors — reload to see the stored plan.',
+      ok ? 'pos' : 'neg', held ? 4600 : 3000);
   }
 
   /* ---- AI draft -------------------------------------------------------- */
@@ -957,16 +1021,22 @@
   async function acceptDraft() {
     if (!state.draft?.length) return;
     el('ai-accept').disabled = true;
-    const undoRows = state.draft.map((r) => ({ date: r.date, location_id: r.location_id, value: r.was }));
-    const ok = await writeDays(state.draft, 'ai_draft');
+    const emptyOnly = el('ai-scope').value !== 'all';
+    const undoRows = state.draft.map((r) => ({
+      date: r.date, location_id: r.location_id, value: r.was, wrote: r.value,
+    }));
+    const rows = state.draft;
+    const ok = await writeDays(rows, 'ai_draft', { ifAbsent: emptyOnly });
     el('ai-accept').disabled = false;
     if (!ok) return;
     state.undo = undoRows; el('pv-undo').hidden = false;
-    const n = state.draft.length;
     state.draft = null; el('ai-result').hidden = true; el('pv-ai-drawer').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    setStatus(`Saved ${n} days from the draft. Undo is available.`, 'pos', 4000);
+    const held = emptyOnly ? daysLeftAlone(rows) : 0;
+    setStatus(`Saved ${rows.length - held} days from the draft.`
+      + (held ? ` ${held} day${held === 1 ? '' : 's'} had been planned by someone else and were left as they are.` : '')
+      + ' Undo is available.', 'pos', 4600);
   }
 })();
 </script>
