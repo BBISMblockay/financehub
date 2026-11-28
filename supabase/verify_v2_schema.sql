@@ -11269,6 +11269,20 @@ select 'Landed cost bill bank' as check_name,
                       where table_schema = 'public' and table_name = 'landed_cost_allocations'
                         and column_name = 'shipment_detached')
       then 'BROKEN — deleting a container respreads its freight over the whole PO'
+    when to_regclass('public.landed_cost_backfill_log') is null
+      then 'MISSING — the record of what the freight correction changed'
+    when not (select relrowsecurity from pg_class where oid = 'public.landed_cost_backfill_log'::regclass)
+      or has_table_privilege('anon', 'public.landed_cost_backfill_log', 'select')
+      or has_table_privilege('authenticated', 'public.landed_cost_backfill_log', 'insert,update,delete')
+      then 'CRITICAL: the correction record is readable by anon, or writable from a browser'
+    when exists (
+      select 1 from public.po_costing pc
+      join public.po_costing_lines cl on cl.po_costing_id = pc.id
+      where coalesce(pc.alloc_method, 'proportional') = 'proportional'
+        and cl.freight_alloc is not null
+      group by pc.id, pc.freight_amount
+      having abs(sum(cl.freight_alloc) - coalesce(pc.freight_amount, 0)) > 0.02)
+      then 'BROKEN — a purchase order''s per-SKU freight shares do not add up to its freight'
     when exists (
       select 1 from public.po_costing pc
       left join public.v_po_landed_cost_totals t on t.po_header_id = pc.po_header_id

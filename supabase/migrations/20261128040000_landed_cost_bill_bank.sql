@@ -468,6 +468,12 @@ select
   b.bill_ref,
   b.bill_date,
   b.amount as bill_amount,
+  -- What the whole bill has had spent, so a PO can show that AP has since
+  -- corrected the invoice BELOW what is allocated across every PO on it.
+  -- Deliberately not refused: AP recording what the company actually owes
+  -- must never be blocked by a costing decision made earlier. It is surfaced.
+  (select coalesce(sum(a2.amount), 0) from public.landed_cost_allocations a2
+    where a2.bill_id = b.id)::numeric(14, 2) as bill_allocated,
   case b.kind
     when 'freight' then 'freight'
     when 'duty' then 'duty'
@@ -643,6 +649,35 @@ revoke execute on function public.landed_cost_sync_po_costing() from anon, authe
 -- Backfill. Numbers do not move.
 -- ---------------------------------------------------------------------------
 
+-- 0. What this migration CHANGED, so it can be read and reversed. Blake asked
+--    for the duplicated freight to auto-correct rather than become a queue of
+--    work; this is the receipt for that, not a queue. One row per purchase
+--    order whose freight moved, with the figure before, the figure after, the
+--    bill it was matched to and WHICH RULE matched it -- `reference` is exact,
+--    `identical amount` is an inference and is the one to check.
+create table if not exists public.landed_cost_backfill_log (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  po_header_id uuid not null references public.po_headers(id) on delete cascade,
+  po_name text,
+  freight_before numeric(14, 2),
+  freight_after numeric(14, 2),
+  bill_id uuid references public.landed_cost_bills(id) on delete set null,
+  bill_ref text,
+  matched_by text not null check (matched_by in ('reference', 'identical amount', 'unmatched')),
+  ran_at timestamptz not null default now()
+);
+
+alter table public.landed_cost_backfill_log enable row level security;
+
+drop policy if exists landed_cost_backfill_log_select on public.landed_cost_backfill_log;
+create policy landed_cost_backfill_log_select on public.landed_cost_backfill_log
+  for select to authenticated
+  using (company_entity_id = (select public.active_company_id()));
+
+revoke all on public.landed_cost_backfill_log from anon;
+grant select on public.landed_cost_backfill_log to authenticated;
+
 -- 1. Every freight payment request becomes a bill at the amount actually paid.
 insert into public.landed_cost_bills (
   company_entity_id, payment_request_id, source, kind,
@@ -715,6 +750,20 @@ declare
   v_n      int;
   v_i      int;
 begin
+  -- The receipt, written before anything moves. Re-runnable: a PO already
+  -- logged is not logged twice.
+  insert into public.landed_cost_backfill_log (
+    company_entity_id, po_header_id, po_name, freight_before, matched_by)
+  select pc.company_entity_id, pc.po_header_id, ph.po_name, pc.freight_amount, 'unmatched'
+    from public.po_costing pc
+    join public.po_headers ph on ph.id = pc.po_header_id
+   where coalesce(pc.freight_amount, 0) > 0
+     and pc.company_entity_id is not null
+     and not exists (select 1 from public.landed_cost_allocations a
+                      where a.po_header_id = pc.po_header_id)
+     and not exists (select 1 from public.landed_cost_backfill_log l
+                      where l.po_header_id = pc.po_header_id);
+
   -- Grouped by bill: allocate each matched bill ONCE across its
   -- POs, weighted by factory value (fob_unit where costing knows it, the PO
   -- line's restored unit cost otherwise), largest remainder to the cent.
@@ -734,7 +783,7 @@ begin
          and not exists (select 1 from public.landed_cost_allocations a where a.bill_id = b.id)
     ),
     by_ref as (
-      select b.id as bill_id, t.po_header_id, 1 as pref
+      select b.id as bill_id, t.po_header_id, 1 as pref, 'reference'::text as how
         from free_bills b
         join todo t
           on t.company_entity_id = b.company_entity_id
@@ -742,7 +791,7 @@ begin
          and t.refk = lower(btrim(coalesce(b.bill_ref, '')))
     ),
     by_amount as (
-      select b.id as bill_id, t.po_header_id, 2 as pref
+      select b.id as bill_id, t.po_header_id, 2 as pref, 'identical amount'::text as how
         from free_bills b
         join todo t
           on t.company_entity_id = b.company_entity_id
@@ -754,11 +803,12 @@ begin
                  and t2.refk = '' and t2.freight_amount = b.amount) > 1
     ),
     picked as (
-      select distinct on (po_header_id) bill_id, po_header_id
+      select distinct on (po_header_id) bill_id, po_header_id, how
         from (select * from by_ref union all select * from by_amount) u
        order by po_header_id, pref, bill_id
     )
-    select p.bill_id, array_agg(p.po_header_id order by p.po_header_id) as po_ids
+    select p.bill_id, min(p.how) as how,
+           array_agg(p.po_header_id order by p.po_header_id) as po_ids
       from picked p group by p.bill_id
   loop
     select amount into v_total from public.landed_cost_bills where id = g.bill_id;
@@ -816,6 +866,11 @@ begin
             else 'Carried over from the freight typed on this purchase order.' end
         );
       end if;
+
+      update public.landed_cost_backfill_log l
+         set bill_id = g.bill_id, matched_by = g.how,
+             bill_ref = (select b.bill_ref from public.landed_cost_bills b where b.id = g.bill_id)
+       where l.po_header_id = po.id and l.bill_id is null;
     end loop;
   end loop;
 
@@ -850,6 +905,10 @@ begin
       po.company_entity_id, v_bill, po.po_header_id, null, po.freight_amount, 'manual',
       'Carried over from the freight total typed on this purchase order.'
     );
+
+    update public.landed_cost_backfill_log l
+       set bill_id = v_bill, matched_by = 'unmatched'
+     where l.po_header_id = po.po_header_id and l.bill_id is null;
   end loop;
 end
 $backfill$;
@@ -875,6 +934,98 @@ update public.po_costing pc
       join public.landed_cost_bills b on b.id = a.bill_id
      group by a.po_header_id) t
  where t.po_header_id = pc.po_header_id;
+
+-- 4b. Close the receipt: what each purchase order's freight came out at.
+update public.landed_cost_backfill_log l
+   set freight_after = coalesce(pc.freight_amount, 0)
+  from public.po_costing pc
+ where pc.po_header_id = l.po_header_id
+   and l.freight_after is distinct from coalesce(pc.freight_amount, 0);
+
+-- 5. The stored per-LINE shares, for the purchase orders whose freight this
+--    migration changed. po_costing_lines is reportable too, so leaving the old
+--    per-SKU split behind would have the screen and every report disagreeing
+--    about the same purchase order.
+--
+--    This is the ONLY place the split is written outside the page's own engine,
+--    and it is deliberately the narrow case: the backfill writes whole-PO
+--    allocations by value, so the split here is factory value, proportional,
+--    with the cents handed out by largest remainder exactly as
+--    `allocateToCents` does in pages/po-costing-lib.js -- same weights, same
+--    tie-break (bigger fraction, then bigger weight, then first line), so a
+--    later save from the page produces the identical numbers rather than
+--    drifting by a cent. Where a PO's alloc_method is NOT proportional the
+--    split would not match, so its shares are set to NULL instead: not
+--    measured, never a stale figure dressed up as a measurement.
+with scope as (
+  select pc.id as po_costing_id, pc.po_header_id, pc.alloc_method,
+         coalesce(pc.freight_amount, 0) as freight,
+         coalesce(pc.misc_amount, 0) as misc,
+         coalesce(pc.duty_amount, 0) as duty
+    from public.po_costing pc
+   where exists (select 1 from public.landed_cost_allocations a
+                  where a.po_header_id = pc.po_header_id)
+),
+lines as (
+  select s.*, cl.id as line_id,
+         coalesce(pl.qty, 0) * coalesce(cl.fob_unit, pl.unit_cost, 0) as weight,
+         coalesce(pl.qty, 0) as qty,
+         coalesce(cl.fob_unit, pl.unit_cost, 0) as fob_unit
+    from scope s
+    join public.po_costing_lines cl on cl.po_costing_id = s.po_costing_id
+    join public.po_lines pl on pl.id = cl.po_line_id
+),
+weighted as (
+  select l.*,
+         sum(l.weight) over (partition by l.po_costing_id) as weight_total,
+         count(*) over (partition by l.po_costing_id) as line_count,
+         row_number() over (partition by l.po_costing_id order by l.line_id) as seq
+    from lines l
+),
+-- Whole cents first, then the remainder one cent at a time, biggest fractional
+-- part first. Identical to allocateToCents.
+raw as (
+  select w.*,
+         case when w.weight_total > 0 then round(w.freight * 100) * w.weight / w.weight_total
+              else round(w.freight * 100)::numeric / w.line_count end as f_raw,
+         case when w.weight_total > 0 then round(w.duty * 100) * w.weight / w.weight_total
+              else round(w.duty * 100)::numeric / w.line_count end as d_raw,
+         case when w.weight_total > 0 then round(w.misc * 100) * w.weight / w.weight_total
+              else round(w.misc * 100)::numeric / w.line_count end as m_raw
+    from weighted w
+),
+ranked as (
+  select r.*,
+         floor(r.f_raw) as f_floor, floor(r.d_raw) as d_floor, floor(r.m_raw) as m_floor,
+         round(r.freight * 100) - sum(floor(r.f_raw)) over (partition by r.po_costing_id) as f_rem,
+         round(r.duty * 100)    - sum(floor(r.d_raw)) over (partition by r.po_costing_id) as d_rem,
+         round(r.misc * 100)    - sum(floor(r.m_raw)) over (partition by r.po_costing_id) as m_rem,
+         rank() over (partition by r.po_costing_id
+                      order by (r.f_raw - floor(r.f_raw)) desc, r.weight desc, r.seq) as f_rank,
+         rank() over (partition by r.po_costing_id
+                      order by (r.d_raw - floor(r.d_raw)) desc, r.weight desc, r.seq) as d_rank,
+         rank() over (partition by r.po_costing_id
+                      order by (r.m_raw - floor(r.m_raw)) desc, r.weight desc, r.seq) as m_rank
+    from raw r
+),
+final as (
+  select k.line_id, k.qty, k.fob_unit, k.alloc_method,
+         (k.f_floor + case when k.f_rank <= k.f_rem then 1 else 0 end) / 100.0 as freight_alloc,
+         (k.d_floor + case when k.d_rank <= k.d_rem then 1 else 0 end) / 100.0 as duty_alloc,
+         (k.m_floor + case when k.m_rank <= k.m_rem then 1 else 0 end) / 100.0 as misc_alloc
+    from ranked k
+)
+update public.po_costing_lines cl
+   set freight_alloc = case when prop then f.freight_alloc end,
+       duty_alloc    = case when prop then f.duty_alloc end,
+       misc_alloc    = case when prop then f.misc_alloc end,
+       landed_unit   = case when prop and f.qty > 0
+                            then round(f.fob_unit + (f.freight_alloc + f.duty_alloc + f.misc_alloc) / f.qty, 4) end,
+       landed_ext    = case when prop
+                            then round(f.fob_unit * f.qty + f.freight_alloc + f.duty_alloc + f.misc_alloc, 2) end,
+       updated_at    = now()
+  from (select f.*, coalesce(f.alloc_method, 'proportional') = 'proportional' as prop from final f) f
+ where f.line_id = cl.id;
 
 select public.attach_stamp_company_entity_id_triggers();
 select public.refresh_chat_schema_catalog();

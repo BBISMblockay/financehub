@@ -495,7 +495,7 @@
    *  the second one saved as the first would wipe a landed cost. */
   async function loadLandedCostAllocations(db, poId, companyId) {
     let q = db.from('v_po_landed_cost_allocations')
-      .select('allocation_id, po_header_id, shipment_id, shipment_detached, amount, method, notes, bill_id, kind, source, vendor_name, bill_ref, bill_date, bill_amount, cost_bucket, shipment_status, container_ref, ship_date')
+      .select('allocation_id, po_header_id, shipment_id, shipment_detached, amount, method, notes, bill_id, kind, source, vendor_name, bill_ref, bill_date, bill_amount, bill_allocated, cost_bucket, shipment_status, container_ref, ship_date')
       .eq('po_header_id', poId)
       .order('bill_date', { ascending: true, nullsFirst: false });
     if (companyId) q = q.eq('company_entity_id', companyId);

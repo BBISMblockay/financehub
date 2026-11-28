@@ -777,7 +777,9 @@
           </span>
           <span class="lcb-row-nums">
             <span class="bcn-mono">${money(r.amount)}</span>
-            <span class="lcb-row-meta">of ${money(r.bill_amount)}</span>
+            <span class="lcb-row-meta">${Lib.num(r.bill_allocated) > Lib.num(r.bill_amount) + 0.004
+              ? `of ${money(r.bill_amount)} — ${money(Lib.num(r.bill_allocated) - Lib.num(r.bill_amount))} over the invoice`
+              : `of ${money(r.bill_amount)}`}</span>
           </span>
         </div>`).join('')
         : '<p class="cost-hint" style="margin:0;">Allocate a bill to put freight on this PO.</p>';
@@ -1506,10 +1508,15 @@
       // OFF, has a different landed cost -- not only the one on screen. The
       // database keeps each PO's totals true by trigger; the per-LINE shares
       // are recomputed here, through the same engine, for each of them.
+      // The PO on screen is in this list too. Reloading it redraws the page
+      // from the bank, but nothing SAVES its per-line shares -- and
+      // po_costing_lines is reportable, so leaving them would mean the screen
+      // and every report disagreed about the same PO.
       const touched = [...new Set([
         ...rows.map(r => r.po_header_id),
         ...(wiz.paidForBefore || []),
-      ])].filter(id => id && id !== ctx.header.id);
+        ctx.header.id,
+      ])].filter(Boolean);
       const stale = [];
       for (const poId of touched) {
         try { await Lib.refreshStoredCosting(db, poId, authUser?.id); }

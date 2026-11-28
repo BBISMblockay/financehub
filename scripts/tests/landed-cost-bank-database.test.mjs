@@ -33,6 +33,8 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 //   BANK_MUTATION=no-bill-guard     costing may rewrite or delete an AP-sourced bill
 //   BANK_MUTATION=no-detach-flag    a deleted container's freight respreads silently
 //   BANK_MUTATION=no-costing-sync   the stored PO totals stop following the bills
+//   BANK_MUTATION=no-line-recost    the per-SKU shares keep their old figures
+//   BANK_MUTATION=no-receipt        the correction leaves no record of what moved
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
@@ -84,6 +86,15 @@ if (mutation === 'no-bill-guard') {
 }
 if (mutation === 'no-detach-flag') {
   mutate('    new.shipment_detached := true;', '    new.shipment_detached := false;');
+}
+if (mutation === 'no-line-recost') {
+  mutate(' where f.line_id = cl.id;', ' where f.line_id = cl.id and false;');
+}
+if (mutation === 'no-receipt') {
+  mutate(`     and not exists (select 1 from public.landed_cost_backfill_log l
+                      where l.po_header_id = pc.po_header_id);`,
+         `     and not exists (select 1 from public.landed_cost_backfill_log l
+                      where l.po_header_id = pc.po_header_id) and false;`);
 }
 if (mutation === 'no-costing-sync') {
   mutate(`create trigger zz_landed_cost_sync_po_costing
@@ -184,7 +195,9 @@ await db.exec(`
   create table public.po_costing_lines(id uuid primary key default gen_random_uuid(),
     po_costing_id uuid references public.po_costing(id) on delete cascade,
     po_line_id uuid unique references public.po_lines(id) on delete cascade,
-    fob_unit numeric, landed_unit numeric, company_entity_id uuid);
+    fob_unit numeric, freight_alloc numeric, duty_alloc numeric, misc_alloc numeric,
+    landed_unit numeric, landed_ext numeric, updated_at timestamptz default now(),
+    company_entity_id uuid);
 `);
 
 // ── The production cases, by name ──────────────────────────────────────────
@@ -251,8 +264,8 @@ await db.exec(`
   -- MasterCap-87's lines carry the landed cost in unit_cost, which is what the
   -- old "Push landed to PO lines" default did on production (134 lines).
   insert into public.po_costing(po_header_id, company_entity_id) values ('${PO.other}', '${CO_B}');
-  insert into public.po_costing_lines(po_costing_id, po_line_id, fob_unit, landed_unit, company_entity_id)
-  select pc.id, pl.id, 10, 12.50, '${CO_A}'
+  insert into public.po_costing_lines(po_costing_id, po_line_id, fob_unit, freight_alloc, landed_unit, landed_ext, company_entity_id)
+  select pc.id, pl.id, 10, 249.9375, 12.50, 1250, '${CO_A}'
     from public.po_costing pc join public.po_lines pl on pl.po_header_id = pc.po_header_id
    where pc.po_header_id = '${PO.m87}';
   update public.po_lines set unit_cost = 12.50 where po_header_id = '${PO.m87}';
@@ -370,6 +383,67 @@ await test('the overwritten factory costs are restored, and only those', async (
   assert.deepEqual(rows.slice(0, 3).map((r) => n(r.unit_cost)), [10, 10, 10],
     'lines sitting at their landed cost go back to FOB');
   assert.equal(n(rows[3].unit_cost), 11.11, 'a line somebody typed is left alone');
+});
+
+await test('the stored per-line shares are restated, and total the PO', async () => {
+  // po_costing_lines is reportable too. Leaving the old per-SKU split behind
+  // would have the screen and every report disagreeing about one PO.
+  const rows = await all(`
+    select cl.freight_alloc, cl.landed_unit, cl.landed_ext, pl.qty, cl.fob_unit
+      from public.po_costing_lines cl
+      join public.po_costing pc on pc.id = cl.po_costing_id
+      join public.po_lines pl on pl.id = cl.po_line_id
+     where pc.po_header_id = '${PO.m87}' order by pl.sku_snapshot`);
+  assert.equal(rows.length, 4);
+  const freight = n((await one(
+    `select freight_amount from public.po_costing where po_header_id = '${PO.m87}'`)).freight_amount);
+  const summed = Math.round(rows.reduce((t, r) => t + n(r.freight_alloc), 0) * 100) / 100;
+  assert.equal(summed, freight, 'the line shares total the PO freight to the cent');
+  assert.notEqual(n(rows[0].freight_alloc), 249.9375, 'and are not the figure stored before');
+  for (const r of rows) {
+    assert.equal(n(r.landed_ext),
+      Math.round((n(r.fob_unit) * n(r.qty) + n(r.freight_alloc)) * 100) / 100,
+      'landed_ext follows its own share');
+  }
+});
+
+await test('the correction writes a receipt naming the rule that matched', async () => {
+  const rows = await all(`
+    select po_name, freight_before, freight_after, matched_by, bill_ref
+      from public.landed_cost_backfill_log order by po_name`);
+  assert.equal(rows.length, 9, 'one row per PO that had freight');
+
+  const byName = Object.fromEntries(rows.map((r) => [r.po_name, r]));
+  assert.equal(byName['MasterCap-78-S'].matched_by, 'reference');
+  assert.equal(n(byName['MasterCap-78-S'].freight_before), 3839.99);
+  assert.ok(n(byName['MasterCap-78-S'].freight_after) < 3839.99, 'and it says what it became');
+
+  // The inference, which is the one worth checking by eye.
+  assert.equal(byName['MasterCap-79'].matched_by, 'identical amount');
+  assert.equal(byName['MasterCap-79'].bill_ref, 'ARJFK260900741');
+
+  assert.equal(byName['KCMTAR-34'].matched_by, 'unmatched');
+  assert.equal(n(byName['KCMTAR-34'].freight_before), 3894.95);
+  assert.equal(n(byName['KCMTAR-34'].freight_after), 3894.95, 'an unmatched PO is not moved');
+});
+
+await test('the receipt is this company\'s only, and nobody can write it', async () => {
+  await db.exec(`
+    alter table public.landed_cost_backfill_log force row level security;
+    grant usage on schema public to authenticated;
+  `);
+  await db.exec('set role authenticated');
+  await asUser(BRUNO);
+  const seen = await all('select po_name from public.landed_cost_backfill_log');
+  assert.deepEqual(seen, [], 'another company sees none of it');
+  await asUser(ALICE);
+  const mine = await all('select po_name from public.landed_cost_backfill_log');
+  assert.ok(mine.length > 0, 'and this company sees its own');
+  const err = await refused(
+    `insert into public.landed_cost_backfill_log(company_entity_id, po_header_id, matched_by)
+       values ($1, $2, 'reference')`, [CO_A, PO.m84]);
+  assert.ok(err, 'a browser role cannot forge a correction record');
+  await db.exec('reset role');
 });
 
 await test('a bill cannot be spent for more than it holds', async () => {

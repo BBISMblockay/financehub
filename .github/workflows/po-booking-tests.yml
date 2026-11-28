@@ -111,7 +111,8 @@ jobs:
         run: |
           set -u
           for m in no-guard no-shipment-check no-tenant-check no-legacy no-restore no-dup-index \
-                   no-correct no-amount-match no-bill-guard no-detach-flag no-costing-sync; do
+                   no-correct no-amount-match no-bill-guard no-detach-flag no-costing-sync \
+                   no-line-recost no-receipt; do
             echo "--- $m ---"
             if BANK_MUTATION="$m" node scripts/tests/landed-cost-bank-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guarantee it removes is untested"
