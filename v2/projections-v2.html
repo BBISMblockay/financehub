@@ -1,0 +1,974 @@
+<!doctype html>
+<!-- Projections planning sheet (candidate replacement for /v2/projections.html).
+     Not in the navigation and linked from nowhere until it is approved: open it
+     at /v2/projections-v2.html. (It is here rather than in testing/ because
+     testing/ is excluded from publication and would answer 404 — the same
+     reason /v2/silo-books.html and /v2/quickbooks-sync.html live here.) The
+     live page is untouched, and this one writes the same revenue_projections
+     rows, one upsert per day, so there is no new storage to migrate.
+
+     Why it looks different from the live page: the live page draws date x
+     location, so a company with 30 locations gets a 30-column grid that is
+     unreadable and unfillable. Here the locations are a rail and ONE of them
+     is a narrow sheet, each row carrying last year's actual for the same day,
+     so a plan is edited against something instead of into an empty cell. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO · Projections sheet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    .pv-cols { display:grid; grid-template-columns:240px minmax(0,1fr); flex:1; min-height:0; }
+    @media (max-width:820px) {
+      .pv-cols { grid-template-columns:1fr; }
+      .pv-rail { border-right:none; border-bottom:1px solid var(--bcn-border); max-height:220px; }
+    }
+    .pv-rail { border-right:1px solid var(--bcn-border); background:var(--bcn-sunken); overflow-y:auto; min-width:0; }
+    .pv-rail-h { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; letter-spacing:.1em;
+      color:var(--bcn-ink-3); padding:9px 12px 6px; }
+    .pv-loc { display:grid; grid-template-columns:1fr auto; gap:2px 8px; width:100%; text-align:left;
+      appearance:none; background:none; border:none; border-top:1px solid var(--bcn-border);
+      padding:8px 12px; cursor:pointer; color:var(--bcn-ink); font:inherit; }
+    .pv-loc:hover { background:var(--bcn-surface); }
+    .pv-loc[aria-current="true"] { background:var(--bcn-surface); box-shadow:inset 3px 0 0 var(--bcn-accent); }
+    .pv-loc-n { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pv-loc-t { font-family:var(--bcn-mono); font-size:12px; font-weight:700; }
+    .pv-loc-s { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
+    .pv-loc-d { font-family:var(--bcn-mono); font-size:10.5px; font-weight:700; text-align:right; }
+    .pv-pos { color:var(--bcn-pos); } .pv-neg { color:var(--bcn-neg); }
+
+    .pv-sheet { display:flex; flex-direction:column; min-width:0; min-height:0; }
+    .pv-sheet-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:9px 12px;
+      border-bottom:1px solid var(--bcn-border); }
+    .pv-scroll { overflow:auto; flex:1; min-height:0; }
+    #pv-table th { position:sticky; top:0; z-index:2; }
+    .pv-day { white-space:nowrap; }
+    .pv-day small { color:var(--bcn-ink-3); }
+    .pv-in { width:96px; height:26px; text-align:right; padding:0 6px; font-family:var(--bcn-mono);
+      font-size:12.5px; font-weight:600; border:1px solid transparent; border-radius:5px;
+      background:var(--bcn-accent-soft); color:var(--bcn-ink); }
+    .pv-in:hover { border-color:var(--bcn-accent); }
+    .pv-in:focus { outline:none; border-color:var(--bcn-accent); box-shadow:0 0 0 2px var(--bcn-accent-soft);
+      background:var(--bcn-surface); }
+    .pv-in--empty { background:transparent; color:var(--bcn-ink-3); }
+    .pv-in--saving { border-color:var(--bcn-warn); }
+    .pv-in--saved { border-color:var(--bcn-pos); }
+    .pv-barwrap { position:relative; display:block; height:9px; width:120px; background:var(--bcn-border);
+      border-radius:2px; overflow:hidden; }
+    .pv-barwrap i { position:absolute; inset:0 auto 0 0; background:var(--bcn-accent); }
+    .pv-barwrap u { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--bcn-ink-2); }
+    .pv-tag { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; color:var(--bcn-warn);
+      border:1px solid var(--bcn-warn); border-radius:3px; padding:1px 4px; white-space:nowrap; }
+
+    .pv-drawer { border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken);
+      padding:10px 12px; display:grid; gap:8px; }
+    .pv-drawer[hidden] { display:none; }
+    .pv-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+    .pv-prev { font-size:12px; color:var(--bcn-ink-2); background:var(--bcn-surface);
+      border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); padding:8px 10px; }
+    .pv-prev b { font-family:var(--bcn-mono); }
+    .pv-diff { border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); background:var(--bcn-surface);
+      max-height:220px; overflow:auto; }
+    .pv-diff div { display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:center;
+      padding:5px 10px; border-bottom:1px solid var(--bcn-border); font-size:12px; }
+    .pv-diff div:last-child { border-bottom:none; }
+    .pv-diff .pv-was { font-family:var(--bcn-mono); color:var(--bcn-ink-3); }
+    .pv-diff .pv-now { font-family:var(--bcn-mono); font-weight:700; color:var(--bcn-accent); }
+    .pv-hint { font-size:11.5px; color:var(--bcn-ink-3); }
+    .pv-legend { display:flex; gap:14px; flex-wrap:wrap; padding:7px 12px; font-size:11px;
+      color:var(--bcn-ink-3); border-top:1px solid var(--bcn-border); }
+    .pv-sw { display:inline-block; width:11px; height:11px; border-radius:3px; vertical-align:-1px;
+      margin-right:4px; border:1px solid var(--bcn-border); }
+    #pane-sheet { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; margin-top:12px; }
+    #pane-sheet .bcn-card { flex:1; display:flex; flex-direction:column; min-height:0; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body class="silo-brand">
+
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title">
+          <h1>Projections</h1>
+          <span class="bcn-pill bcn-pill--accent" id="pv-period-pill">—</span>
+          <span class="bcn-pill" title="This page is in testing and is not in the sidebar yet.">TESTING</span>
+        </div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">
+          One location at a time, last year's actual on every row ·
+          <a href="/v2/projections.html">grid view</a> ·
+          <a href="/v2/launch-calendar.html">launch workbench</a>
+        </div>
+      </div>
+      <div class="bcn-header-actions">
+        <input type="month" id="pv-month" class="bcn-field bcn-field--mono" style="height:28px;width:150px;" />
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="pv-prev">‹ PREV</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="pv-next">NEXT ›</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="pv-ai">✦ DRAFT WITH AI</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="pv-fill">FILL FROM HISTORY</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <section class="bcn-kpi-band" aria-label="Key metrics">
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">PLAN · PERIOD</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpi-plan">$—</div>
+        <div class="bcn-kpi-delta" id="kpi-plan-sub">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">SAME PERIOD LAST YEAR</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpi-ly">$—</div>
+        <div class="bcn-kpi-delta" id="kpi-ly-sub">actual net sales</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">COVERAGE</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpi-cov">—</div>
+        <div class="bcn-kpi-delta" id="kpi-cov-sub">location-days with a plan</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">LOCATIONS</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpi-locs">—</div>
+        <div class="bcn-kpi-delta" id="kpi-locs-sub">active</div>
+      </div>
+    </section>
+
+    <!-- FILL FROM HISTORY -->
+    <section class="pv-drawer" id="pv-fill-drawer" hidden aria-label="Fill from history">
+      <div class="pv-row">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="fill-basis">BASIS</label>
+          <select class="bcn-field" id="fill-basis">
+            <option value="ly">Last year, same days</option>
+            <option value="avg3">Average of the last 3 years</option>
+            <option value="trailing8">Trailing 8 weeks, same weekday</option>
+            <option value="flat">Flat — last year's daily average</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="fill-align">LINE UP BY</label>
+          <select class="bcn-field" id="fill-align">
+            <option value="weekday">Weekday (Sat → Sat)</option>
+            <option value="date">Calendar date</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="fill-growth">GROWTH %</label>
+          <input class="bcn-field bcn-field--mono" type="number" id="fill-growth" value="0" step="1" style="width:84px" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="fill-scope">APPLY TO</label>
+          <select class="bcn-field" id="fill-scope">
+            <option value="empty">Days with no plan</option>
+            <option value="all">Every day in the period</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="fill-where">LOCATIONS</label>
+          <select class="bcn-field" id="fill-where">
+            <option value="one">This location</option>
+            <option value="all">All locations</option>
+          </select>
+        </div>
+        <div style="flex:1"></div>
+        <button class="bcn-btn bcn-btn--mono" type="button" id="fill-cancel">CANCEL</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="fill-apply">APPLY</button>
+      </div>
+      <div class="pv-prev" id="fill-preview">—</div>
+      <div class="pv-hint">Nothing is written until you press Apply, and Undo puts the period back as it was.</div>
+    </section>
+
+    <!-- AI DRAFT -->
+    <section class="pv-drawer" id="pv-ai-drawer" hidden aria-label="Draft with AI">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="ai-prompt">TELL SILO THE PLAN</label>
+        <textarea class="bcn-field" id="ai-prompt" rows="2"
+          placeholder="e.g. grow retail 15%, hold online flat, double the week of the holiday drop"></textarea>
+      </div>
+      <div class="pv-row">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="ai-where">LOCATIONS</label>
+          <select class="bcn-field" id="ai-where">
+            <option value="one">This location</option>
+            <option value="all">All locations in one pass</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="ai-scope">DAYS</label>
+          <select class="bcn-field" id="ai-scope">
+            <option value="empty">Only days with no plan</option>
+            <option value="all">Every day in the period</option>
+          </select>
+        </div>
+        <span class="pv-hint" style="flex:1;min-width:200px">SILO reads this company's own sales history, launch
+          calendar and existing plan. It proposes numbers; nothing is saved until you accept.</span>
+        <button class="bcn-btn bcn-btn--mono" type="button" id="ai-cancel">CANCEL</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="ai-run">DRAFT</button>
+      </div>
+      <div id="ai-result" hidden>
+        <div class="pv-prev" id="ai-rationale"></div>
+        <div class="pv-diff" id="ai-diff" style="margin-top:8px"></div>
+        <div class="pv-row" style="margin-top:8px">
+          <span class="bcn-pill bcn-pill--accent">AI DRAFT · NOT SAVED</span>
+          <div style="flex:1"></div>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="ai-discard">DISCARD</button>
+          <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="ai-accept">ACCEPT</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="pane-sheet">
+      <section class="bcn-card" aria-label="Planning sheet">
+        <div class="pv-cols">
+          <div class="pv-rail" id="pv-rail">
+            <div class="pv-rail-h">LOCATIONS · PERIOD PLAN</div>
+          </div>
+          <div class="pv-sheet">
+            <div class="pv-sheet-bar">
+              <strong id="pv-sheet-title" style="font-size:13px">—</strong>
+              <span class="bcn-pill" id="pv-sheet-cov">—</span>
+              <div style="flex:1"></div>
+              <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="pv-undo" hidden>UNDO</button>
+              <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="pv-reload">RELOAD</button>
+            </div>
+            <div class="pv-scroll">
+              <table class="bcn-table" id="pv-table">
+                <thead>
+                  <tr>
+                    <th class="bcn-th-left">DAY</th>
+                    <th>LAST YEAR</th>
+                    <th>PLAN</th>
+                    <th>Δ</th>
+                    <th class="bcn-th-left">PLAN VS LAST YEAR</th>
+                    <th class="bcn-th-left">LAUNCH</th>
+                  </tr>
+                </thead>
+                <tbody id="pv-rows"><tr><td colspan="6" class="bcn-empty">Loading…</td></tr></tbody>
+                <tfoot id="pv-foot"></tfoot>
+              </table>
+            </div>
+            <div class="pv-legend">
+              <span><span class="pv-sw" style="background:var(--bcn-accent-soft)"></span>Plan — type a number, Enter moves down</span>
+              <span><span class="pv-sw" style="background:var(--bcn-border)"></span>The mark on the bar is last year's actual for the same weekday</span>
+              <span>Clearing a cell deletes that day's projection.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </main>
+</div>
+
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+/* ---- DEMO MODE ---------------------------------------------------------
+   Same idea as /v2/projections.html's demo block: with ?demo=1 (or on
+   localhost / a preview host) the page runs against an in-memory company so
+   the layout, the fill and the draft review can be exercised and screenshotted
+   without a login. It never engages on a real SILO host. */
+(function () {
+  const q = new URLSearchParams(location.search);
+  const h = location.hostname || '';
+  const demo = q.get('demo') === '1' || h === 'localhost' || h === '127.0.0.1'
+    || location.protocol === 'file:' || h.includes('usercontent');
+  if (!demo) return;
+
+  const LOCS = [
+    { id: 1, location_code: 'ONL', location_name: 'Online', store_type: 'online', is_active: true, base: 23500 },
+    { id: 2, location_code: 'SCT', location_name: 'Retail · Scottsdale', store_type: 'retail', is_active: true, base: 9200 },
+    { id: 3, location_code: 'FOD', location_name: 'Retail · Field of Dreams', store_type: 'retail', is_active: true, base: 6400 },
+    { id: 4, location_code: 'CTW', location_name: 'Retail · Cooperstown', store_type: 'retail', is_active: true, base: 5300 },
+    { id: 5, location_code: 'WHL', location_name: 'Wholesale', store_type: 'wholesale', is_active: true, base: 9500 },
+  ];
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const DAY = 86400000;
+  const today = new Date(Date.now());
+  // Three years and change of daily actuals, with a weekday shape and a
+  // December lift, so "last year, same weekday" has something behind it.
+  function net(loc, date) {
+    const d = new Date(date + 'T00:00:00Z');
+    const wd = d.getUTCDay();
+    const shape = [0.78, 0.74, 0.8, 0.86, 0.96, 1.33, 1.5][wd];
+    const dec = d.getUTCMonth() === 11 ? (d.getUTCDate() >= 10 && d.getUTCDate() <= 23 ? 1.5 : 1.15) : 1;
+    const drift = 1 + ((d.getUTCFullYear() - 2023) * 0.07);
+    const jitter = 0.9 + (((d.getUTCDate() * 7919 + loc.id * 104729) % 21) / 100);
+    return Math.round(loc.base * shape * dec * drift * jitter);
+  }
+  const HIST = [];
+  for (let i = 1; i <= 1180; i++) {
+    const date = iso(new Date(+today - i * DAY));
+    for (const loc of LOCS) HIST.push({ location_id: loc.id, day_date: date, net: net(loc, date) });
+  }
+  HIST.sort((a, b) => (a.day_date < b.day_date ? -1 : a.day_date > b.day_date ? 1 : a.location_id - b.location_id));
+
+  // This month, part-filled: Online planned, Scottsdale's first ten days only.
+  const PROJ = [];
+  let pid = 1;
+  const m0 = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  const dim = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).getUTCDate();
+  for (let day = 1; day <= dim; day++) {
+    const date = iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), day)));
+    const ly = iso(new Date(+new Date(date + 'T00:00:00Z') - 364 * DAY));
+    PROJ.push({ id: pid++, projection_date: date, location_id: 1, projected_units: 0,
+      projected_sales: Math.round(net(LOCS[0], ly) * 1.08), notes: null, source: 'history_fill', scenario: 'active' });
+    if (day <= 10) {
+      PROJ.push({ id: pid++, projection_date: date, location_id: 2, projected_units: 0,
+        projected_sales: Math.round(net(LOCS[1], ly) * 1.12), notes: null, source: 'manual', scenario: 'active' });
+    }
+  }
+  const CAL = [
+    { launch_date: iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 12))), title: 'Holiday capsule', product_title: null, launch_type: 'drop' },
+    { launch_date: iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 19))), title: 'Last ship day', product_title: null, launch_type: 'promo' },
+  ];
+  const TABLES = { locations: LOCS, revenue_projections: PROJ, launch_calendar: CAL };
+
+  function builder(table) {
+    const f = { eq: [], gte: [], lte: [] };
+    let range = null;
+    const api = {
+      select() { return api; },
+      eq(k, v) { f.eq.push([k, v]); return api; },
+      gte(k, v) { f.gte.push([k, v]); return api; },
+      lte(k, v) { f.lte.push([k, v]); return api; },
+      order() { return api; },
+      range(a, b) { range = [a, b]; return api; },
+      limit(n) { range = [0, n - 1]; return api; },
+      _rows() {
+        let r = (TABLES[table] || []).slice();
+        // company_entity_id is not stored on the demo rows; it is not a filter here.
+        f.eq.filter(([k]) => k !== 'company_entity_id').forEach(([k, v]) => { r = r.filter((x) => String(x[k]) === String(v)); });
+        f.gte.forEach(([k, v]) => { r = r.filter((x) => String(x[k] || '') >= String(v)); });
+        f.lte.forEach(([k, v]) => { r = r.filter((x) => String(x[k] || '') <= String(v)); });
+        return range ? r.slice(range[0], range[1] + 1) : r;
+      },
+      _exec() { return Promise.resolve({ data: api._rows(), error: null }); },
+      then(res, rej) { return api._exec().then(res, rej); },
+      async upsert(rows) {
+        for (const p of rows) {
+          const i = PROJ.findIndex((x) => x.projection_date === p.projection_date && String(x.location_id) === String(p.location_id));
+          if (i >= 0) PROJ[i] = { ...PROJ[i], ...p }; else PROJ.push({ ...p, id: pid++ });
+        }
+        return { data: rows, error: null };
+      },
+      delete() {
+        const del = { eq(k, v) { del._f.push([k, v]); return del; }, _f: [],
+          then(res, rej) {
+            let keep = PROJ.filter((x) => !del._f.filter(([k]) => k !== 'company_entity_id')
+              .every(([k, v]) => String(x[k]) === String(v)));
+            PROJ.length = 0; PROJ.push(...keep);
+            return Promise.resolve({ data: null, error: null }).then(res, rej);
+          } };
+        return del;
+      },
+    };
+    return api;
+  }
+
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: { user: { email: 'demo@silo.test' }, access_token: 'demo' } }, error: null }),
+      getUser: async () => ({ data: { user: { email: 'demo@silo.test' } }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    },
+    from: (t) => builder(t),
+    rpc: async (name, args) => {
+      if (name !== 'chat_run_readonly_query') return { data: [], error: null };
+      const m = /between '(\d{4}-\d{2}-\d{2})'::date and '(\d{4}-\d{2}-\d{2})'::date/.exec(String(args?.query || ''));
+      const from = m ? m[1] : '1900-01-01', to = m ? m[2] : '2999-12-31';
+      const rows = HIST.filter((r) => r.day_date >= from && r.day_date <= to);
+      const off = Number(args?.p_offset) || 0;
+      return { data: rows.slice(off, off + 1000), error: null };
+    },
+  };
+  window.supabase = { createClient: () => client };
+  window.__SILO_CONFIG__ = {
+    SUPABASE_URL: 'https://demo.silo.test', SUPABASE_ANON_KEY: 'demo',
+    ensureActiveCompany: async () => ({ id: 'demo-company', name: 'Demo Co' }),
+    getActiveCompany: () => ({ id: 'demo-company', name: 'Demo Co' }),
+  };
+  // The draft service, answered locally: last year's same weekday, grown, for
+  // the days the sheet asked about.
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (url, opts) => {
+    if (!String(url).includes('/functions/v1/projection-draft')) return realFetch(url, opts);
+    const body = JSON.parse(opts?.body || '{}');
+    const planned = new Set(PROJ.map((p) => `${p.location_id}|${p.projection_date}`));
+    const rows = [];
+    for (const id of body.location_ids || []) {
+      const loc = LOCS.find((l) => String(l.id) === String(id));
+      if (!loc) continue;
+      for (let t = +new Date(body.from + 'T00:00:00Z'); t <= +new Date(body.to + 'T00:00:00Z'); t += DAY) {
+        const date = iso(new Date(t));
+        if (body.only_empty_days !== false && planned.has(`${id}|${date}`)) continue;
+        const ly = iso(new Date(t - 364 * DAY));
+        const day = Number(date.slice(8, 10));
+        const lift = day >= 12 && day <= 15 ? 2 : 1.15;
+        rows.push({ location_id: loc.id, projection_date: date,
+          projected_sales: Math.round(net(loc, ly) * lift),
+          note: lift > 1.5 ? 'holiday drop week' : '' });
+      }
+    }
+    return { ok: true, status: 200, json: async () => ({
+      rows,
+      rationale: 'Grown 15% off last year’s same weekdays, with the holiday drop week doubled. Online held flat.',
+      model: 'demo', locations_drafted: (body.location_ids || []).length,
+    }) };
+  };
+})();
+</script>
+<script src="projections-v2-logic.js"></script>
+<script>
+/* eslint-disable no-console */
+(function () {
+  'use strict';
+  const L = window.SiloProjPlan;
+  const cfg = window.__SILO_CONFIG__ || {};
+  let db = null, company = null, user = null;
+
+  const state = {
+    month: '',            // YYYY-MM
+    dates: [],            // every day in the period
+    locations: [],
+    locationId: null,
+    plan: new Map(),      // 'locId|date' -> projected_sales
+    planRow: new Map(),   // 'locId|date' -> the stored row (units, notes, source kept on save)
+    actuals: new Map(),   // 'locId|date' -> net sales (history, several years)
+    launches: new Map(),  // date -> [titles]
+    undo: null,           // [{date, location_id, value|null}]
+    draft: null,
+  };
+
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const money = (n) => Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  const kmoney = (n) => {
+    const v = Math.abs(Number(n) || 0), sign = n < 0 ? '-' : '';
+    if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(2)}M`;
+    if (v >= 1000) return `${sign}$${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`;
+    return `${sign}$${Math.round(v)}`;
+  };
+  const pctTxt = (n) => (n > 0 ? '+' : '') + n.toFixed(0) + '%';
+  function setStatus(msg, tone = 'info', ms = 0) {
+    const s = el('status');
+    s.className = 'bcn-status bcn-status--' + tone;
+    s.textContent = msg; s.hidden = false;
+    if (ms) { clearTimeout(setStatus._t); setStatus._t = setTimeout(() => { s.hidden = true; }, ms); }
+  }
+
+  /* ---- boot ------------------------------------------------------------ */
+  document.addEventListener('DOMContentLoaded', boot);
+
+  async function boot() {
+    if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
+    db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+    const { data: sess } = await db.auth.getSession();
+    if (!sess?.session) { window.location.href = '/pages/login.html'; return; }
+    user = sess.session.user || null;
+    // ensureActiveCompany, not getActiveCompany: a bookmarked tab has a valid
+    // auth session and an empty per-tab cache, and every query below is
+    // company-scoped.
+    company = await cfg.ensureActiveCompany?.(db) || null;
+
+    // The sheet is the page; chrome that cannot mount (a nav profile it cannot
+    // read, a demo client) must not take the sheet down with it.
+    try {
+      window.SiloChrome?.mount({
+        appEl: '#silo-app', active: 'planning/revenue-projections',
+        user: { email: user?.email, role: '' },
+        crumbs: ['Planning', 'Projections'],
+        supabaseClient: db,
+      });
+    } catch (e) { console.warn('chrome did not mount', e); }
+
+    const now = new Date();
+    state.month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    el('pv-month').value = state.month;
+    wire();
+    await loadAll();
+  }
+
+  function wire() {
+    el('pv-month').addEventListener('change', () => { state.month = el('pv-month').value; loadAll(); });
+    el('pv-prev').addEventListener('click', () => shiftMonth(-1));
+    el('pv-next').addEventListener('click', () => shiftMonth(1));
+    el('pv-reload').addEventListener('click', () => loadAll());
+    el('pv-fill').addEventListener('click', () => {
+      el('pv-ai-drawer').hidden = true;
+      el('pv-fill-drawer').hidden = !el('pv-fill-drawer').hidden;
+      if (!el('pv-fill-drawer').hidden) previewFill();
+    });
+    ['fill-basis', 'fill-align', 'fill-growth', 'fill-scope', 'fill-where']
+      .forEach((id) => el(id).addEventListener('input', previewFill));
+    el('fill-cancel').addEventListener('click', () => { el('pv-fill-drawer').hidden = true; });
+    el('fill-apply').addEventListener('click', applyFill);
+    el('pv-ai').addEventListener('click', () => {
+      el('pv-fill-drawer').hidden = true;
+      el('pv-ai-drawer').hidden = !el('pv-ai-drawer').hidden;
+    });
+    el('ai-cancel').addEventListener('click', () => { el('pv-ai-drawer').hidden = true; });
+    el('ai-run').addEventListener('click', runDraft);
+    el('ai-discard').addEventListener('click', () => { state.draft = null; el('ai-result').hidden = true; });
+    el('ai-accept').addEventListener('click', acceptDraft);
+    el('pv-undo').addEventListener('click', undo);
+  }
+
+  function shiftMonth(n) {
+    const r = L.monthRange(state.month);
+    if (!r) return;
+    const d = L.parseISO(r.from);
+    const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
+    state.month = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+    el('pv-month').value = state.month;
+    loadAll();
+  }
+
+  /* ---- loading --------------------------------------------------------- */
+
+  async function loadAll() {
+    const range = L.monthRange(state.month);
+    if (!range) { setStatus('Pick a month.', 'info'); return; }
+    state.dates = L.datesBetween(range.from, range.to);
+    el('pv-period-pill').textContent = new Date(range.from + 'T00:00:00Z')
+      .toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    setStatus('Loading…', 'info');
+    try {
+      await loadLocations();
+      await Promise.all([loadPlan(range), loadActuals(range), loadLaunches(range)]);
+      state.undo = null; el('pv-undo').hidden = true;
+      if (state.openOnGap) {
+        state.openOnGap = false;
+        let worst = null, worstFilled = Infinity;
+        for (const loc of state.locations) {
+          const { filled } = periodTotals(loc.id);
+          if (filled < worstFilled) { worstFilled = filled; worst = loc.id; }
+        }
+        if (worst != null) state.locationId = worst;
+      }
+      render();
+      setStatus('Ready.', 'pos', 1200);
+    } catch (e) {
+      console.error(e);
+      setStatus('Could not load the sheet: ' + (e?.message || e), 'neg');
+    }
+  }
+
+  async function loadLocations() {
+    let q = db.from('locations')
+      .select('id, location_code, location_name, store_type, is_active')
+      .eq('is_active', true).order('location_name', { ascending: true });
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q;
+    if (error) throw error;
+    state.locations = data || [];
+    if (!state.locations.some((l) => l.id === state.locationId)) {
+      // Open on the location with the most unplanned days: that is the work.
+      state.locationId = state.locations[0]?.id ?? null;
+      state.openOnGap = true;
+    }
+  }
+
+  async function loadPlan(range) {
+    let q = db.from('revenue_projections')
+      .select('id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario')
+      .eq('scenario', 'active')
+      .gte('projection_date', range.from).lte('projection_date', range.to)
+      .range(0, 20000);
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q;
+    if (error) throw error;
+    state.plan.clear(); state.planRow.clear();
+    for (const r of data || []) {
+      const key = L.actualKey(r.location_id, String(r.projection_date).slice(0, 10));
+      state.plan.set(key, Number(r.projected_sales) || 0);
+      state.planRow.set(key, r);
+    }
+  }
+
+  /* Actual net sales per location per day, for the three years behind this
+   * period plus the eight weeks before it. Read through the shared report
+   * engine (chat_run_readonly_query) as the signed-in person, and joined
+   * locations -> sales_by_day through silo_location_slug(), which is the one
+   * definition of that join — the page does not re-slugify in JS. */
+  async function loadActuals(range) {
+    const earliest = L.addDays(range.from, -364 * 3 - 10);
+    const sql = `select l.id as location_id, s.day_date::text as day_date,
+        sum(s.total_net_sales) as net
+      from public.sales_by_day_verification_v s
+      join public.locations l
+        on public.silo_location_slug(coalesce(nullif(l.location_code, ''), l.location_name)) = s.location_tag
+      where s.day_date between '${earliest}'::date and '${range.to}'::date
+      group by 1, 2
+      order by 2, 1`;
+    const rows = [];
+    for (let offset = 0; offset < L.PAGE_ROWS * 40; offset += L.PAGE_ROWS) {
+      const { data, error } = await db.rpc('chat_run_readonly_query', { query: sql, p_offset: offset });
+      if (error) throw new Error('History could not be read: ' + (error.message || error));
+      if (!Array.isArray(data)) throw new Error('History could not be read');
+      rows.push(...data);
+      if (data.length < L.PAGE_ROWS) break;
+    }
+    state.actuals = L.indexActuals(rows);
+  }
+
+  async function loadLaunches(range) {
+    let q = db.from('launch_calendar')
+      .select('launch_date, title, product_title, launch_type')
+      .gte('launch_date', range.from).lte('launch_date', range.to).range(0, 5000);
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q;
+    if (error) { state.launches = new Map(); return; }   // a launch tag is decoration, never the plan
+    state.launches = new Map();
+    for (const r of data || []) {
+      const d = String(r.launch_date || '').slice(0, 10);
+      if (!d) continue;
+      const t = String(r.title || r.product_title || '').trim() || String(r.launch_type || '').trim();
+      if (!t) continue;
+      if (!state.launches.has(d)) state.launches.set(d, []);
+      state.launches.get(d).push(t);
+    }
+  }
+
+  /* ---- render ---------------------------------------------------------- */
+
+  const lyOf = (locId, date) => state.actuals.get(L.actualKey(locId, L.basisDate(date, 1, 'weekday')));
+
+  function periodTotals(locId) {
+    let plan = 0, ly = 0, filled = 0;
+    for (const d of state.dates) {
+      const p = state.plan.get(L.actualKey(locId, d));
+      if (p != null) { plan += p; filled++; }
+      const a = lyOf(locId, d);
+      if (Number.isFinite(a)) ly += a;
+    }
+    return { plan, ly, filled };
+  }
+
+  function render() {
+    renderRail();
+    renderSheet();
+    renderKpis();
+  }
+
+  function renderRail() {
+    const rail = el('pv-rail');
+    rail.querySelectorAll('.pv-loc').forEach((n) => n.remove());
+    for (const loc of state.locations) {
+      const { plan, ly, filled } = periodTotals(loc.id);
+      const delta = ly > 0 ? ((plan / ly) - 1) * 100 : null;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'pv-loc';
+      if (loc.id === state.locationId) b.setAttribute('aria-current', 'true');
+      b.innerHTML =
+        `<span class="pv-loc-n">${esc(loc.location_name || loc.location_code || 'Location')}</span>
+         <span class="pv-loc-t">${kmoney(plan)}</span>
+         <span class="pv-loc-s">${filled}/${state.dates.length} days</span>
+         <span class="pv-loc-d ${delta == null ? '' : delta >= 0 ? 'pv-pos' : 'pv-neg'}">${
+           plan && delta != null ? pctTxt(delta) : '—'}</span>`;
+      b.addEventListener('click', () => { state.locationId = loc.id; render(); });
+      rail.append(b);
+    }
+    if (!state.locations.length) {
+      const p = document.createElement('div');
+      p.className = 'bcn-empty'; p.style.padding = '18px';
+      p.textContent = 'No active locations in this workspace.';
+      rail.append(p);
+    }
+  }
+
+  function renderSheet() {
+    const locId = state.locationId;
+    const loc = state.locations.find((l) => l.id === locId);
+    el('pv-sheet-title').textContent = loc ? (loc.location_name || loc.location_code) : '—';
+    const body = el('pv-rows'), foot = el('pv-foot');
+    if (!loc) {
+      body.innerHTML = '<tr><td colspan="6" class="bcn-empty">Pick a location.</td></tr>';
+      foot.innerHTML = ''; return;
+    }
+    const { plan, ly, filled } = periodTotals(locId);
+    el('pv-sheet-cov').textContent = `${filled}/${state.dates.length} DAYS`;
+    let max = 1;
+    for (const d of state.dates) {
+      max = Math.max(max, state.plan.get(L.actualKey(locId, d)) || 0, lyOf(locId, d) || 0);
+    }
+    body.innerHTML = state.dates.map((d) => {
+      const p = state.plan.get(L.actualKey(locId, d));
+      const a = lyOf(locId, d);
+      const delta = (p != null && Number.isFinite(a) && a > 0) ? ((p / a) - 1) * 100 : null;
+      const tags = (state.launches.get(d) || []).slice(0, 2).map((t) => `<span class="pv-tag">${esc(t)}</span>`).join(' ');
+      const dow = new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+      const dayNum = Number(d.slice(8, 10));
+      return `<tr>
+        <td class="bcn-th-left pv-day"><small>${dow}</small> ${dayNum}</td>
+        <td class="bcn-mono" style="color:var(--bcn-ink-3)">${Number.isFinite(a) ? money(a) : '—'}</td>
+        <td><input class="pv-in ${p == null ? 'pv-in--empty' : ''}" inputmode="decimal"
+             data-date="${d}" value="${p == null ? '' : p}" placeholder="—"
+             aria-label="Plan for ${d}" /></td>
+        <td class="bcn-mono ${delta == null ? '' : delta >= 0 ? 'pv-pos' : 'pv-neg'}">${delta == null ? '—' : pctTxt(delta)}</td>
+        <td class="bcn-th-left"><span class="pv-barwrap"><i style="width:${((p || 0) / max) * 100}%"></i>${
+          Number.isFinite(a) ? `<u style="left:${(a / max) * 100}%"></u>` : ''}</span></td>
+        <td class="bcn-th-left">${tags}</td>
+      </tr>`;
+    }).join('');
+    const d = ly > 0 ? ((plan / ly) - 1) * 100 : null;
+    foot.innerHTML = `<tr>
+      <td class="bcn-th-left">TOTAL</td>
+      <td class="bcn-mono">${money(ly)}</td>
+      <td class="bcn-mono">${money(plan)}</td>
+      <td class="bcn-mono">${d == null ? '—' : pctTxt(d)}</td>
+      <td colspan="2"></td></tr>`;
+    wireCells();
+  }
+
+  function renderKpis() {
+    let plan = 0, ly = 0, filled = 0;
+    for (const loc of state.locations) {
+      const t = periodTotals(loc.id);
+      plan += t.plan; ly += t.ly; filled += t.filled;
+    }
+    const cells = state.locations.length * state.dates.length;
+    el('kpi-plan').textContent = kmoney(plan);
+    el('kpi-plan-sub').innerHTML = ly > 0
+      ? `<span class="${plan >= ly ? 'pv-pos' : 'pv-neg'}">${pctTxt(((plan / ly) - 1) * 100)}</span> vs last year`
+      : 'no history for this period';
+    el('kpi-ly').textContent = kmoney(ly);
+    el('kpi-cov').textContent = cells ? Math.round((filled / cells) * 100) + '%' : '—';
+    el('kpi-cov-sub').textContent = `${filled} of ${cells} location-days`;
+    el('kpi-locs').textContent = String(state.locations.length);
+  }
+
+  /* ---- editing --------------------------------------------------------- */
+
+  function wireCells() {
+    const inputs = [...el('pv-rows').querySelectorAll('.pv-in')];
+    inputs.forEach((inp, i) => {
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const next = inputs[i + (e.key === 'ArrowUp' ? -1 : 1)];
+          if (next) { next.focus(); next.select?.(); } else inp.blur();
+        }
+      });
+      inp.addEventListener('change', () => saveCell(inp));
+      inp.addEventListener('blur', () => saveCell(inp));
+    });
+  }
+
+  async function saveCell(inp) {
+    const date = inp.dataset.date, locId = state.locationId;
+    const key = L.actualKey(locId, date);
+    const raw = String(inp.value).replace(/[$,\s]/g, '');
+    const before = state.plan.get(key);
+    if (raw === '') {
+      if (before == null) return;
+      inp.classList.add('pv-in--saving');
+      const ok = await deleteDay(locId, date);
+      inp.classList.remove('pv-in--saving');
+      if (ok) { state.plan.delete(key); state.planRow.delete(key); markSaved(inp); render(); }
+      return;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) { setStatus('A plan must be a number of at least 0.', 'neg', 2600); return; }
+    const value = Math.round(n * 100) / 100;
+    if (before != null && Math.abs(before - value) < 0.005) return;
+    inp.classList.add('pv-in--saving');
+    const ok = await writeDays([{ date, location_id: locId, value }]);
+    inp.classList.remove('pv-in--saving');
+    if (ok) {
+      state.plan.set(key, value); markSaved(inp); render();
+      setStatus(`Saved ${date} · ${money(value)}`, 'pos', 1600);
+    }
+  }
+
+  function markSaved(inp) {
+    inp.classList.add('pv-in--saved');
+    setTimeout(() => inp.classList.remove('pv-in--saved'), 900);
+  }
+
+  /* One upsert per batch, on the same (projection_date, location_id) key and
+   * the same columns the live page writes, so the two pages cannot disagree
+   * about what a projection is. Units and notes already on a row are kept. */
+  async function writeDays(rows, source) {
+    if (!rows.length) return true;
+    const payload = rows.map((r) => {
+      const existing = state.planRow.get(L.actualKey(r.location_id, r.date));
+      return {
+        projection_date: r.date,
+        location_id: r.location_id,
+        projected_units: existing ? Number(existing.projected_units || 0) : 0,
+        projected_sales: Number(r.value),
+        notes: r.note ? String(r.note).slice(0, 500) : (existing?.notes || null),
+        source: source || existing?.source || 'manual',
+        scenario: 'active',
+        ...(company?.id ? { company_entity_id: company.id } : {}),
+      };
+    });
+    const { error } = await db.from('revenue_projections')
+      .upsert(payload, { onConflict: 'projection_date,location_id' });
+    if (error) { setStatus('Save failed: ' + error.message, 'neg'); return false; }
+    return true;
+  }
+
+  async function deleteDay(locId, date) {
+    let q = db.from('revenue_projections').delete()
+      .eq('projection_date', date).eq('location_id', locId).eq('scenario', 'active');
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { error } = await q;
+    if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return false; }
+    return true;
+  }
+
+  /* ---- fill from history ----------------------------------------------- */
+
+  function fillOpts() {
+    const where = el('fill-where').value;
+    return {
+      dates: state.dates,
+      locationIds: where === 'all' ? state.locations.map((l) => l.id) : [state.locationId].filter((v) => v != null),
+      actuals: state.actuals,
+      existing: state.plan,
+      basis: el('fill-basis').value,
+      growthPct: Number(el('fill-growth').value) || 0,
+      align: el('fill-align').value,
+      scope: el('fill-scope').value,
+      periodFrom: state.dates[0] || '',
+    };
+  }
+
+  function previewFill() {
+    const r = L.buildFill(fillOpts());
+    const bits = [`Will write <b>${r.writes.length}</b> day${r.writes.length === 1 ? '' : 's'}`,
+      `totalling <b>${money(r.total)}</b>.`];
+    if (r.skippedFilled) bits.push(`${r.skippedFilled} day${r.skippedFilled === 1 ? '' : 's'} already planned, left alone.`);
+    if (r.noHistory) bits.push(`${r.noHistory} day${r.noHistory === 1 ? '' : 's'} have no history behind them and are skipped.`);
+    el('fill-preview').innerHTML = bits.join(' ');
+    el('fill-apply').disabled = r.writes.length === 0;
+  }
+
+  async function applyFill() {
+    const r = L.buildFill(fillOpts());
+    if (!r.writes.length) return;
+    el('fill-apply').disabled = true;
+    setStatus(`Filling ${r.writes.length} days…`, 'info');
+    const undoRows = r.writes.map((w) => ({
+      date: w.date, location_id: w.location_id,
+      value: state.plan.has(L.actualKey(w.location_id, w.date)) ? state.plan.get(L.actualKey(w.location_id, w.date)) : null,
+    }));
+    const ok = await writeDays(r.writes, 'history_fill');
+    el('fill-apply').disabled = false;
+    if (!ok) return;
+    state.undo = undoRows;
+    el('pv-undo').hidden = false;
+    el('pv-fill-drawer').hidden = true;
+    await loadPlan(L.monthRange(state.month));
+    render();
+    setStatus(`Filled ${r.writes.length} days · ${money(r.total)}. Undo is available.`, 'pos', 4000);
+  }
+
+  async function undo() {
+    if (!state.undo?.length) return;
+    setStatus('Undoing…', 'info');
+    const restore = state.undo.filter((r) => r.value != null);
+    const remove = state.undo.filter((r) => r.value == null);
+    let ok = true;
+    if (restore.length) ok = await writeDays(restore.map((r) => ({ ...r })), 'manual') && ok;
+    for (const r of remove) ok = await deleteDay(r.location_id, r.date) && ok;
+    state.undo = null; el('pv-undo').hidden = true;
+    await loadPlan(L.monthRange(state.month));
+    render();
+    setStatus(ok ? 'Put back as it was.' : 'Undo finished with errors — reload to see the stored plan.', ok ? 'pos' : 'neg', 3000);
+  }
+
+  /* ---- AI draft -------------------------------------------------------- */
+
+  async function runDraft() {
+    const prompt = String(el('ai-prompt').value || '').trim();
+    if (!prompt) { setStatus('Say what the plan should do.', 'info', 2600); return; }
+    const range = L.monthRange(state.month);
+    const where = el('ai-where').value;
+    const locationIds = where === 'all' ? state.locations.map((l) => l.id) : [state.locationId].filter((v) => v != null);
+    if (!locationIds.length) { setStatus('Pick a location first.', 'info', 2600); return; }
+    el('ai-run').disabled = true;
+    setStatus('SILO is reading your history and drafting…', 'info');
+    try {
+      const { data: sess } = await db.auth.getSession();
+      const res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/projection-draft`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          apikey: cfg.SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${sess?.session?.access_token || ''}`,
+        },
+        body: JSON.stringify({
+          from: range.from, to: range.to,
+          location_ids: locationIds,
+          only_empty_days: el('ai-scope').value !== 'all',
+          instruction: prompt,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || `The draft service answered ${res.status}`);
+      const v = L.validateDraftRows(body.rows, {
+        dates: state.dates, locationIds, existing: state.plan,
+        scope: el('ai-scope').value,
+      });
+      if (!v.accepted.length) {
+        setStatus('The draft came back with nothing this sheet could use.', 'info', 4000);
+        el('ai-result').hidden = true; return;
+      }
+      state.draft = v.accepted;
+      const name = (id) => {
+        const l = state.locations.find((x) => x.id === id);
+        return l ? (l.location_name || l.location_code) : String(id);
+      };
+      el('ai-rationale').innerHTML =
+        `${esc(String(body.rationale || 'Drafted from this company’s own history.'))}
+         <br><b>${v.accepted.length}</b> day${v.accepted.length === 1 ? '' : 's'}, <b>${money(v.total)}</b>.`
+        + (v.rejected.length ? ` <span class="pv-hint">${v.rejected.length} proposed row${v.rejected.length === 1 ? '' : 's'} dropped (${esc(v.rejected[0].reason)}).</span>` : '');
+      el('ai-diff').innerHTML = v.accepted.slice(0, 200).map((r) => `<div>
+          <span>${esc(name(r.location_id))} · ${r.date}${r.note ? ' · ' + esc(r.note) : ''}</span>
+          <span class="pv-was">${r.was == null ? 'empty' : money(r.was)}</span>
+          <span class="pv-now">${money(r.value)}</span></div>`).join('');
+      el('ai-accept').textContent = `ACCEPT ${v.accepted.length} DAYS`;
+      el('ai-result').hidden = false;
+      setStatus('Draft ready. Nothing is saved yet.', 'pos', 3000);
+    } catch (e) {
+      console.error(e);
+      setStatus('Draft failed: ' + (e?.message || e), 'neg');
+    } finally {
+      el('ai-run').disabled = false;
+    }
+  }
+
+  async function acceptDraft() {
+    if (!state.draft?.length) return;
+    el('ai-accept').disabled = true;
+    const undoRows = state.draft.map((r) => ({ date: r.date, location_id: r.location_id, value: r.was }));
+    const ok = await writeDays(state.draft, 'ai_draft');
+    el('ai-accept').disabled = false;
+    if (!ok) return;
+    state.undo = undoRows; el('pv-undo').hidden = false;
+    const n = state.draft.length;
+    state.draft = null; el('ai-result').hidden = true; el('pv-ai-drawer').hidden = true;
+    await loadPlan(L.monthRange(state.month));
+    render();
+    setStatus(`Saved ${n} days from the draft. Undo is available.`, 'pos', 4000);
+  }
+})();
+</script>
+</body>
+</html>

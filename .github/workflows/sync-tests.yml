@@ -329,6 +329,8 @@ on:
       # this path the allowlist could be edited and nothing would run.
       - 'supabase/functions/page-inspect/**'
       - 'supabase/functions/silo-chat/**'
+      - 'supabase/functions/projection-draft/**'
+      - 'v2/projections-v2*'
       - 'supabase/functions/quickbooks-post-journal/**'
       - 'supabase/functions/quickbooks-report/**'
       - 'v2/accounting-books*'
@@ -766,6 +768,12 @@ jobs:
 
       - name: JE composer review regressions
         run: node scripts/tests/je-composer-review.test.mjs
+
+      # The projections sheet: which historical day stands behind a planned
+      # day, and what a model is allowed to propose into it. Mutations prove
+      # both: weekday alignment broken, and the "already planned" guard off.
+      - name: Projections planning sheet
+        run: node --test scripts/tests/projections-planning.test.mjs
 
       - name: Plaid protocol and encrypted credential binding
         run: node scripts/tests/plaid-core.test.mjs
