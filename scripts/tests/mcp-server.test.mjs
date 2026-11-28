@@ -273,7 +273,11 @@ test('the write tools are exactly create_task and the two outreach tools', async
   assert.deepEqual(writers, ['create_task', 'claim_outreach_to_send', 'mark_outreach_sent']);
   for (const t of TOOLS) {
     if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent', 'mark_affiliate_code_created',
-      'record_shipment_receipt', 'set_po_status'].includes(t.name)) {
+      'record_shipment_receipt', 'set_po_status',
+      // po_emails_to_send CLAIMS the queued emails it hands over -- it spends a
+      // write and the rows do not come back a second time -- so it is a writer,
+      // however much it reads like a list.
+      'po_emails_to_send', 'mark_po_email_sent'].includes(t.name)) {
       assert.equal(t.annotations.readOnlyHint, false);
       assert.equal(t.annotations.destructiveHint, false, `${t.name} destroys nothing`);
       assert.equal(t.annotations.idempotentHint, true, `${t.name}: a retry returns the first result`);
@@ -644,7 +648,8 @@ test('the function never reaches for the database service role; live access adds
   const rpcs = [...src.matchAll(/(?:callRpc|rawRpc)\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
     ['silo_api_claim_outreach', 'silo_api_codes_to_create', 'silo_api_connect', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
-     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_po_lines_for_receiving',
+     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_mark_po_email_sent',
+     'silo_api_po_emails_to_send', 'silo_api_po_lines_for_receiving',
      'silo_api_po_status_options', 'silo_api_pos_awaiting_receipt', 'silo_api_pos_for_status',
      'silo_api_query', 'silo_api_record_failure', 'silo_api_record_shipment_receipt',
      'silo_api_run_report', 'silo_api_scopes', 'silo_api_set_po_status', 'silo_api_windsor_connections']);

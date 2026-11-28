@@ -169,6 +169,16 @@
             unless you tick it, and pausing writing pauses this too.</span>
         </label>
 
+        <label class="cs-opt" for="optPoEmail">
+          <input type="checkbox" id="optPoEmail" />
+          <span><strong>Also let it take the purchase-order emails you queued, to send from your own mailbox.</strong>
+            It can read the emails you queued in SILO &mdash; the factory's address and the copy you approved &mdash;
+            and download each purchase order to attach. <strong>SILO sends nothing</strong>: the email leaves your own
+            mailbox, through whatever mail tool you have connected to this application, and it records each one as
+            sent. It cannot write, change or queue an email, or reach a purchase order you could not change yourself.
+            Off unless you tick it, and pausing writing pauses this too.</span>
+        </label>
+
         <p class="cs-label">It will not be able to</p>
         <ul class="cs-list cs-cannot">
           <li id="cannotChange">Change, add or delete anything</li>
@@ -393,6 +403,7 @@
   const CODES = (K && K.CODES_SCOPE) || 'codes:create';
   const RECEIVING = (K && K.RECEIVING_SCOPE) || 'receiving:write';
   const PO_STATUS = (K && K.PO_STATUS_SCOPE) || 'po_status:write';
+  const PO_EMAIL = (K && K.PO_EMAIL_SCOPE) || 'po_email:send';
   const READS = (K && Array.isArray(K.SILO_SCOPES) && K.SILO_SCOPES.length)
     ? K.SILO_SCOPES : ['reports:read', 'data:read'];
 
@@ -402,8 +413,9 @@
     const codes = !!(el('optCodes') && el('optCodes').checked);
     const recv = !!(el('optReceiving') && el('optReceiving').checked);
     const step = !!(el('optPoStatus') && el('optPoStatus').checked);
+    const mail = !!(el('optPoEmail') && el('optPoEmail').checked);
     return READS.concat(on ? [WRITE] : [], send ? [OUTREACH] : [], codes ? [CODES] : [],
-      recv ? [RECEIVING] : [], step ? [PO_STATUS] : []).filter(Boolean);
+      recv ? [RECEIVING] : [], step ? [PO_STATUS] : [], mail ? [PO_EMAIL] : []).filter(Boolean);
   }
 
   async function writeGrant(clientId) {
@@ -420,7 +432,7 @@
        the write. Anything unreadable here is NOT treated as a failure: the
        grant exists either way, and blocking the connection over a failed
        verification read would be a worse bug than the one it guards. */
-    const extras = [WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS].filter((s) => wanted.includes(s));
+    const extras = [WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS, PO_EMAIL].filter((s) => wanted.includes(s));
     if (!extras.length) return;
     try {
       const { data } = await db
@@ -436,7 +448,9 @@
         throw new Error('SILO approved the connection but did not record permission to '
           + (missing.includes(WRITE) ? 'open tasks' : missing.includes(OUTREACH) ? 'send approved outreach'
             : missing.includes(CODES) ? 'create affiliate codes'
-              : missing.includes(RECEIVING) ? 'draft deliveries' : 'move a purchase order\u2019s step')
+              : missing.includes(RECEIVING) ? 'draft deliveries'
+                : missing.includes(PO_STATUS) ? 'move a purchase order\u2019s step'
+                  : 'send a purchase order to its factory')
           + '. Reload this page and approve again.');
       }
     } catch (e) {
@@ -539,7 +553,8 @@
       const step = !!(el('optPoStatus') && el('optPoStatus').checked);
       const writes = el('optWrite').checked || !!(el('optOutreach') && el('optOutreach').checked)
         || !!(el('optCodes') && el('optCodes').checked)
-        || !!(el('optReceiving') && el('optReceiving').checked) || step;
+        || !!(el('optReceiving') && el('optReceiving').checked) || step
+        || !!(el('optPoEmail') && el('optPoEmail').checked);
       /* With the step box ticked, "change anything that already exists" would
          be a lie: a purchase order's step is exactly that, and it changes with
          no second approval. Say what is still out of reach instead. */
@@ -554,6 +569,7 @@
     if (el('optCodes')) el('optCodes').addEventListener('change', paintScopes);
     if (el('optReceiving')) el('optReceiving').addEventListener('change', paintScopes);
     if (el('optPoStatus')) el('optPoStatus').addEventListener('change', paintScopes);
+    if (el('optPoEmail')) el('optPoEmail').addEventListener('change', paintScopes);
     paintScopes();
 
     const sel = el('coSelect');

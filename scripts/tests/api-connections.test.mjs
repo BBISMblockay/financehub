@@ -174,7 +174,7 @@ test('the write scope is added only by the tick box, and is not a read scope', (
   assert.ok(!K.SILO_SCOPES.includes(K.WRITE_SCOPE), 'writing is never implied by the reads');
   assert.match(CONSENT, /chosenScopes[\s\S]{0,300}?optWrite[\s\S]{0,200}?checked/,
     'the only thing that adds it is the checkbox');
-  assert.match(CONSENT, /READS\.concat\(on \? \[WRITE\] : \[\], send \? \[OUTREACH\] : \[\], codes \? \[CODES\] : \[\],\s*\n?\s*recv \? \[RECEIVING\] : \[\], step \? \[PO_STATUS\] : \[\]\)/,
+  assert.match(CONSENT, /READS\.concat\(on \? \[WRITE\] : \[\], send \? \[OUTREACH\] : \[\], codes \? \[CODES\] : \[\],\s*\n?\s*recv \? \[RECEIVING\] : \[\], step \? \[PO_STATUS\] : \[\], mail \? \[PO_EMAIL\] : \[\]\)/,
     'and each write scope is appended to the reads rather than replacing them');
   // outreach:send (20261110093000) is its own tick box, never implied by
   // work:write or the reads.
@@ -190,14 +190,14 @@ test('the write scope is added only by the tick box, and is not a read scope', (
   assert.match(CONSENT, /\.filter\(Boolean\)/, 'and a missing name never reaches the database');
   assert.match(CONSENT, /did not record permission to '\s*\+ \(missing\.includes\(WRITE\)/,
     'the page checks what was stored before reporting success');
-  assert.match(CONSENT, /const extras = \[WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS\]/,
+  assert.match(CONSENT, /const extras = \[WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS, PO_EMAIL\]/,
     'every optional permission is read back, not just the first few');
   // codes:create (20261110160000) is its own tick box as well.
   assert.equal(K.CODES_SCOPE, 'codes:create');
   assert.ok(!K.SILO_SCOPES.includes(K.CODES_SCOPE));
   assert.match(CONSENT, /optCodes[\s\S]{0,60}?checked/, 'only its own checkbox adds codes:create');
   assert.match(CONSENT, /const CODES = \(K && K\.CODES_SCOPE\) \|\| 'codes:create'/);
-  assert.match(CONSENT, /\[WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS\]\.filter/, 'and the grant is read back for it too');
+  assert.match(CONSENT, /\[WRITE, OUTREACH, CODES, RECEIVING, PO_STATUS, PO_EMAIL\]\.filter/, 'and the grant is read back for it too');
   // receiving:write (20261117220000) is its own tick box too: drafting a
   // delivery against a purchase order for a person to confirm.
   assert.equal(K.RECEIVING_SCOPE, 'receiving:write');
@@ -221,6 +221,26 @@ test('the write scope is added only by the tick box, and is not a read scope', (
     'and that arrival is still a delivery someone confirms');
   assert.match(CONSENT, /cannotChange'\)\.textContent = step\s*\n?\s*\? 'Mark units as arrived/,
     'with the step box ticked, the page stops saying nothing existing can change');
+  // po_email:send (20261128050000) is its own tick box. SILO sends nothing:
+  // the copy has to say the email leaves from the person's OWN mailbox and
+  // only for a purchase order they queued themselves.
+  assert.equal(K.PO_EMAIL_SCOPE, 'po_email:send');
+  assert.ok(!K.SILO_SCOPES.includes(K.PO_EMAIL_SCOPE));
+  assert.match(CONSENT, /optPoEmail[\s\S]{0,60}?checked/, 'only its own checkbox adds po_email:send');
+  assert.match(CONSENT, /const PO_EMAIL = \(K && K\.PO_EMAIL_SCOPE\) \|\| 'po_email:send'/);
+  assert.ok(/your own|own mailbox|from you/i.test(K.SCOPE_COPY['po_email:send']),
+    'the person is told the email leaves from their own mailbox, not from SILO');
+  assert.ok(/queued|you queued|in SILO/i.test(K.SCOPE_COPY['po_email:send']),
+    'and only for a purchase order they queued themselves');
+  // Every tick box repaints the list of what the connection may do. A box
+  // with no listener leaves the person reading a list that does not include
+  // what they just ticked.
+  for (const box of ['optWrite', 'optOutreach', 'optCodes', 'optReceiving', 'optPoStatus', 'optPoEmail']) {
+    assert.match(CONSENT, new RegExp(box + "'\\)\\.addEventListener\\('change', paintScopes\\)"),
+      box + ' does not repaint what the connection may do');
+  }
+  assert.match(CONSENT, /\|\| !!\(el\('optPoEmail'\) && el\('optPoEmail'\)\.checked\)/,
+    'and ticking it counts as writing, so the page stops promising nothing is added');
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {

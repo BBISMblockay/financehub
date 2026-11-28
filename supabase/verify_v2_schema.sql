@@ -11222,6 +11222,73 @@ select 'PO step set by AI' as check_name,
     else 'ok'
   end as status;
 
+-- A purchase order emailed to its factory by the person's OWN AI from their
+-- OWN mailbox (po_email:send, 20261128050000). SILO sends nothing: a person
+-- queues the email in /v2/factories.html, the connection takes it, sends it,
+-- and records what it sent. So the checks are: the scope is grantable and on
+-- its own paths, a claim counts against the daily cap, the authority to queue
+-- or take one is the same authority that moves that PO's step, the attachment
+-- link is stored HASHED and dies with the send, the step a sent PO moves to is
+-- COMPANY DATA, and no browser role can call the connection's tools or read
+-- the token columns.
+select 'PO emailed to factory by AI' as check_name,
+  case
+    when to_regprocedure('public.silo_api_po_emails_to_send(integer,text)') is null
+      or to_regprocedure('public.silo_api_mark_po_email_sent(uuid,text)') is null
+      or to_regprocedure('public.silo_api_po_email_grant()') is null
+      or to_regprocedure('public.po_vendor_email_draft(uuid)') is null
+      or to_regprocedure('public.po_vendor_send_step(uuid)') is null
+      or to_regclass('public.po_vendor_emails') is null
+      then 'MISSING — run 20261128050000_po_email_send_scope.sql'
+    when position('po_email:send' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
+      then 'BROKEN — the consent screen cannot grant po_email:send'
+    when position('/rpc/silo_api_po_emails_to_send' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      or position('/rpc/silo_api_mark_po_email_sent' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — the PO email tools are not on the API path allowlist'
+    when position('po_email_claim' in pg_get_constraintdef((select oid from pg_constraint where conname = 'silo_api_writes_kind_check' and conrelid = 'public.silo_api_writes'::regclass))) = 0
+      then 'BROKEN — a PO email taken by a connection cannot be recorded, so every claim fails'
+    when not exists (select 1 from pg_class where oid = 'public.po_vendor_emails'::regclass and relrowsecurity)
+      then 'CRITICAL: the PO email queue has RLS off'
+    when has_table_privilege('anon', 'public.po_vendor_emails', 'select')
+      or has_table_privilege('silo_integration', 'public.po_vendor_emails', 'select')
+      then 'CRITICAL: the PO email queue is readable by anon or directly by an AI connection'
+    when has_table_privilege('authenticated', 'public.po_vendor_emails', 'truncate')
+      then 'CRITICAL: a signed-in role could empty the PO email queue -- RLS does not cover TRUNCATE'
+    when exists (select 1 from unnest(array['doc_token_hash', 'doc_token_expires_at', 'sent_evidence']) c(col)
+                  where has_column_privilege('authenticated', 'public.po_vendor_emails', c.col, 'update'))
+      then 'CRITICAL: a browser could mint or extend a PO document link, or rewrite what a connection recorded'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_function_privilege(r.role, to_regprocedure('public.silo_api_po_emails_to_send(integer,text)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.silo_api_mark_po_email_sent(uuid,text)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.silo_api_po_email_grant()'), 'execute'))
+      then 'BROKEN — a browser role can call the connection''s PO email tools'
+    when not has_function_privilege('authenticated', to_regprocedure('public.po_vendor_email_draft(uuid)'), 'execute')
+      then 'BROKEN — the Factories page cannot draft a PO email'
+    when position('silo_api_may_set_po_status' in pg_get_functiondef(to_regprocedure('public.silo_api_po_emails_to_send(integer,text)'))) = 0
+      then 'CRITICAL: a connection could take an email for a PO its own person may not change in SILO'
+    when position('extensions.digest' in pg_get_functiondef(to_regprocedure('public.silo_api_po_emails_to_send(integer,text)'))) = 0
+      then 'CRITICAL: the PO document link is stored as given, so anyone who can read the row can fetch the PO'
+    when position('doc_token_hash = null' in pg_get_functiondef(to_regprocedure('public.silo_api_mark_po_email_sent(uuid,text)'))) = 0
+      then 'BROKEN — a PO document link outlives the email it was minted for'
+    when position('claimed_by_grant_id' in pg_get_functiondef(to_regprocedure('public.silo_api_mark_po_email_sent(uuid,text)'))) = 0
+      then 'CRITICAL: any connection could record a send against an email another one took'
+    when position('pg_advisory_xact_lock' in pg_get_functiondef(to_regprocedure('public.silo_api_po_emails_to_send(integer,text)'))) = 0
+      then 'BROKEN — two calls may both take a connection''s last free write'
+    when position('v_grant.company_entity_id' in pg_get_functiondef(to_regprocedure('public.silo_api_po_emails_to_send(integer,text)'))) = 0
+      or position('active_company_id' in pg_get_functiondef(to_regprocedure('public.silo_api_po_emails_to_send(integer,text)'))) > 0
+      then 'CRITICAL: the company follows the approver''s session instead of the grant'
+    when position('po_vendor_send_step' in pg_get_functiondef(to_regprocedure('public.silo_api_mark_po_email_sent(uuid,text)'))) = 0
+      then 'BROKEN — a sent PO does not move on, so the same email is sent again tomorrow'
+    when not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'po_status_options'
+                    and column_name = 'is_vendor_send')
+      then 'BROKEN — a company cannot say which of its steps means the factory has the PO'
+    when not exists (select 1 from pg_indexes where schemaname = 'public'
+                      and indexname = 'po_vendor_emails_one_live_per_po')
+      then 'BROKEN — one purchase order could have two live emails, and be sent twice'
+    else 'ok'
+  end as status;
+
 -- =============================================================================
 -- Landed-cost bill bank (20261128040000)
 -- A freight / duty invoice is a BILL, sourced from its inventory_freight payment

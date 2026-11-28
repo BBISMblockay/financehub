@@ -67,6 +67,7 @@
     'outreach:send': 'Take affiliate outreach a person already approved in Affiliate Studio, so it can send it from your own mailbox, and record each one as sent, marked as this application \u2014 SILO sends nothing, and it cannot approve or write outreach',
     'codes:create': 'See the affiliate codes someone asked for in Affiliate Studio, so it can create them in your own Shopify store, and record each one it created, marked as this application \u2014 SILO writes nothing to Shopify, and it cannot ask for codes',
     'receiving:write': 'Read a purchase order\u2019s lines and draft a delivery against them, marked as this application \u2014 the draft changes nothing in SILO until someone confirms it in PO Report, and it cannot record a shipment, change a PO or move a quantity by itself',
+    'po_email:send': 'Take the purchase-order emails you queued in SILO, with the purchase order itself to attach, so it can send them to your factories from your own mailbox, and record each one as sent, marked as this application \u2014 SILO sends nothing, and it cannot write, change or queue an email',
     'po_status:write': 'Move a purchase order to one of the steps you allow an AI to set \u2014 for example that the order is now with the factory, in production or shipped \u2014 marked as this application. It applies straight away, with no second approval in SILO, so only approve this for an application you tell what to do. It can never mark units as arrived (that is a delivery someone confirms), approve, close or cancel a PO, or touch money or quantities',
   };
   function describeScopes(scopes) {
@@ -174,6 +175,13 @@
      answers to "can it change my purchasing". */
   const PO_STATUS_SCOPE = 'po_status:write';
 
+  /* Its own box too (20261128050000): taking the purchase-order emails a
+     person queued in SILO -- the copy they saw and the PO to attach -- to send
+     from their own mailbox, and recording each send. Never implied by
+     PO_STATUS_SCOPE: a person who lets an application move a PO's step has not
+     thereby let it mail their factories. */
+  const PO_EMAIL_SCOPE = 'po_email:send';
+
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
      show it rather than nothing. */
@@ -186,6 +194,7 @@
 
   const api = {
     IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, CODES_SCOPE, RECEIVING_SCOPE, PO_STATUS_SCOPE,
+    PO_EMAIL_SCOPE,
     STATUS_COPY, SCOPE_COPY,
     grantStatus, describeScopes, planFromAuthorizationDetails,
     scopeList, clientIdOf, clientNameOf, displayName,
