@@ -1,9 +1,10 @@
 # Freight requests shared across several POs
 
-**Status (2026-10-08):** phase 1 implemented (Costing no longer misses a shared request, and never
-prefills a shared invoice's full amount into one PO). Phase 2 is **planned, not built**: its
-migration needs Blake's approval before it is written to production. Nothing here has been verified
-against production data beyond the read-only counts below.
+**Status (2026-11-28): built, as the freight bank — see "What was built" at the end.** Phase 1
+(below) was replaced wholesale: `v2/freight-request-match.js` and its tests are deleted, and Costing
+no longer prefills a number from a payment request at all. The phase 2 proposal below is kept as the
+record of what was considered, and the final section says where the built design differs from it and
+why. The counts and the readers listed here are still accurate.
 
 ## The problem
 
@@ -138,3 +139,62 @@ changed.
 3. **Request statuses:** whether rejected or cancelled freight requests should still prefill.
    Today any status does, and phase 1 keeps that.
 4. **Apply before approval:** whether Costing may apply a proposed, unapproved share, or must wait.
+
+
+---
+
+## What was built, 2026-11-28 (`20261128040000_landed_cost_bill_bank.sql`)
+
+Blake set the shape: *"Can you create a bank of freight from purchase requests and not allow that to
+happen in costing and if user tries to use walk the math how it needs to go for multi shipment
+chaos."*
+
+**The bill is the object, and it is spent.** Every `inventory_freight` payment request becomes a row
+in `landed_cost_bills`, kept in step by an AFTER trigger on `payment_requests`. Costing has no
+freight field any more: Step 3 of `/v2/po-costing.html` lists the bills on this PO and their shares,
+and the only way to add freight is ALLOCATE A BILL. Nobody can type a freight total, so nobody can
+type the same invoice onto four POs — which is how $27,502 came to be counted twice on production.
+
+**Allocation is to a container, not a PO.** `landed_cost_allocations` is one row per (bill, PO) or
+(bill, PO, shipment). A consolidated container carrying four POs is four rows off one invoice; a PO
+that shipped in two containers takes each container's bill on that container's units only, which is
+the multi-shipment case that had no representation before. `shipment_id` null still means the whole
+PO, so a company that does not record shipments is unaffected.
+
+**The database refuses an overspend, not the page.** `zz_landed_cost_allocation_guard` takes
+`for update` on the bill and refuses any row that would put the allocated total over it, so two
+people allocating at once cannot both pass. `silo_allocate_landed_cost_bill()` re-states a bill's
+whole split in one transaction, so a refusal leaves the previous split intact.
+
+**The math is walked.** The wizard is four steps — the bill, what it paid for, the split, review —
+and the split step shows every target with its units, factory value, share and resulting per-unit
+figure before anything is written, by factory value, per unit, or by hand. The shares are allocated
+to the cent by largest remainder, so they always total the invoice.
+
+### Where this differs from the phase 2 proposal above, and why
+
+| Proposed | Built | Why |
+|---|---|---|
+| `payment_request_po_links` with an `allocated_amount` | `landed_cost_bills` + `landed_cost_allocations` | A link table makes the request the object. The bill is the object: it has a balance, and the question people actually ask is "is this invoice fully spent, and where did it go" |
+| Links to POs | Allocations to POs **and shipments** | The PO is not the thing freight is paid for; the container is. Without that dimension a PO shipped twice can only have one freight number, which is the root cause the audit found |
+| A separate approve step, summing to the request's amount | No approval step; the guard refuses an overspend outright | The decision was already made when the payment request was approved and paid. A second approval on the allocation is bookkeeping for the same money. An under-allocated bill is a legitimate in-progress state and is shown as `partial`, not blocked |
+| Costing prefills from an approved link | Costing has no freight field | Decision 4 above is moot: there is nothing to prefill into |
+| Decision 1 (who allocates) | `po_costing_can_write()` | Allocation is costing, and that is already the narrow gate on the costing tables |
+| Decision 2 (default split) | By factory value, changeable per bill | Matches what the Combined Shipment wizard already defaulted to |
+| Decision 3 (statuses) | Every `inventory_freight` request becomes a bill, whatever its status | The bill carries its request's state; hiding a cancelled one would hide money someone had already allocated |
+
+### Backfill
+
+**Numbers move, on purpose.** Blake, 2026-11-28: *"if cogs math is wrong by 59k need it to auto
+correct not create some new queue to work"*. The first version of this backfill preserved every
+typed figure and surfaced the duplicates as `legacy` bills for somebody to reconcile; that is the
+queue he refused. Every `inventory_freight` request becomes a bill. Each existing
+`po_costing.freight_amount` is then allocated to the matching paid bill if that bill has room, and
+otherwise to a `legacy` bill created for exactly that amount — so a PO keeps the freight it had, and
+a duplicate shows up as a `legacy` bill sitting beside the paid one rather than being silently
+rewritten. Reconciling those is a person's job, with the balances visible.
+
+The migration also restores `po_lines.unit_cost` on the 134 lines (17 POs) the old "push landed cost
+to PO lines" default had overwritten with the landed unit, from `po_costing_lines.fob_unit`, and only
+where the two still agree to within half a cent — a line edited since is left alone. That default is
+deleted, not just unticked.
