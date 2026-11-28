@@ -50,6 +50,10 @@ on:
       # Ask SILO's save dialog offers to make a frozen date adjustable using
       # this file's rules; v2/silo-chat.html is useless without it.
       - 'pages/report-date-freeze.js'
+      # landed-cost-split drives the freight-bill split that /v2/po-costing.html
+      # runs on; the math lives in this shared file, so a change to it alone
+      # must still run the suite that pins a split totalling the invoice.
+      - 'pages/po-costing-lib.js'
       # Ask SILO's saved-report rerun substitutes declared parameters through
       # this file, so a change to it can break Refresh data on a report saved
       # with an adjustable window. ask-silo-saved-report-refresh drives it.
@@ -76,6 +80,10 @@ on:
       # Ask SILO's save dialog offers to make a frozen date adjustable using
       # this file's rules; v2/silo-chat.html is useless without it.
       - 'pages/report-date-freeze.js'
+      # landed-cost-split drives the freight-bill split that /v2/po-costing.html
+      # runs on; the math lives in this shared file, so a change to it alone
+      # must still run the suite that pins a split totalling the invoice.
+      - 'pages/po-costing-lib.js'
       # Ask SILO's saved-report rerun substitutes declared parameters through
       # this file, so a change to it can break Refresh data on a report saved
       # with an adjustable window. ask-silo-saved-report-refresh drives it.

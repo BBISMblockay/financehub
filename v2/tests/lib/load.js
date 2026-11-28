@@ -51,9 +51,15 @@ function loadV2(files) {
   return g;
 }
 
+/** The same, for a shared module under pages/ -- po-costing-lib.js lives
+ *  there because /v2 and /pages both load it. */
+function loadPages(files) {
+  return loadV2(files.map((f) => path.join('..', 'pages', f)));
+}
+
 /** Convenience: the inventory signal module, already unwrapped. */
 function loadSignals() {
   return loadV2(['inventory-signals.js']).SiloInventorySignals;
 }
 
-module.exports = { loadV2, loadSignals, REPO_ROOT, V2 };
+module.exports = { loadV2, loadPages, loadSignals, REPO_ROOT, V2 };
