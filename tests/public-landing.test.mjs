@@ -169,6 +169,22 @@ test('keyboard focus and the legal footer survive the redesign', () => {
   assert.match(html, /<nav aria-label="Legal and contact">/);
 });
 
+test('the old /landing-v2.html URL still reaches the home page', () => {
+  // It was the marketing landing for a few hours on 2026-11-28 before becoming
+  // the home page, so links shared in that window are live in the world. The
+  // stub keeps them working, belongs to no one to maintain, and must not
+  // compete with / in search results.
+  const stub = readFileSync(`${root}landing-v2.html`, 'utf8');
+  assert.match(stub, /<meta http-equiv="refresh" content="0; url=\/" \/>/);
+  assert.match(stub, /<link rel="canonical" href="https:\/\/get-silo\.com\/" \/>/);
+  assert.match(stub, /<meta name="robots" content="noindex" \/>/);
+  assert.match(stub, /location\.replace\('\/' \+ location\.hash\)/);
+  // A visitor with JavaScript off, and no redirect yet, still gets a way in.
+  assert.match(stub, /<a href="\/">/);
+  // Project rule: a stub redirect carries no logic of its own.
+  assert.doesNotMatch(stub, /createClient|getSession|data-mode|lpInterestForm/);
+});
+
 async function openGuestOnboarding(search = '') {
   const onboarding = readFileSync(root + 'v2/company-onboarding.html', 'utf8');
   const script = [...onboarding.matchAll(/<script>([\s\S]*?)<\/script>/g)][0][1];
