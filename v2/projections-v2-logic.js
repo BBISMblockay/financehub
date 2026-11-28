@@ -197,6 +197,45 @@
     return { accepted, rejected, total: accepted.reduce((a, r) => a + r.value, 0) };
   }
 
+  /* Every day of history this period can possibly read: the same day one, two
+   * and three years back under BOTH alignments, the eight preceding same
+   * weekdays, and the period's own days. The page asks for exactly these days
+   * instead of three whole years, because a three-year range over a company
+   * with many locations is more rows than a paged read can return -- and
+   * oldest-first truncation would drop the most recent weeks, which is exactly
+   * what "trailing 8 weeks" is built on. */
+  function historyDates(dates = [], periodFrom = '') {
+    const want = new Set();
+    const start = periodFrom || dates[0] || '';
+    for (const d of dates) {
+      if (!d) continue;
+      want.add(d);
+      for (const years of [1, 2, 3]) {
+        for (const align of ['weekday', 'date']) {
+          const b = basisDate(d, years, align);
+          if (b) want.add(b);
+        }
+      }
+      for (const b of sameWeekdayBefore(d, start || d, 8)) want.add(b);
+    }
+    return [...want].sort();
+  }
+
+  /* The same days as contiguous blocks, which is how the page asks for them:
+   * four short ranges read on an index, instead of one three-year range (over
+   * 19s on production, past the 8s timeout a browser query gets) or a list of
+   * 187 separate dates. */
+  function historyRanges(dates = [], periodFrom = '') {
+    const days = historyDates(dates, periodFrom);
+    const out = [];
+    for (const d of days) {
+      const last = out[out.length - 1];
+      if (last && addDays(last.to, 1) === d) last.to = d;
+      else out.push({ from: d, to: d });
+    }
+    return out;
+  }
+
   function sumValues(map) {
     let t = 0;
     for (const v of map.values()) if (Number.isFinite(v)) t += v;
@@ -207,6 +246,6 @@
     DAY_MS, PAGE_ROWS,
     isoDate, parseISO, addDays, dayOfWeek, datesBetween, monthRange,
     basisDate, actualKey, indexActuals, sameWeekdayBefore,
-    buildFill, validateDraftRows, sumValues,
+    buildFill, validateDraftRows, sumValues, historyDates, historyRanges,
   };
 });
