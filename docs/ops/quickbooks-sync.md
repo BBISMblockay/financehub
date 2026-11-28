@@ -86,14 +86,19 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
 - **Already in QuickBooks** is in the ⋯ menu and applies to the ticked rows, one at a time, the company
   checked before each, stopping at the first refusal. **Undo** stays on a marked row.
 - Open months and rows SILO does not send are not tasks: one quiet line, the rows behind it.
-- **In QuickBooks** is one line per month; the entries and their QuickBooks numbers are behind it.
-- **The month verdict is about balances, not entries** (Blake, 2026-11-27: "not journal driven, coa and
-  balance driven"). A month QuickBooks was read back for says **Balances match QuickBooks**: SILO's
-  statements for it are built from QuickBooks' own lines, so every account balance is QuickBooks' as of
-  that read ("read through <day>" when the month is not complete). Entries SILO sent that were later
-  edited in QuickBooks are a quiet note beside it ("3 entries edited in QuickBooks") and detail behind
-  it; they never make a month "differ" and no entry amount appears in the verdict. What follows describes
-  where that entry detail comes from.
+- **SILO against QuickBooks, by month** is one line per month, newest first: every month read back from
+  QuickBooks, plus any month SILO sent entries for. The entries and their QuickBooks numbers are behind it.
+- **The month verdict is the account-by-account balance check, and nothing else** (Blake, 2026-11-27:
+  "not journal driven, coa and balance driven"; "if office supply = office supply, we are good").
+  `quickbooks_balance_check_months_v` (20261127213000) compares what moved on each account in SILO's
+  books with what QuickBooks' own Profit and Loss and Trial Balance reports say moved, for the same days.
+  **All N accounts match QuickBooks** (green) needs every compared account equal to the cent; **N accounts
+  differ from QuickBooks** (red) lists each account with SILO's amount, QuickBooks' amount and the
+  difference; **Balances not checked yet** (grey) is a month whose balances have not been read or could
+  not be read; a month with no balance row at all says "Not compared with QuickBooks yet". Entries SILO
+  sent that were edited in QuickBooks, or not looked up yet, are a quiet note beside the verdict and
+  never change it. Nothing on this list writes to QuickBooks: QuickBooks is the source and SILO follows
+  it. **Mirror now** (or the nightly run) reads the balances along with the ledger.
 - **Entry detail** on each of those months comes from the read-back
   (`quickbooks_ledger_mirror_*`) through the view `quickbooks_sent_entries_check_v` (20261125235000), read
   as the signed-in finance user. One row per entry SILO posted: `unread`, `as_sent`, `changed` or

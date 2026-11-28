@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { generateKeyPair, SignJWT } from 'npm:jose@6.2.12';
 import { verifySchedulerIdentity, WORKFLOWS } from '../../supabase/functions/quickbooks-ledger-mirror-scheduled/oidc.mjs';
-import { createLedgerMirrorHandler, MONTHS_BACK } from '../../supabase/functions/quickbooks-ledger-mirror-scheduled/handler.mjs';
+import { createLedgerMirrorHandler, MONTHS_BACK, parseProfitAndLoss, parseTrialBalance, accountBalances } from '../../supabase/functions/quickbooks-ledger-mirror-scheduled/handler.mjs';
 import { runLedgerMirror, MAX_CALLS, OWNER_SIDE } from '../quickbooks-ledger-mirror.mjs';
 
 const keys = await generateKeyPair('RS256');
@@ -48,10 +48,31 @@ const CONN = { id: CONNECTION, company_entity_id: COMPANY, realm_id: '9130', env
   access_token: 'live-access', refresh_token: 'live-refresh', is_active: true,
   token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
   refresh_token_expires_at: new Date(Date.now() + 86400_000).toISOString() };
+const READ_TOKEN = '00000000-0000-4000-8000-0000000000aa';
 const REPORT = { Header: { ReportName: 'GeneralLedger' }, Rows: { Row: [] } };
+// QuickBooks' own summary of the same month, in the shapes its API returns.
+const money2 = { Column: [{ ColType: 'Account' }, { ColType: 'Money' }] };
+const money3 = { Column: [{ ColType: 'Account' }, { ColType: 'Money' }, { ColType: 'Money' }] };
+const pnl = (rows, net) => ({ Header: { ReportName: 'ProfitAndLoss' }, Columns: money2, Rows: { Row: [
+  { type: 'Section', group: 'Income', Header: { ColData: [{ value: 'Income' }, { value: '' }] },
+    Rows: { Row: rows.map(([id, name, value]) => ({ type: 'Data', ColData: [{ value: name, id }, { value }] })) },
+    Summary: { ColData: [{ value: 'Total Income' }, { value: net }] } },
+  { type: 'Section', group: 'NetIncome', Summary: { ColData: [{ value: 'Net Income' }, { value: net }] } }] } });
+const trial = (rows) => {
+  const sum = (i) => rows.reduce((t, r) => t + Math.round(Number(r[i] || 0) * 100), 0) / 100;
+  return { Header: { ReportName: 'TrialBalance' }, Columns: money3, Rows: { Row: [
+    ...rows.map(([id, name, debit, credit]) => ({ ColData: [{ value: name, id }, { value: debit }, { value: credit }] })),
+    { type: 'Section', group: 'GrandTotal', Summary: { ColData: [{ value: 'TOTAL' }, { value: sum(2).toFixed(2) }, { value: sum(3).toFixed(2) }] } }] } };
+};
+const PNL = pnl([['20', 'Sales', '100.00']], '100.00');
+// A trial balance states an income account year to date: 150 by the month's end, 50 before it.
+const TRIAL_END = trial([['10', 'Checking', '150.00', ''], ['20', 'Sales', '', '150.00']]);
+const TRIAL_START = trial([['10', 'Checking', '50.00', ''], ['20', 'Sales', '', '50.00']]);
+const BALANCE_ROWS = [{ id: '20', name: 'Sales', type: 'Income', activity: -100, ending: null },
+  { id: '10', name: 'Checking', type: 'Bank', activity: 100, ending: 150 }];
 
-function fixture({ work = WORK, conn = CONN, disabled, due = 'ok', store = { ok: true, changed: true, lines: 7 },
-  storeError = false, failedError = false, quickbooks = {}, environment = 'production', secrets = true,
+function fixture({ work = WORK, conn = CONN, disabled, due = 'ok', store = { ok: true, changed: true, lines: 7, read_token: READ_TOKEN },
+  storeError = false, failedError = false, balancesStore = { ok: true, accounts: 2 }, balancesError = false, quickbooks = {}, environment = 'production', secrets = true,
   mine = 'ok', myWork = { ...WORK, remaining: 3 }, noUserDb = false } = {}) {
   const events = [];
   const db = {
@@ -60,7 +81,13 @@ function fixture({ work = WORK, conn = CONN, disabled, due = 'ok', store = { ok:
       if (name === 'quickbooks_ledger_mirror_due') {
         return due === 'ok' ? { data: work ? [work] : [], error: null } : { data: null, error: { message: 'down' } };
       }
-      if (name === 'quickbooks_ledger_mirror_store') return storeError ? { data: null, error: { message: 'x' } } : { data: store, error: null };
+      if (name === 'quickbooks_ledger_mirror_read_store') return storeError ? { data: null, error: { message: 'x' } } : { data: store, error: null };
+      if (name === 'quickbooks_ledger_mirror_balances_store') {
+        if (balancesError === 'throw') throw new Error('down');
+        if (balancesError) return { data: null, error: { message: 'x' } };
+        // Like the database: a recorded reason is stored, and is not a success.
+        return { data: args.p_error ? { ok: false, error: args.p_error } : balancesStore, error: null };
+      }
       if (name === 'quickbooks_ledger_mirror_failed') return failedError ? { error: { message: 'x' } } : { data: null, error: null };
       throw new Error(`unexpected rpc ${name}`);
     },
@@ -86,6 +113,11 @@ function fixture({ work = WORK, conn = CONN, disabled, due = 'ok', store = { ok:
       return quickbooks.accounts ? quickbooks.accounts(href) : answer(200, { QueryResponse: { Account: [{ Id: '10', AccountType: 'Bank' }, { Id: '20', AccountType: 'Income' }] } });
     }
     if (href.includes('/reports/GeneralLedger')) return quickbooks.ledger ? quickbooks.ledger(href) : answer(200, REPORT);
+    if (href.includes('/reports/ProfitAndLoss')) return quickbooks.pnl ? quickbooks.pnl(href) : answer(200, PNL);
+    if (href.includes('/reports/TrialBalance')) {
+      if (quickbooks.trial) return quickbooks.trial(href);
+      return answer(200, new URL(href).searchParams.get('end_date') === '2026-09-30' ? TRIAL_END : TRIAL_START);
+    }
     throw new Error(`unexpected fetch ${href}`);
   };
   const handler = createLedgerMirrorHandler({
@@ -135,12 +167,12 @@ test('one due month is read from QuickBooks and handed to the database whole', a
   const f = fixture();
   const res = await f.request();
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { done: false, ok: true, changed: true, lines: 7 });
-  assert.deepEqual(rpcs(f.events), ['quickbooks_ledger_mirror_due', 'quickbooks_ledger_mirror_store']);
+  assert.deepEqual(await res.json(), { done: false, ok: true, changed: true, lines: 7, balances: true });
+  assert.deepEqual(rpcs(f.events), ['quickbooks_ledger_mirror_due', 'quickbooks_ledger_mirror_read_store', 'quickbooks_ledger_mirror_balances_store']);
   assert.deepEqual(f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_due')[2], { p_months_back: MONTHS_BACK, p_limit: 1 });
   // The connection is read for THIS company and THIS connection, never "the first one".
   assert.deepEqual(f.events.find((e) => e[0] === 'select')[2], { id: CONNECTION, company_entity_id: COMPANY });
-  const stored = f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_store')[2];
+  const stored = f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_read_store')[2];
   assert.deepEqual(stored, { p_company: COMPANY, p_connection: CONNECTION, p_period_start: '2026-09-01',
     p_read_through: '2026-09-30', p_report: REPORT, p_account_types: { 10: 'Bank', 20: 'Income' } });
   const ledger = new URL(fetches(f.events).find((e) => e[2].includes('/reports/GeneralLedger'))[2]);
@@ -159,7 +191,7 @@ test('QuickBooks is only ever read', async () => {
     // The token refresh is the one POST, and it goes to Intuit's OAuth host, not the books.
     if (href.includes('oauth.platform.intuit.com')) { assert.equal(method, 'POST'); continue; }
     assert.equal(method, 'GET', href);
-    assert.match(href, /\/v3\/company\/9130\/(query\?|reports\/GeneralLedger\?)/);
+    assert.match(href, /\/v3\/company\/9130\/(query\?|reports\/(GeneralLedger|ProfitAndLoss|TrialBalance)\?)/);
   }
   const source = readFileSync(new URL('../../supabase/functions/quickbooks-ledger-mirror-scheduled/handler.mjs', import.meta.url), 'utf8');
   assert.equal(/journalentry|\/batch|operation=|sparse/i.test(source), false, 'the reader must not contain a QuickBooks write');
@@ -169,14 +201,14 @@ test('QuickBooks is only ever read', async () => {
 
 test('an expired access token is refreshed and the rotated refresh token is stored first', async () => {
   const f = fixture({ conn: { ...CONN, token_expires_at: new Date(Date.now() - 1000).toISOString() } });
-  assert.deepEqual(await (await f.request()).json(), { done: false, ok: true, changed: true, lines: 7 });
+  assert.deepEqual(await (await f.request()).json(), { done: false, ok: true, changed: true, lines: 7, balances: true });
   const update = f.events.find((e) => e[0] === 'update');
   assert.equal(update[1], 'quickbooks_connections');
   assert.equal(update[2].access_token, 'fresh-access');
   assert.equal(update[2].refresh_token, 'fresh-refresh');
   assert.deepEqual(update[3], { id: CONNECTION });
-  const order = f.events.map((e) => (e[0] === 'fetch' ? (e[2].includes('oauth') ? 'refresh' : e[2].includes('/query?') ? 'accounts' : 'ledger') : e[0] === 'update' ? 'store-token' : null)).filter(Boolean);
-  assert.deepEqual(order, ['refresh', 'store-token', 'accounts', 'ledger']);
+  const order = f.events.map((e) => (e[0] === 'fetch' ? (e[2].includes('oauth') ? 'refresh' : e[2].includes('/query?') ? 'accounts' : e[2].includes('GeneralLedger') ? 'ledger' : 'balances') : e[0] === 'update' ? 'store-token' : null)).filter(Boolean);
+  assert.deepEqual(order, ['refresh', 'store-token', 'accounts', 'ledger', 'balances', 'balances', 'balances']);
   assert.match(fetches(f.events).find((e) => e[2].includes('/query?'))[3].headers.Authorization, /fresh-access/);
 });
 
@@ -192,7 +224,7 @@ test('every account is asked for, active or not, across pages', async () => {
   assert.equal(seen.length, 2);
   assert.match(seen[0], /Active in \(true, false\) startposition 1 maxresults 1000/);
   assert.match(seen[1], /startposition 1001 maxresults 1000/);
-  assert.equal(Object.keys(f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_store')[2].p_account_types).length, 1003);
+  assert.equal(Object.keys(f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_read_store')[2].p_account_types).length, 1003);
 });
 
 test('a read that fails is recorded on the month, and nothing is stored', async () => {
@@ -219,8 +251,119 @@ test('a read that fails is recorded on the month, and nothing is stored', async 
     assert.deepEqual(await res.json(), { done: false, ok: false, changed: false, lines: 0, error_code: code }, code);
     const noted = f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_failed');
     assert.deepEqual(noted[2], { p_company: COMPANY, p_connection: CONNECTION, p_period_start: '2026-09-01', p_error: code }, code);
-    if (code !== 'store_failed') assert.equal(rpcs(f.events).includes('quickbooks_ledger_mirror_store'), false, code);
+    if (code !== 'store_failed') assert.equal(rpcs(f.events).includes('quickbooks_ledger_mirror_read_store'), false, code);
   }
+});
+
+test('after the lines are stored, QuickBooks\' own balances for the same days are read and stored per account', async () => {
+  const f = fixture();
+  await f.request();
+  const order = f.events.map((e) => (e[0] === 'fetch' ? /reports\/(\w+)/.exec(e[2])?.[1] : e[0] === 'rpc' ? e[1] : null)).filter(Boolean);
+  // Never before the lines are accepted: the balances describe that read.
+  assert.deepEqual(order, ['quickbooks_ledger_mirror_due', 'GeneralLedger', 'quickbooks_ledger_mirror_read_store',
+    'ProfitAndLoss', 'TrialBalance', 'TrialBalance', 'quickbooks_ledger_mirror_balances_store']);
+  const asked = fetches(f.events).filter((e) => /ProfitAndLoss|TrialBalance/.test(e[2])).map((e) => {
+    const u = new URL(e[2]);
+    return [u.pathname.split('/').pop(), Object.fromEntries(u.searchParams)];
+  });
+  const common = { accounting_method: 'Accrual', minorversion: '75' };
+  assert.deepEqual(asked, [
+    ['ProfitAndLoss', { start_date: '2026-09-01', end_date: '2026-09-30', ...common }],
+    ['TrialBalance', { start_date: '2026-09-01', end_date: '2026-09-30', ...common }],
+    // The day before the month starts: where every account stood going in.
+    ['TrialBalance', { start_date: '2026-08-01', end_date: '2026-08-31', ...common }]]);
+  assert.deepEqual(f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_balances_store')[2], {
+    p_company: COMPANY, p_connection: CONNECTION, p_period_start: '2026-09-01', p_read_through: '2026-09-30',
+    p_token: READ_TOKEN, p_rows: BALANCE_ROWS, p_error: null });
+  // A January month looks back across the year end.
+  const jan = fixture({ work: { ...WORK, period_start: '2026-01-01', read_through: '2026-01-31' },
+    quickbooks: { trial: (href) => new Response(JSON.stringify(new URL(href).searchParams.get('end_date') === '2026-01-31' ? TRIAL_END : TRIAL_START)) } });
+  await jan.request();
+  assert.deepEqual(fetches(jan.events).filter((e) => e[2].includes('TrialBalance')).map((e) => new URL(e[2]).searchParams.get('end_date')),
+    ['2026-01-31', '2025-12-31']);
+});
+
+test('balances that cannot be read or understood store the reason and no rows, and the ledger read still stands', async () => {
+  const cases = [
+    ['quickbooks_busy', { pnl: () => new Response('{}', { status: 429 }) }],
+    ['quickbooks_read_failed', { trial: () => new Response('{}', { status: 500 }) }],
+    ['quickbooks_unreachable', { trial: () => { throw new Error('socket'); } }],
+    // The accounts do not add up to the report's own net income.
+    ['balances_unreadable', { pnl: () => new Response(JSON.stringify(pnl([['20', 'Sales', '100.00']], '101.00'))) }],
+    // An account the account list does not know.
+    ['balances_unreadable', { pnl: () => new Response(JSON.stringify(pnl([['99', 'Mystery', '100.00']], '100.00'))) }],
+    // A trial balance that does not balance.
+    ['balances_unreadable', { trial: () => new Response(JSON.stringify(trial([['10', 'Checking', '150.00', '']]))) }],
+    ['balances_unreadable', { pnl: () => new Response(JSON.stringify({ Rows: { Row: [] } })) }],
+  ];
+  for (const [code, quickbooks] of cases) {
+    const f = fixture({ quickbooks });
+    assert.deepEqual(await (await f.request()).json(), { done: false, ok: true, changed: true, lines: 7, balances: false }, code);
+    assert.deepEqual(f.events.find((e) => e[1] === 'quickbooks_ledger_mirror_balances_store')[2], {
+      p_company: COMPANY, p_connection: CONNECTION, p_period_start: '2026-09-01', p_read_through: '2026-09-30',
+      p_token: READ_TOKEN, p_rows: null, p_error: code }, code);
+    assert.equal(rpcs(f.events).includes('quickbooks_ledger_mirror_failed'), false, code);
+  }
+  // The database refusing or being down is a "no", never a "yes".
+  for (const options of [{ balancesStore: { ok: false, error: 'x' } }, { balancesError: true }, { balancesError: 'throw' }]) {
+    assert.equal((await (await fixture(options).request()).json()).balances, false);
+  }
+  // A newer read took the month over: the database says so, and it is a "no".
+  assert.equal((await (await fixture({ balancesStore: { ok: false, superseded: true } }).request()).json()).balances, false);
+  // No balances are read for a month whose lines were not accepted, or for a read with no token to name it.
+  for (const options of [{ store: { ok: false, error: 'x' } }, { storeError: true }, { store: { ok: true, changed: true, lines: 7 } },
+    { store: { ok: true, changed: true, lines: 7, read_token: 'not-a-token' } }]) {
+    const f = fixture(options);
+    await f.request();
+    assert.equal(fetches(f.events).some((e) => /ProfitAndLoss|TrialBalance/.test(e[2])), false);
+    assert.equal(rpcs(f.events).includes('quickbooks_ledger_mirror_balances_store'), false);
+  }
+});
+
+test('the reports become one row per account: month movement, signed, in whole cents', () => {
+  const types = { 10: 'Bank', 20: 'Income', 21: 'Other Income', 30: 'Cost of Goods Sold', 31: 'Expense', 32: 'Other Expense',
+    40: 'Equity', 41: 'Credit Card', 42: 'Fixed Asset' };
+  // Sub-accounts under a parent that carries its own amount, as QuickBooks nests them.
+  const report = { Columns: money2, Rows: { Row: [
+    { type: 'Section', group: 'Income', Rows: { Row: [
+      { type: 'Section', Header: { ColData: [{ value: 'Sales', id: '20' }, { value: '0.10' }] },
+        Rows: { Row: [{ type: 'Data', ColData: [{ value: 'Other sales', id: '21' }, { value: '0.20' }] }] },
+        Summary: { ColData: [{ value: 'Total Sales' }, { value: '0.30' }] } }] } },
+    { type: 'Section', group: 'Expenses', Rows: { Row: [
+      { type: 'Data', ColData: [{ value: 'Goods', id: '30' }, { value: '1000000.07' }] },
+      { type: 'Data', ColData: [{ value: 'Rent', id: '31' }, { value: '-5.5' }] },
+      { type: 'Data', ColData: [{ value: 'Quiet', id: '32' }, { value: '' }] }] } },
+    { type: 'Section', group: 'NetIncome', Summary: { ColData: [{ value: 'Net Income' }, { value: '-999994.27' }] } }] } };
+  const parsed = parseProfitAndLoss(report);
+  assert.equal(parsed.net, -99999427);
+  const end = parseTrialBalance(trial([['10', 'Checking', '70.00', ''], ['40', 'Retained Earnings', '', '20.00'], ['41', 'Card', '', '50.00']]));
+  const start = parseTrialBalance(trial([['10', 'Checking', '100.00', ''], ['40', 'Retained Earnings', '', '20.00'], ['42', 'Truck', '10.00', ''], ['41', 'Card', '', '90.00']]));
+  const rows = accountBalances({ types, computed: new Set(['40']), profitAndLoss: parsed, endBalances: end, startBalances: start });
+  assert.deepEqual(rows, [
+    { id: '20', name: 'Sales', type: 'Income', activity: -0.1, ending: null },
+    { id: '21', name: 'Other sales', type: 'Other Income', activity: -0.2, ending: null },
+    { id: '30', name: 'Goods', type: 'Cost of Goods Sold', activity: 1000000.07, ending: null },
+    { id: '31', name: 'Rent', type: 'Expense', activity: -5.5, ending: null },
+    { id: '10', name: 'Checking', type: 'Bank', activity: -30, ending: 70 },
+    // QuickBooks works retained earnings out itself: where it stands, and no movement.
+    { id: '40', name: 'Retained Earnings', type: 'Equity', activity: null, ending: -20 },
+    { id: '41', name: 'Card', type: 'Credit Card', activity: 40, ending: -50 },
+    // Gone from the later report: it moved back to nothing.
+    { id: '42', name: 'Truck', type: 'Fixed Asset', activity: -10, ending: 0 }]);
+  // An empty month is empty, not unreadable.
+  assert.deepEqual(parseProfitAndLoss({ Columns: money2, Rows: {} }), { accounts: new Map(), net: 0 });
+  assert.equal(parseTrialBalance({ Columns: money3, Rows: {} }).size, 0);
+  // Anything not understood is refused, never guessed.
+  const bad = (fn) => assert.throws(fn, (e) => e.code === 'balances_unreadable');
+  bad(() => parseProfitAndLoss({ ...report, Columns: money3 }));                       // a report by month, not for one period
+  bad(() => parseProfitAndLoss(pnl([['20', 'Sales', '1,000.00']], '1000.00')));         // not a plain amount
+  bad(() => parseProfitAndLoss(pnl([['20', 'Sales', '1.00'], ['20', 'Sales', '1.00']], '2.00')));
+  bad(() => parseProfitAndLoss(pnl([[undefined, 'No account', '1.00']], '1.00')));       // money on no account
+  bad(() => parseProfitAndLoss({ Columns: money2, Rows: { Row: [{ type: 'Data', ColData: [{ value: 'Sales', id: '20' }, { value: '1.00' }] }] } })); // no net income line
+  bad(() => parseTrialBalance({ Columns: money3, Rows: { Row: [{ ColData: [{ value: 'Checking', id: '10' }, { value: '1.00' }, { value: '' }] }] } })); // no total
+  bad(() => parseTrialBalance(trial([['10', 'Checking', '1.00', ''], ['10', 'Checking', '', '1.00']])));
+  bad(() => accountBalances({ types: { 20: 'Bank' }, computed: new Set(), profitAndLoss: parseProfitAndLoss(PNL), endBalances: new Map(), startBalances: new Map() }));
+  bad(() => accountBalances({ types: {}, computed: new Set(), profitAndLoss: parseProfitAndLoss({ Columns: money2, Rows: {} }), endBalances: end, startBalances: start }));
 });
 
 test('a failure that cannot be recorded stops the run instead of spinning', async () => {
@@ -297,11 +440,11 @@ test('Mirror now: the month the database hands the caller is read and stored, an
   const res = await f.person();
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('access-control-allow-origin'), '*');
-  assert.deepEqual(await res.json(), { done: false, ok: true, changed: true, lines: 7, remaining: 2 });
+  assert.deepEqual(await res.json(), { done: false, ok: true, changed: true, lines: 7, balances: true, remaining: 2 });
   assert.deepEqual(f.events.slice(0, 2).map((e) => e[0]), ['user-db', 'user-rpc']);
   assert.deepEqual(f.events[1][2], { p_since: SINCE, p_months_back: MONTHS_BACK });
   // The scheduler's own work list is never consulted for a person.
-  assert.deepEqual(rpcs(f.events), ['quickbooks_ledger_mirror_store']);
+  assert.deepEqual(rpcs(f.events), ['quickbooks_ledger_mirror_read_store', 'quickbooks_ledger_mirror_balances_store']);
   const stored = f.events.find((e) => e[0] === 'rpc')[2];
   assert.equal(stored.p_company, COMPANY); assert.equal(stored.p_connection, CONNECTION); assert.equal(stored.p_period_start, '2026-09-01');
   // The person's token never goes to QuickBooks.

@@ -355,6 +355,7 @@ on:
       - 'supabase/migrations/*quickbooks_ledger_mirror.sql'
       - 'supabase/migrations/*quickbooks_settle_and_mirror_now.sql'
       - 'supabase/migrations/*quickbooks_sent_entries_check_fast.sql'
+      - 'supabase/migrations/*quickbooks_balance_check.sql'
       - 'supabase/functions/quickbooks-ledger-mirror-scheduled/**'
       - 'scripts/quickbooks-ledger-mirror.mjs'
       - '.github/workflows/quickbooks-ledger-mirror.yml'
@@ -805,7 +806,7 @@ jobs:
       - name: QuickBooks sync page
         run: |
           node --test scripts/tests/quickbooks-sync.test.mjs
-          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable stale-mark-still-synced stale-mark-preticked unread-marks-sendable unread-marks-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months send-unticked send-unsendable mark-unmarkable todo-drops-fix todo-shows-open agree-unread-month verdict-from-entries partial-month-says-whole edited-entries-unsaid match-despite-unread agree-despite-change agree-when-unread agree-on-garbage agree-despite-unread settled-still-open settle-without-shown-state settle-counts-moved-on detail-loses-side moved-hides-new-date mirror-ignores-company mirror-continues-after-refusal mirror-reads-http-error; do
+          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable stale-mark-still-synced stale-mark-preticked unread-marks-sendable unread-marks-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months send-unticked send-unsendable mark-unmarkable todo-drops-fix todo-shows-open agree-unread-month verdict-from-entries partial-month-says-whole edited-entries-unsaid agree-despite-change agree-when-unread agree-on-garbage agree-despite-unread settled-still-open settle-without-shown-state settle-counts-moved-on detail-loses-side moved-hides-new-date mirror-ignores-company mirror-continues-after-refusal mirror-reads-http-error verdict-without-check unchecked-called-match difference-called-match odd-check-trusted; do
             if QBSYNC_MUTATION=$m node --test scripts/tests/quickbooks-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
@@ -1920,6 +1921,12 @@ jobs:
           # Settle and Mirror now (20261125235000), on the same books.
           for m in patch-skipped no-retry-reset due-any-user due-any-company due-ignores-since due-stale-since check-ignores-amount check-ignores-day check-judges-unread check-counts-unposted check-any-type check-any-connection accept-any-user accept-any-company accept-unchanged accept-unseen-version detail-shows-unchanged detail-swaps-sides stale-acceptance-stands browser-writes-settlements anon-can-accept anon-can-start-a-read chart-per-row; do
             if SETTLE_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+          done
+          # SILO against QuickBooks account by account (20261127213000).
+          for m in stale-balances-trusted computed-called-match cent-ignored one-sided-dropped error-keeps-rows open-to-browser never-due other-day-taken stale-read-writes token-not-rotated empty-month-unchecked; do
+            if BALANCE_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
           done

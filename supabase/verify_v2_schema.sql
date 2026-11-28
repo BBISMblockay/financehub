@@ -11119,6 +11119,41 @@ select 'QuickBooks settle and Mirror now' as check_name,
     else 'ok'
   end as status;
 
+-- 20261127213000: SILO against QuickBooks account by account. QuickBooks' own
+-- balances per month are written only by the service role, read only by the
+-- company's finance users, and count only for the lines they were read beside.
+select 'QuickBooks balance check' as check_name,
+  case
+    when to_regclass('public.quickbooks_ledger_mirror_balances') is null
+      or to_regclass('public.quickbooks_balance_check_v') is null
+      or to_regclass('public.quickbooks_balance_check_months_v') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)') is null
+      or to_regprocedure('public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)') is null
+      then 'MISSING — run 20261127213000_quickbooks_balance_check.sql'
+    when has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)'), 'execute')
+      or has_function_privilege('authenticated', to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)'), 'execute')
+      or has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)'), 'execute')
+      or has_function_privilege('authenticated', to_regprocedure('public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)'), 'execute')
+      then 'CRITICAL: a browser can write QuickBooks balances'
+    when exists (select 1 from pg_class c where c.oid = to_regclass('public.quickbooks_ledger_mirror_balances')
+                    and (not c.relrowsecurity
+                      or has_table_privilege('anon', c.oid, 'SELECT')
+                      or has_table_privilege('authenticated', c.oid, 'INSERT,UPDATE,DELETE')))
+      then 'CRITICAL: quickbooks_ledger_mirror_balances is open (RLS off, readable by anon, or writable by a browser)'
+    when exists (select 1 from pg_class c
+                  where c.oid in (to_regclass('public.quickbooks_balance_check_v'), to_regclass('public.quickbooks_balance_check_months_v'))
+                    and (not coalesce(c.reloptions @> array['security_invoker=true'], false)
+                      or has_table_privilege('anon', c.oid, 'SELECT')))
+      then 'CRITICAL: a balance check view is not security_invoker, or anon can read it'
+    when position('balances_hash' in pg_get_viewdef(to_regclass('public.quickbooks_balance_check_v'))) = 0
+      then 'BROKEN — balances read beside other ledger lines would count; re-run 20261127213000'
+    when position('read_token' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)'))) = 0
+      then 'BROKEN — an older read could overwrite or clear a newer balance check; re-run 20261127213000'
+    when position('balances_read_at' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_due(integer,integer)'))) = 0
+      then 'BROKEN — months read before balances existed are never read again for them; re-run 20261127213000'
+    else 'ok'
+  end as status;
+
 -- A purchase order's step set by a connected AI (po_status:write,
 -- 20261125234500): the scope is grantable and on its own path, the steps are
 -- COMPANY DATA rather than a list in code, a step that means units arrived

@@ -803,4 +803,253 @@ await test('the check view reads the chart once, not once per account', async ()
   assert.doesNotMatch(chart, /\be\./, 'which does not depend on an entry');
 });
 
+// ── 20261127213000: SILO against QuickBooks, account by account ─────────────
+// BALANCE_MUTATION=<name> breaks one rule of that migration; the suite must fail.
+let BALANCE = readFileSync(
+  new URL('../../supabase/migrations/20261127213000_quickbooks_balance_check.sql', import.meta.url), 'utf8');
+const BALANCE_MUTATIONS = {
+  // Balances read beside OTHER lines still count.
+  'stale-balances-trusted': ['\n     and p.balances_hash is not distinct from p.content_hash', ''],
+  // An account QuickBooks computes is called a match.
+  'computed-called-match': ["when q.period_id is not null and q.activity is null then 'not_compared'", "when false then 'not_compared'"],
+  // A cent is close enough.
+  'cent-ignored': ["when coalesce(s.activity, 0) = coalesce(q.activity, 0) then 'match'",
+    "when abs(coalesce(s.activity, 0) - coalesce(q.activity, 0)) < 1 then 'match'"],
+  // An account only SILO has is left out.
+  'one-sided-dropped': ['full join silo s on', 'left join silo s on'],
+  // A failed read leaves the old balances standing.
+  'error-keeps-rows': ['  -- Not stored: whatever was there no longer describes this read.\n  delete from public.quickbooks_ledger_mirror_balances where period_id = v_period.id;', ''],
+  // A browser can write balances.
+  'open-to-browser': ['revoke all on function public.quickbooks_ledger_mirror_balances_store(uuid, uuid, date, date, uuid, jsonb, text)\n  from public, anon, authenticated;', ''],
+  // An older, slower read can attach its balances to a newer read's lines, or clear them.
+  'stale-read-writes': ["  if p_token is null or v_period.read_token is distinct from p_token then", "  if false then"],
+  // A read keeps the token of the read before it.
+  'token-not-rotated': ["     set read_token = v_token\n", "     set read_token = coalesce(read_token, v_token)\n"],
+  // "Checked" depends on how many accounts were found.
+  'empty-month-unchecked': ["       (p.balances_read_at is not null and p.balances_hash is not distinct from p.content_hash) as checked,", "       (a.period_start is not null) as checked,"],
+  // A month read before balances existed never gets them.
+  'never-due': ['           when p.balances_read_at is null and p.balances_error is null then true\n', ''],
+  // Balances for a different day than the lines were read through are taken.
+  'other-day-taken': ["      if v_period.read_through is distinct from p_read_through then\n        raise exception 'the month was read through %, not %', v_period.read_through, p_read_through;\n      end if;\n", ''],
+};
+const BALANCE_MUTATION = process.env.BALANCE_MUTATION || '';
+if (BALANCE_MUTATION) {
+  const m = BALANCE_MUTATIONS[BALANCE_MUTATION];
+  if (!m) throw new Error(`unknown BALANCE_MUTATION ${BALANCE_MUTATION}`);
+  if (BALANCE.split(m[0]).length !== 2) throw new Error(`mutation ${BALANCE_MUTATION} no longer matches the migration`);
+  BALANCE = BALANCE.replace(m[0], m[1]);
+  console.log(`# mutation ${BALANCE_MUTATION} applied`);
+}
+// A second company, so nothing above is in the way: September as QuickBooks holds it.
+const TYPES2 = { 10: 'Bank', 20: 'Income', 30: 'Expense', 31: 'Expense', 40: 'Credit Card' };
+// A read of the month as the reader performs it: the lines, and the token that names the read.
+const read = async (rep, { start = '2026-09-01', through = '2026-09-30' } = {}) => (await q(
+  `select public.quickbooks_ledger_mirror_read_store($1::uuid, $2::uuid, $3::date, $4::date, $5::jsonb, $6::jsonb) r`,
+  [CO2, CONN2, start, through, JSON.stringify(rep), JSON.stringify(TYPES2)]))[0].r;
+const currentToken = async (start) => (await q(`select read_token t from quickbooks_ledger_mirror_periods
+   where company_entity_id = $1 and period_start = $2`, [CO2, start]))[0]?.t ?? null;
+const balances = async (rows, { error = null, through = '2026-09-30', conn = CONN2, start = '2026-09-01', token } = {}) => (await q(
+  `select public.quickbooks_ledger_mirror_balances_store($1::uuid, $2::uuid, $3::date, $4::date, $5::uuid, $6::jsonb, $7) r`,
+  [CO2, conn, start, through, token === undefined ? await currentToken(start) : token, rows === null ? null : JSON.stringify(rows), error]))[0].r;
+const compared = async () => (await q(`select qbo_account_id a, status s, silo_amount::text silo, quickbooks_amount::text qb,
+    quickbooks_ending::text ending from quickbooks_balance_check_v where company_entity_id = $1 order by 1`, [CO2]))
+  .map((r) => `${r.a} ${r.s} ${r.silo} ${r.qb} ${r.ending}`);
+const month = async () => (await q(`select checked, stale, balances_error e, compared::int c, matched::int m, differing::int d,
+    not_compared::int n, differs_by::text by, accounts from quickbooks_balance_check_months_v
+   where company_entity_id = $1 and period_start = '2026-09-01'`, [CO2]))[0];
+// What QuickBooks' own reports say moved in September, and where each account stood.
+const GOOD = [
+  { id: '20', name: 'Sales', type: 'Income', activity: -300, ending: null },
+  { id: '30', name: 'Rent', type: 'Expense', activity: 400, ending: null },
+  { id: '31', name: 'Warehouse', type: 'Expense', activity: 100, ending: null },
+  { id: '10', name: 'Checking', type: 'Bank', activity: 300, ending: 1300 },
+  { id: '40', name: 'Visa', type: 'Credit Card', activity: -500, ending: -500 },
+  { id: '90', name: 'Retained Earnings', type: 'Equity', activity: null, ending: -1000 }];
+
+await test('a month with no balances read is "not checked", never a match', async () => {
+  await db.exec(BALANCE);
+  await db.exec(BALANCE);   // applying it again changes nothing
+  MIRROR_FUNCTIONS.push('quickbooks_ledger_mirror_balances_store', 'quickbooks_ledger_mirror_read_store');
+  assert.deepEqual(await bareWrites(), []);
+  const first = await read(september());
+  assert.equal(first.ok, true);
+  assert.match(first.read_token, /^[0-9a-f-]{36}$/);
+  assert.equal(first.lines, 5, 'the line store\'s own answer comes back with it');
+  assert.deepEqual(await compared(), []);
+  const m = await month();
+  assert.deepEqual([m.checked, m.stale, m.e, m.c, m.m, m.d], [false, false, null, 0, 0, 0]);
+});
+
+await test('every account that moved the same amount on both sides is a match; a computed account is not compared', async () => {
+  assert.deepEqual(await balances(GOOD), { ok: true, accounts: 6 });
+  assert.deepEqual(await compared(), [
+    '10 match 300.00 300.00 1300.00',
+    '20 match -300.00 -300.00 null',
+    '30 match 400.00 400.00 null',
+    '31 match 100.00 100.00 null',
+    '40 match -500.00 -500.00 -500.00',
+    '90 not_compared 0 null -1000.00']);
+  const m = await month();
+  assert.deepEqual([m.checked, m.stale, m.c, m.m, m.d, m.n, m.by, m.accounts], [true, false, 5, 5, 0, 1, '0', []]);
+  // Storing again replaces, it does not add.
+  assert.deepEqual(await balances(GOOD), { ok: true, accounts: 6 });
+  assert.equal((await compared()).length, 6);
+});
+
+await test('a cent, an account on one side only, and money moved between accounts each show as a difference', async () => {
+  assert.equal((await balances([
+    { id: '20', name: 'Sales', type: 'Income', activity: -300, ending: null },
+    { id: '30', name: 'Rent', type: 'Expense', activity: 450, ending: null },          // 50 moved from the sub-account
+    { id: '31', name: 'Warehouse', type: 'Expense', activity: 50, ending: null },
+    { id: '10', name: 'Checking', type: 'Bank', activity: 300.01, ending: 1300.01 },    // one cent
+    { id: '60', name: 'Loan', type: 'Long Term Liability', activity: -25, ending: -25 }, // only QuickBooks has it
+  ])).ok, true);                                                                        // and Visa is only in SILO
+  assert.deepEqual(await compared(), [
+    '10 differs 300.00 300.01 1300.01',
+    '20 match -300.00 -300.00 null',
+    '30 differs 400.00 450.00 null',
+    '31 differs 100.00 50.00 null',
+    '40 differs -500.00 0 null',
+    '60 differs 0 -25.00 -25.00']);
+  const m = await month();
+  assert.deepEqual([m.checked, m.c, m.m, m.d, m.by], [true, 6, 1, 5, '625.01']);
+  // The accounts that differ, biggest first, with both sides.
+  assert.deepEqual(m.accounts.map((a) => [a.account, a.type, Number(a.silo), Number(a.quickbooks)]), [
+    ['Visa', 'Credit Card', -500, 0], ['Rent', 'Expense', 400, 450], ['Warehouse', 'Expense', 100, 50],
+    ['Loan', 'Long Term Liability', 0, -25], ['Checking', 'Bank', 300, 300.01]]);
+});
+
+await test('balances that cannot be read clear the month and keep the reason', async () => {
+  assert.deepEqual(await balances(null, { error: 'quickbooks_busy' }), { ok: false, error: 'quickbooks_busy' });
+  assert.deepEqual(await compared(), []);
+  assert.equal((await q(`select count(*)::int n from quickbooks_ledger_mirror_balances where company_entity_id = $1`, [CO2]))[0].n, 0,
+    'the old balances are gone, not just hidden');
+  const m = await month();
+  assert.deepEqual([m.checked, m.stale, m.e], [false, false, 'quickbooks_busy']);
+  // Rows the database does not understand are refused whole, and say so.
+  for (const [bad, opts, pattern] of [
+    [[GOOD[0], GOOD[0]], {}, /appears twice/],
+    [[{ ...GOOD[0], activity: '12' }], {}, /not understood/],
+    [[{ ...GOOD[0], name: '' }], {}, /not understood/],
+    [{ rows: 1 }, {}, /no account rows/],
+    [GOOD, { through: '2026-09-29' }, /read through 2026-09-30/],
+  ]) {
+    await balances(GOOD);
+    const r = await balances(bad, opts);
+    assert.equal(r.ok, false, JSON.stringify(bad).slice(0, 60));
+    assert.match(r.error, pattern);
+    assert.deepEqual(await compared(), [], 'nothing stands after a refusal');
+    assert.match((await month()).e, pattern);
+  }
+  // Someone else's connection, or a month never read, is not a month to write.
+  await assert.rejects(balances(GOOD, { conn: CONN }), /not this company's books/);
+  await assert.rejects(balances(GOOD, { start: '2026-03-01', through: '2026-03-31' }), /no accepted read/);
+  assert.equal((await balances(GOOD)).ok, true);
+  assert.equal((await month()).e, null);
+});
+
+await test('balances stop counting the moment the lines change without them', async () => {
+  assert.equal((await month()).checked, true);
+  const changed = await read(CHANGED);
+  assert.equal(changed.changed, true);
+  assert.deepEqual(await compared(), []);
+  const m = await month();
+  assert.deepEqual([m.checked, m.stale, m.c], [false, true, 0]);
+  // Read again beside the new lines, they count again: the 100 now sits on the parent account.
+  assert.equal((await balances(GOOD)).ok, true);
+  assert.deepEqual((await compared()).filter((r) => /^3/.test(r)), ['30 differs 500.00 400.00 null', '31 differs 0 100.00 null']);
+});
+
+await test('two reads of one month that overlap: only the newer read\'s balances are taken, and the older one changes nothing', async () => {
+  // A reads the month and goes off to fetch QuickBooks' reports. B reads it again, with different lines, and finishes.
+  const a = await read(september());
+  const b = await read(CHANGED);
+  assert.notEqual(a.read_token, b.read_token);
+  const B_ROWS = GOOD.map((r) => (r.id === '30' ? { ...r, activity: 500 } : r)).filter((r) => r.id !== '31');
+  assert.equal((await balances(B_ROWS, { token: b.read_token })).ok, true);
+  const after = await compared();
+  assert.equal((await month()).d, 0, 'B\'s balances agree with B\'s lines');
+  // A comes back with balances for ITS lines: refused, and B's check stands untouched.
+  assert.deepEqual(await balances(GOOD, { token: a.read_token }), { ok: false, superseded: true, error: 'superseded by a newer read' });
+  assert.deepEqual(await compared(), after);
+  // ...or A's reports failed: it must not clear B's check either.
+  assert.equal((await balances(null, { token: a.read_token, error: 'quickbooks_busy' })).superseded, true);
+  assert.deepEqual(await compared(), after);
+  let m = await month();
+  assert.deepEqual([m.checked, m.e, m.d], [true, null, 0]);
+  // No token at all is nobody's read.
+  assert.equal((await balances(GOOD, { token: null })).superseded, true);
+  // A report the line store refuses hands out no token and leaves the current one alone.
+  const bad = await read(september(), { through: '2026-09-29' });
+  assert.equal(bad.ok, false); assert.equal(bad.read_token, undefined);
+  assert.equal(await currentToken('2026-09-01'), b.read_token);
+  // Reading the same lines again is still a new read with its own token.
+  const c = await read(CHANGED);
+  assert.equal(c.changed, false); assert.notEqual(c.read_token, b.read_token);
+  assert.equal((await balances(B_ROWS, { token: b.read_token })).superseded, true);
+  assert.equal((await balances(B_ROWS, { token: c.read_token })).ok, true);
+  m = await month();
+  assert.equal(m.checked, true);
+});
+
+await test('a month with nothing in it on either side is checked, with nothing to compare', async () => {
+  const empty = await read(report('2026-06-01', '2026-06-30', []), { start: '2026-06-01', through: '2026-06-30' });
+  assert.equal(empty.ok, true);
+  const june = async () => (await q(`select checked, stale, compared::int c, differing::int d from quickbooks_balance_check_months_v
+     where company_entity_id = $1 and period_start = '2026-06-01'`, [CO2]))[0];
+  assert.deepEqual(await june(), { checked: false, stale: false, c: 0, d: 0 });
+  assert.deepEqual(await balances([], { start: '2026-06-01', through: '2026-06-30' }), { ok: true, accounts: 0 });
+  assert.deepEqual(await june(), { checked: true, stale: false, c: 0, d: 0 });
+  await db.query(`delete from quickbooks_ledger_mirror_periods where company_entity_id = $1 and period_start = '2026-06-01'`, [CO2]);
+});
+
+await test('a month read before balances existed is due once, and a month whose balances failed waits its turn', async () => {
+  await db.exec(`set test.today = '2026-11-25'; update quickbooks_connections set is_active = true where id = '${CONN2}'`);
+  const dueSept = async () => (await due(3, 200)).includes('B 2026-09-01..2026-09-30');
+  assert.equal(await dueSept(), false, 'read, with balances: not due');
+  await db.query(`update quickbooks_ledger_mirror_periods set balances_read_at = null, balances_hash = null
+                   where company_entity_id = $1 and period_start = '2026-09-01'`, [CO2]);
+  assert.equal(await dueSept(), true, 'read, never had balances: due');
+  await balances(null, { error: 'balances_unreadable' });
+  assert.equal(await dueSept(), false, 'balances failed: waits for the month\'s ordinary turn');
+  await balances(GOOD);
+  await db.exec(`update quickbooks_connections set is_active = false where id = '${CONN2}'`);
+});
+
+await test('only the service role writes balances; finance users of the company read them', async () => {
+  const [g] = await q(`select
+      has_function_privilege('authenticated', 'public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)', 'execute') a,
+      has_function_privilege('authenticated', 'public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)', 'execute') ra,
+      has_function_privilege('anon', 'public.quickbooks_ledger_mirror_read_store(uuid,uuid,date,date,jsonb,jsonb)', 'execute') rn,
+      has_function_privilege('anon', 'public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)', 'execute') n,
+      has_function_privilege('service_role', 'public.quickbooks_ledger_mirror_balances_store(uuid,uuid,date,date,uuid,jsonb,text)', 'execute') s,
+      has_table_privilege('authenticated', 'quickbooks_ledger_mirror_balances', 'INSERT,UPDATE,DELETE') w,
+      has_table_privilege('anon', 'quickbooks_ledger_mirror_balances', 'SELECT') ar,
+      has_table_privilege('anon', 'quickbooks_balance_check_v', 'SELECT') av,
+      has_table_privilege('anon', 'quickbooks_balance_check_months_v', 'SELECT') am,
+      has_table_privilege('authenticated', 'quickbooks_balance_check_months_v', 'SELECT') rm,
+      (select relrowsecurity from pg_class where relname = 'quickbooks_ledger_mirror_balances') rls,
+      (select count(*)::int from pg_class where relname in ('quickbooks_balance_check_v', 'quickbooks_balance_check_months_v')
+          and reloptions @> array['security_invoker=true']) invoker,
+      (select pg_get_expr(polqual, polrelid) from pg_policy where polrelid = 'quickbooks_ledger_mirror_balances'::regclass) pol`);
+  assert.deepEqual([g.a, g.n, g.s, g.w, g.ar, g.av, g.am, g.rm, g.rls, g.invoker, g.ra, g.rn], [false, false, true, false, false, false, false, true, true, 2, false, false]);
+  assert.match(g.pol, /active_company_id\(\)/);
+  assert.match(g.pol, /can_manage_journal_entries\(\)/);
+  assert.equal((await q(`select count(*)::int n from pg_policy where polrelid = 'quickbooks_ledger_mirror_balances'::regclass`))[0].n, 1);
+});
+
+await test('the verify check for the balance check reads ok, and notices what it exists for', async () => {
+  const verify = readFileSync(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const at = verify.indexOf(`select 'QuickBooks balance check' as check_name`);
+  assert.ok(at > 0, 'the verify check is gone');
+  const check = verify.slice(at, verify.indexOf('as status;', at) + 'as status;'.length);
+  const status = async () => (await q(check))[0].status;
+  if (!BALANCE_MUTATION) assert.equal(await status(), 'ok');
+  if (BALANCE_MUTATION === 'open-to-browser') assert.match(await status(), /^CRITICAL: a browser can write/);
+  if (BALANCE_MUTATION === 'stale-balances-trusted') assert.match(await status(), /^BROKEN/);
+  await db.exec(`alter table public.quickbooks_ledger_mirror_balances disable row level security`);
+  assert.match(await status(), /^(CRITICAL|BROKEN)/);
+  await db.exec(`alter table public.quickbooks_ledger_mirror_balances enable row level security`);
+});
+
 console.log(`\n${passed} passed`);

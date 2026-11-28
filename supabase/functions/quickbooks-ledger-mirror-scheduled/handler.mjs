@@ -14,8 +14,17 @@
 // (quickbooks_ledger_mirror_store keeps the last good copy of a month whenever
 // it refuses a report).
 //
-// READ ONLY toward QuickBooks: two GETs (the account list and the
-// GeneralLedger report). The only QuickBooks-side effect is the OAuth token
+// After a month's ledger lines are stored, the same call reads QuickBooks' own
+// summary of that month (ProfitAndLoss for the month, TrialBalance at its end
+// and at the day before it starts) and stores one row per account: what moved
+// in the month and where it stood. That is the second, independent reading the
+// account-by-account check compares SILO's books with
+// (quickbooks_balance_check_v). A report that cannot be fetched or understood
+// stores no balances and the reason, never a guess: the month then reads "not
+// checked". It never undoes the ledger read.
+//
+// READ ONLY toward QuickBooks: five GETs (the account list and the
+// GeneralLedger, ProfitAndLoss and two TrialBalance reports). The only QuickBooks-side effect is the OAuth token
 // refresh every QuickBooks function performs. Nothing is posted, edited or
 // voided; quickbooks-post-journal stays the only write path.
 //
@@ -86,23 +95,152 @@ async function quickbooksGet(fetchImpl, url, token) {
   return body;
 }
 
-// {"<account id>": "<AccountType>"} for every account, active or not: an old
-// month still carries accounts that were made inactive since.
+// types: {"<account id>": "<AccountType>"} for every account, active or not: an
+// old month still carries accounts that were made inactive since. computed: the
+// ids of accounts QuickBooks works out itself (retained earnings), whose
+// movement no report states.
 async function accountTypes(fetchImpl, base, realm, token) {
-  const types = {};
+  const types = {}, computed = new Set();
   for (let page = 0; page < MAX_ACCOUNT_PAGES; page++) {
-    const query = `select Id, AccountType from Account where Active in (true, false) startposition ${page * ACCOUNT_PAGE + 1} maxresults ${ACCOUNT_PAGE}`;
+    const query = `select Id, AccountType, AccountSubType from Account where Active in (true, false) startposition ${page * ACCOUNT_PAGE + 1} maxresults ${ACCOUNT_PAGE}`;
     const body = await quickbooksGet(fetchImpl,
       `${base}/v3/company/${encodeURIComponent(realm)}/query?query=${encodeURIComponent(query)}&minorversion=75`, token);
     const rows = body?.QueryResponse?.Account;
     if (rows != null && !Array.isArray(rows)) throw new ReadError('quickbooks_read_failed');
     for (const row of rows || []) {
-      if (typeof row?.Id === 'string' && typeof row?.AccountType === 'string') types[row.Id] = row.AccountType;
+      if (typeof row?.Id === 'string' && typeof row?.AccountType === 'string') {
+        types[row.Id] = row.AccountType;
+        if (row.AccountSubType === 'RetainedEarnings') computed.add(row.Id);
+      }
     }
-    if (!rows || rows.length < ACCOUNT_PAGE) return types;
+    if (!rows || rows.length < ACCOUNT_PAGE) return { types, computed };
   }
   throw new ReadError('quickbooks_read_failed');
 }
+
+// ── QuickBooks' own balances, one row per account ───────────────────────────
+// Money is carried in whole cents, so nothing here depends on how a fraction
+// happens to round.
+const unreadable = () => new ReadError('balances_unreadable');
+function cents(value) {
+  if (value === '' || value == null) return 0;
+  if (typeof value !== 'string' || !/^-?\d{1,15}(\.\d{1,2})?$/.test(value)) throw unreadable();
+  const [whole, part = ''] = value.replace('-', '').split('.');
+  const n = Number(whole) * 100 + Number(part.padEnd(2, '0'));
+  return value.startsWith('-') ? -n : n;
+}
+const columns = report => (Array.isArray(report?.Columns?.Column) ? report.Columns.Column.length : -1);
+const rowsOf = node => {
+  const rows = node?.Rows?.Row;
+  if (rows == null) return [];
+  if (!Array.isArray(rows)) throw unreadable();
+  return rows;
+};
+
+// A ProfitAndLoss report for one period (one money column) ->
+// { accounts: Map id -> { name, amount }, net }: each account's amount as the
+// report prints it (income and expense both positive), and the report's own
+// net income. An account can be a plain row or the header of a group of
+// sub-accounts; a row that carries money but no account is not understood.
+export function parseProfitAndLoss(report) {
+  if (columns(report) !== 2) throw unreadable();
+  const accounts = new Map();
+  let net = null;
+  const take = (cols, heading) => {
+    if (!Array.isArray(cols)) throw unreadable();
+    const id = cols[0]?.id, amount = cents(cols[1]?.value);
+    if (typeof id !== 'string' || !id) { if (amount !== 0) throw unreadable(); return; }
+    // A group's heading names its parent account; it counts only when it
+    // carries the parent's own amount.
+    if (heading && amount === 0) return;
+    if (accounts.has(id)) throw unreadable();
+    accounts.set(id, { name: String(cols[0]?.value ?? ''), amount });
+  };
+  const walk = (rows, depth) => {
+    if (depth > 12) throw unreadable();
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') throw unreadable();
+      if (row.Header?.ColData?.[0]?.id) take(row.Header.ColData, true);
+      if (row.ColData) take(row.ColData);
+      if (row.group === 'NetIncome') {
+        if (net !== null) throw unreadable();
+        net = cents(row.Summary?.ColData?.[1]?.value);
+      }
+      walk(rowsOf(row), depth + 1);
+    }
+  };
+  const top = rowsOf(report);
+  walk(top, 0);
+  // A period with nothing in it has no rows and no net income line.
+  if (net === null) { if (top.length) throw unreadable(); net = 0; }
+  return { accounts, net };
+}
+
+// A TrialBalance report at one date (Debit and Credit columns) ->
+// Map id -> { name, balance }, balance = debit - credit. The report's own
+// grand total must equal the rows and must balance.
+export function parseTrialBalance(report) {
+  if (columns(report) !== 3) throw unreadable();
+  const accounts = new Map();
+  let debit = 0, credit = 0, total = null;
+  const top = rowsOf(report);
+  for (const row of top) {
+    if (!row || typeof row !== 'object') throw unreadable();
+    if (row.group === 'GrandTotal') {
+      if (total !== null) throw unreadable();
+      total = [cents(row.Summary?.ColData?.[1]?.value), cents(row.Summary?.ColData?.[2]?.value)];
+      continue;
+    }
+    const cols = row.ColData;
+    if (!Array.isArray(cols) || row.Rows) throw unreadable();
+    const id = cols[0]?.id, d = cents(cols[1]?.value), c = cents(cols[2]?.value);
+    if (typeof id !== 'string' || !id || accounts.has(id)) throw unreadable();
+    debit += d; credit += c;
+    accounts.set(id, { name: String(cols[0]?.value ?? ''), balance: d - c });
+  }
+  if (total === null) { if (top.length) throw unreadable(); return accounts; }
+  if (total[0] !== debit || total[1] !== credit || debit !== credit) throw unreadable();
+  return accounts;
+}
+
+// How a profit-and-loss account's printed amount turns into +debit / -credit.
+const PNL_SIGN = { Income: -1, 'Other Income': -1, 'Cost of Goods Sold': 1, Expense: 1, 'Other Expense': 1 };
+
+// The three reports -> [{ id, name, type, activity, ending }], +debit / -credit
+// in units of currency. A profit-and-loss account's movement is the
+// ProfitAndLoss amount (a TrialBalance states those year to date, so it is not
+// used for them); every other account's movement is its TrialBalance balance
+// at the end less its balance the day before the month. A computed account
+// (retained earnings) gets its ending balance and no movement. An account the
+// account list does not know is not understood.
+export function accountBalances({ types, computed, profitAndLoss, endBalances, startBalances }) {
+  const out = [];
+  let moved = 0;
+  for (const [id, { name, amount }] of profitAndLoss.accounts) {
+    if (amount === 0) continue;
+    const type = types[id], sign = PNL_SIGN[type];
+    if (!sign) throw unreadable();
+    moved += sign * amount;
+    out.push({ id, name, type, activity: (sign * amount) / 100, ending: null });
+  }
+  // The accounts must add up to the report's own bottom line.
+  if (moved !== -profitAndLoss.net) throw unreadable();
+  for (const id of new Set([...endBalances.keys(), ...startBalances.keys()])) {
+    const type = types[id];
+    if (typeof type !== 'string' || !type) throw unreadable();
+    if (PNL_SIGN[type]) continue;
+    const end = endBalances.get(id)?.balance ?? 0, start = startBalances.get(id)?.balance ?? 0;
+    const name = (endBalances.get(id) || startBalances.get(id)).name;
+    if (computed.has(id)) { out.push({ id, name, type, activity: null, ending: end / 100 }); continue; }
+    if (end === 0 && start === 0) continue;
+    out.push({ id, name, type, activity: (end - start) / 100, ending: end / 100 });
+  }
+  if (out.some(row => !row.name)) throw unreadable();
+  return out;
+}
+
+// 'YYYY-MM-DD' moved by whole days, in calendar terms only.
+const shiftDay = (value, days) => new Date(Date.parse(`${value}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 
 export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, createUserDb, fetchImpl, now = Date.now }) {
   return async req => {
@@ -177,7 +315,7 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
       return reply({ done: false, ok: false, changed: false, lines: 0, error_code: code, ...more });
     };
 
-    let report, types;
+    let report, types, computed, access, reportUrl;
     try {
       const { data: conn, error } = await db.from('quickbooks_connections')
         .select('id, company_entity_id, realm_id, environment, access_token, refresh_token, token_expires_at, refresh_token_expires_at, is_active')
@@ -186,19 +324,18 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
       if (!conn || conn.is_active === false || !conn.realm_id) throw new ReadError('reconnect_required');
       const configured = env('QBO_ENVIRONMENT') === 'production' ? 'production' : 'sandbox';
       if (conn.environment !== configured) throw new ReadError('environment_mismatch');
-      const access = await accessToken({ db, conn, env, fetchImpl, now });
+      access = await accessToken({ db, conn, env, fetchImpl, now });
       const base = apiBase(conn.environment);
-      types = await accountTypes(fetchImpl, base, conn.realm_id, access);
-      const qs = new URLSearchParams({ start_date: work.period_start, end_date: work.read_through,
-        accounting_method: work.accounting_basis, minorversion: '75' });
-      report = await quickbooksGet(fetchImpl,
-        `${base}/v3/company/${encodeURIComponent(conn.realm_id)}/reports/GeneralLedger?${qs}`, access);
+      ({ types, computed } = await accountTypes(fetchImpl, base, conn.realm_id, access));
+      reportUrl = (name, start, end) => `${base}/v3/company/${encodeURIComponent(conn.realm_id)}/reports/${name}?${
+        new URLSearchParams({ start_date: start, end_date: end, accounting_method: work.accounting_basis, minorversion: '75' })}`;
+      report = await quickbooksGet(fetchImpl, reportUrl('GeneralLedger', work.period_start, work.read_through), access);
     } catch (e) {
       return fail(e instanceof ReadError ? e.code : 'quickbooks_read_failed');
     }
 
     try {
-      const { data, error } = await db.rpc('quickbooks_ledger_mirror_store', {
+      const { data, error } = await db.rpc('quickbooks_ledger_mirror_read_store', {
         p_company: work.company_entity_id, p_connection: work.qbo_connection_id,
         p_period_start: work.period_start, p_read_through: work.read_through,
         p_report: report, p_account_types: types });
@@ -207,9 +344,38 @@ export function createLedgerMirrorHandler({ env, verifyIdentity, createDb, creat
       // A refusal is already on the month's row, with its reason; only the
       // fact of it leaves here.
       if (data.ok !== true) return reply({ done: false, ok: false, changed: false, lines: 0, error_code: 'report_refused', ...more });
-      return reply({ done: false, ok: true, changed: data.changed === true, lines, ...more });
+      // The token names THIS read: a newer read of the month makes the
+      // database ignore whatever this one goes on to say about balances.
+      const balances = uuid(data.read_token) ? await readBalances(data.read_token) : false;
+      return reply({ done: false, ok: true, changed: data.changed === true, lines, balances, ...more });
     } catch {
       return fail('store_failed');
+    }
+
+    // The month's lines are stored. Now QuickBooks' own balances for the same
+    // days. Whatever happens here is recorded on the month and reported as one
+    // boolean; it never turns a good ledger read into a failed one.
+    async function readBalances(readToken) {
+      let rows = null, code = null;
+      try {
+        const before = shiftDay(work.period_start, -1);
+        const profitAndLoss = parseProfitAndLoss(await quickbooksGet(fetchImpl,
+          reportUrl('ProfitAndLoss', work.period_start, work.read_through), access));
+        const endBalances = parseTrialBalance(await quickbooksGet(fetchImpl,
+          reportUrl('TrialBalance', work.period_start, work.read_through), access));
+        const startBalances = parseTrialBalance(await quickbooksGet(fetchImpl,
+          reportUrl('TrialBalance', `${before.slice(0, 8)}01`, before), access));
+        rows = accountBalances({ types, computed, profitAndLoss, endBalances, startBalances });
+      } catch (e) {
+        code = e instanceof ReadError ? e.code : 'balances_unreadable';
+      }
+      try {
+        const { data, error } = await db.rpc('quickbooks_ledger_mirror_balances_store', {
+          p_company: work.company_entity_id, p_connection: work.qbo_connection_id,
+          p_period_start: work.period_start, p_read_through: work.read_through,
+          p_token: readToken, p_rows: rows, p_error: code });
+        return !error && data?.ok === true;
+      } catch { return false; }
     }
   };
 }
