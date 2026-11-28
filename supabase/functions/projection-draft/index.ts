@@ -14,6 +14,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   SYSTEM_PROMPT, TOOL, buildUserMessage, clampRows, indexActuals, readToolUse, validateRequest,
+  SCENARIO_SYSTEM, SCENARIO_TOOL, buildScenarioMessage, clampScenarioAnswer,
+  readScenarioToolUse, validateScenarioRequest,
 } from './draft-lib.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -60,6 +62,42 @@ Deno.serve(async (req: Request) => {
     if (!locations.length) return reply({ error: 'This workspace has no active locations to plan.' }, 400);
 
     const body = await req.json().catch(() => ({}));
+
+    // action 'scenario': the assumptions behind a planning scenario. The page
+    // sends the monthly aggregates it already shows; the answer is written
+    // into the boxes a person types into, and nothing is stored either way.
+    if (body?.action === 'scenario') {
+      const sv = validateScenarioRequest(body);
+      if ('error' in sv) return reply({ error: sv.error }, 400);
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 4096,
+          system: [{ type: 'text', text: SCENARIO_SYSTEM, cache_control: { type: 'ephemeral' } }],
+          tools: [SCENARIO_TOOL],
+          tool_choice: { type: 'tool', name: SCENARIO_TOOL.name },
+          messages: [{ role: 'user', content: buildScenarioMessage(sv) }],
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        console.error('[projection-draft] scenario call failed', res.status, detail.slice(0, 300));
+        return reply({ error: `The planning model answered ${res.status}. Try again shortly.` }, 502);
+      }
+      const message = await res.json();
+      if (message?.stop_reason === 'max_tokens') {
+        return reply({ error: 'The answer was cut off. Try a shorter range or a simpler ask.' }, 502);
+      }
+      const answer = clampScenarioAnswer(readScenarioToolUse(message), sv.months);
+      return reply({ ...answer, model: MODEL, elapsed_ms: Date.now() - startedAt });
+    }
+
     const v = validateRequest(body, locations.map((l: { id: number }) => l.id));
     if ('error' in v) return reply({ error: v.error }, 400);
     const { from, to, dates, locationIds, instruction, onlyEmptyDays } = v;

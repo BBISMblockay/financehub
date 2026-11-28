@@ -1,0 +1,988 @@
+<!doctype html>
+<!-- Scenario planning, compact (candidate replacement for
+     /v2/planning-scenarios.html).
+
+     Same model, same numbers: the arithmetic moved into
+     planning-scenarios-model.js, ported from the live page's own functions and
+     held still by scripts/tests/planning-scenarios-model.test.mjs. What
+     changed is the shape. The live page asks for the plan in three large input
+     cards, then prints eleven scenario columns and an 1,800px monthly table.
+     Here there is one controls row, one growth slider with a compare column,
+     and ONE monthly sheet where the plan, the mix and the price are edited in
+     place beside the units and the gap they produce.
+
+     Every assumption still starts filled from this company's own history (or
+     from Projections), every one of them can still be typed over, and nothing
+     the old page could do has been dropped -- the ladder, the channel split,
+     the product families and the historical-lift assumptions are all still
+     here, each one click away instead of always on screen.
+
+     Not in the navigation and linked from nowhere: open it at
+     /v2/planning-scenarios-v2.html. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO · Scenario planning</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    .sc-controls { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end;
+      padding:10px 12px; border-bottom:1px solid var(--bcn-border); }
+    .sc-controls .bcn-field { height:30px; }
+    .sc-growth { display:grid; gap:7px; padding:10px 12px; border-bottom:1px solid var(--bcn-border);
+      background:var(--bcn-sunken); }
+    .sc-growth-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .sc-chips { display:flex; gap:4px; flex-wrap:wrap; }
+    .sc-chip { font-family:var(--bcn-mono); font-size:10.5px; font-weight:700; cursor:pointer;
+      border:1px solid var(--bcn-border-strong); background:var(--bcn-surface); color:var(--bcn-ink-2);
+      border-radius:5px; padding:3px 8px; }
+    .sc-chip[aria-pressed="true"] { background:var(--bcn-accent); border-color:var(--bcn-accent); color:#fff; }
+    #sc-range { flex:1; min-width:220px; accent-color:var(--bcn-accent); }
+    .sc-auto { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+      border-bottom:1px solid var(--bcn-border); }
+    .sc-auto > div { padding:9px 12px; border-right:1px solid var(--bcn-border); display:grid; gap:3px; min-width:0; }
+    .sc-auto > div:last-child { border-right:none; }
+    .sc-k { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; letter-spacing:.09em; color:var(--bcn-ink-3); }
+    .sc-v { font-family:var(--bcn-mono); font-size:15px; font-weight:700; }
+    .sc-src { font-size:11px; color:var(--bcn-ink-3); }
+    .sc-pill-auto { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; border-radius:999px;
+      padding:1px 7px; border:1px solid var(--bcn-accent); color:var(--bcn-accent); background:var(--bcn-accent-soft); }
+    .sc-pill-typed { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; border-radius:999px;
+      padding:1px 7px; border:1px solid var(--bcn-border-strong); color:var(--bcn-ink-2); }
+    .sc-in { width:92px; height:24px; text-align:right; padding:0 6px; font-family:var(--bcn-mono);
+      font-size:12.5px; border:1px solid transparent; border-radius:4px; background:var(--bcn-accent-soft);
+      color:var(--bcn-ink); }
+    .sc-in::placeholder { color:var(--bcn-ink-3); font-weight:400; }
+    .sc-in:hover { border-color:var(--bcn-accent); }
+    .sc-in:focus { outline:none; border-color:var(--bcn-accent); box-shadow:0 0 0 2px var(--bcn-accent-soft);
+      background:var(--bcn-surface); }
+    .sc-in--typed { background:var(--bcn-surface); border-color:var(--bcn-border-strong); font-weight:700; }
+    .sc-in--ai { background:rgba(180,115,26,.14); border-color:var(--bcn-warn); }
+    .sc-scroll { overflow:auto; max-height:46vh; }
+    #sc-table th { position:sticky; top:0; z-index:2; }
+    .sc-bar { position:relative; display:block; width:110px; height:9px; border-radius:2px;
+      background:var(--bcn-border); overflow:hidden; }
+    .sc-bar i { position:absolute; inset:0 auto 0 0; }
+    .sc-drawer { padding:10px 12px; border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken);
+      display:grid; gap:8px; }
+    .sc-drawer[hidden] { display:none; }
+    .sc-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+    .sc-note { font-size:12px; color:var(--bcn-ink-2); background:var(--bcn-surface);
+      border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); padding:8px 10px; }
+    .sc-hint { font-size:11.5px; color:var(--bcn-ink-3); }
+    details.sc-more { border-top:1px solid var(--bcn-border); }
+    details.sc-more > summary { cursor:pointer; padding:8px 12px; font-family:var(--bcn-mono);
+      font-size:10.5px; font-weight:700; letter-spacing:.07em; color:var(--bcn-ink-2); list-style:none; }
+    details.sc-more > summary::-webkit-details-marker { display:none; }
+    details.sc-more > summary::before { content:'▸ '; }
+    details.sc-more[open] > summary::before { content:'▾ '; }
+    .sc-more-body { padding:0 12px 12px; overflow:auto; }
+    .sc-chan { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0;
+      border-bottom:1px solid var(--bcn-border); }
+    .sc-chan:last-child { border-bottom:none; }
+    .sc-chan label { font-size:11px; color:var(--bcn-ink-3); display:flex; gap:4px; align-items:center; }
+    .sc-chan input[type="number"] { width:76px; height:24px; font-family:var(--bcn-mono); font-size:12px;
+      border:1px solid var(--bcn-border-strong); border-radius:4px; padding:0 5px;
+      background:var(--bcn-surface); color:var(--bcn-ink); }
+    @media print { .no-print { display:none !important; } .sc-scroll { max-height:none; overflow:visible; } }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body class="silo-brand">
+
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header no-print">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title">
+          <h1>Scenario planning</h1>
+          <span class="bcn-pill bcn-pill--accent" id="sc-period">—</span>
+          <span class="bcn-pill" title="Not in the sidebar yet.">TESTING</span>
+        </div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">
+          Plan × mix ÷ price = units to buy · every assumption starts filled from your own history ·
+          <a href="/v2/planning-scenarios.html">the current page</a>
+        </div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="sc-ai-btn">✦ ASK FOR A SCENARIO</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="sc-print">PRINT</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="sc-reload">RELOAD</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="sc-export">EXPORT CSV</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <section class="bcn-card" style="margin:0;">
+      <!-- ONE controls row. Everything the old Setup card asked for in three
+           numbered steps, at the same altitude. -->
+      <div class="sc-controls no-print">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-mode">MODE</label>
+          <select class="bcn-field" id="sc-mode">
+            <option value="revenue_plan" selected>Revenue plan</option>
+            <option value="historical">Historical lift</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-from">MONTHS</label>
+          <div style="display:flex;gap:5px;align-items:center;">
+            <input class="bcn-field bcn-field--mono" type="month" id="sc-from" style="width:140px" />
+            <span style="color:var(--bcn-ink-3)">→</span>
+            <input class="bcn-field bcn-field--mono" type="month" id="sc-to" style="width:140px" />
+          </div>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-plan-source">PLAN FROM</label>
+          <select class="bcn-field" id="sc-plan-source">
+            <option value="projections" selected>Revenue projections</option>
+            <option value="history">Last year's actuals</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-type">PRODUCT TYPE</label>
+          <select class="bcn-field" id="sc-type"><option value="__ALL__">All product types</option></select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-channel">CHANNEL</label>
+          <select class="bcn-field" id="sc-channel">
+            <option value="__ALL__">All channels</option>
+            <option value="online">Online</option>
+            <option value="retail">Retail</option>
+            <option value="wholesale">Wholesale / Faire</option>
+          </select>
+        </div>
+        <div class="bcn-field-group" style="flex:1;min-width:170px">
+          <label class="bcn-label" for="sc-search">PRODUCT FAMILY</label>
+          <input class="bcn-field" id="sc-search" placeholder="optional — narrows inventory and POs" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-buffer">BUFFER %</label>
+          <input class="bcn-field bcn-field--mono" type="number" id="sc-buffer" value="10" step="1" style="width:74px" />
+        </div>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="sc-reset">RESET TYPED</button>
+      </div>
+
+      <!-- AI -->
+      <section class="sc-drawer no-print" id="sc-ai" hidden>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="sc-q">WHAT ARE YOU TESTING?</label>
+          <textarea class="bcn-field" id="sc-q" rows="2"
+            placeholder="e.g. what if we grow 25% but hold tees flat and push outerwear?"></textarea>
+        </div>
+        <div class="sc-row">
+          <span class="sc-hint" style="flex:1;min-width:220px">Sets the growth and the monthly plan, mix and price
+            from your own history, and says why. Every value it writes stays editable.</span>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="sc-ai-cancel">CANCEL</button>
+          <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="sc-ai-run">BUILD IT</button>
+        </div>
+        <div class="sc-note" id="sc-ai-out" hidden></div>
+      </section>
+
+      <!-- What the model is using, and where each number came from -->
+      <section class="sc-auto" aria-label="Assumptions">
+        <div>
+          <span class="sc-k">REVENUE PLAN</span><span class="sc-v" id="a-plan">—</span>
+          <span class="sc-src" id="a-plan-src">—</span>
+        </div>
+        <div>
+          <span class="sc-k">PRODUCT MIX</span><span class="sc-v" id="a-mix">—</span>
+          <span class="sc-src" id="a-mix-src">—</span>
+        </div>
+        <div>
+          <span class="sc-k">AVERAGE PRICE</span><span class="sc-v" id="a-asp">—</span>
+          <span class="sc-src" id="a-asp-src">—</span>
+        </div>
+        <div>
+          <span class="sc-k">ON HAND + OPEN POs</span><span class="sc-v" id="a-cover">—</span>
+          <span class="sc-src" id="a-cover-src">live from inventory and purchasing</span>
+        </div>
+      </section>
+
+      <!-- One number moves the model -->
+      <section class="sc-growth">
+        <div class="sc-growth-row">
+          <strong style="font-size:13px">Growth tested</strong>
+          <span class="bcn-pill bcn-pill--accent" id="sc-lift-pill">+25%</span>
+          <input type="number" class="bcn-field bcn-field--mono" id="sc-lift-num" value="25" step="1" style="width:76px;height:26px" />
+          <div class="sc-chips" id="sc-chips"></div>
+          <div style="flex:1"></div>
+          <label class="sc-hint" style="display:flex;gap:5px;align-items:center">COMPARE WITH
+            <select class="bcn-field bcn-field--mono" id="sc-compare" style="height:26px;width:92px">
+              <option value="">none</option>
+            </select>
+          </label>
+        </div>
+        <input type="range" id="sc-range" min="-20" max="100" step="5" value="25" aria-label="Growth tested" />
+      </section>
+
+      <section class="bcn-kpi-band" aria-label="Scenario result">
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">PLAN REVENUE</div>
+          <div class="bcn-kpi-value bcn-mono" id="k-rev">$—</div>
+          <div class="bcn-kpi-delta" id="k-rev-sub">—</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">UNITS NEEDED</div>
+          <div class="bcn-kpi-value bcn-mono" id="k-units">—</div>
+          <div class="bcn-kpi-delta" id="k-units-sub">—</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">ON HAND + OPEN POs</div>
+          <div class="bcn-kpi-value bcn-mono" id="k-avail">—</div>
+          <div class="bcn-kpi-delta" id="k-avail-sub">—</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">GAP WITH BUFFER</div>
+          <div class="bcn-kpi-value bcn-mono" id="k-gap">—</div>
+          <div class="bcn-kpi-delta" id="k-gap-sub">—</div>
+        </div>
+      </section>
+
+      <!-- The sheet: plan, mix and price edited where they are used -->
+      <div class="sc-scroll">
+        <table class="bcn-table" id="sc-table">
+          <thead>
+            <tr>
+              <th class="bcn-th-left">MONTH</th>
+              <th>LAST YEAR</th>
+              <th>PLAN $</th>
+              <th>MIX %</th>
+              <th>PRICE</th>
+              <th id="th-case">+25% CASE</th>
+              <th id="th-compare" hidden>COMPARE</th>
+              <th>UNITS</th>
+              <th title="On hand and open POs are spent month by month; the shortfall shows in the month cover runs out.">GAP</th>
+              <th class="bcn-th-left">COVER</th>
+            </tr>
+          </thead>
+          <tbody id="sc-rows"><tr><td colspan="10" class="bcn-empty">Loading…</td></tr></tbody>
+          <tfoot id="sc-foot"></tfoot>
+        </table>
+      </div>
+
+      <details class="sc-more">
+        <summary>SCENARIO LADDER · 0% TO +100%</summary>
+        <div class="sc-more-body">
+          <table class="bcn-table" id="sc-ladder"><tbody></tbody></table>
+        </div>
+      </details>
+
+      <details class="sc-more">
+        <summary>BY CHANNEL, AND THE HISTORICAL-LIFT ASSUMPTIONS</summary>
+        <div class="sc-more-body">
+          <div id="sc-chan-assumptions" style="margin-bottom:10px"></div>
+          <table class="bcn-table" id="sc-channels"><tbody></tbody></table>
+        </div>
+      </details>
+
+      <details class="sc-more">
+        <summary>PRODUCT FAMILIES IN THIS SCOPE</summary>
+        <div class="sc-more-body">
+          <table class="bcn-table" id="sc-families"><tbody></tbody></table>
+        </div>
+      </details>
+
+      <details class="sc-more">
+        <summary>ADVANCED · REVENUE OVERRIDE, PROJECTION SCOPE</summary>
+        <div class="sc-more-body">
+          <div class="sc-row">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="sc-total-override">TOTAL REVENUE OVERRIDE ($)</label>
+              <input class="bcn-field bcn-field--mono" type="number" id="sc-total-override" step="1000"
+                placeholder="historical lift only" style="width:180px" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="sc-loc">PROJECTION LOCATION</label>
+              <select class="bcn-field" id="sc-loc"><option value="">All locations</option></select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="sc-proj-scenario">PROJECTION SCENARIO</label>
+              <select class="bcn-field" id="sc-proj-scenario">
+                <option value="active" selected>active</option>
+                <option value="draft">draft</option>
+                <option value="archived">archived</option>
+              </select>
+            </div>
+            <div class="bcn-field-group" style="flex:1;min-width:180px">
+              <label class="bcn-label" for="sc-name">SCENARIO NAME (FOR THE EXPORT)</label>
+              <input class="bcn-field" id="sc-name" placeholder="ex: Spring push" />
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="sc-hint" style="padding:8px 12px;border-top:1px solid var(--bcn-border)">
+        <span id="sc-status-line">—</span>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+/* ---- DEMO MODE ---------------------------------------------------------
+   With ?demo=1 (or on localhost / a preview host) the page runs against an
+   in-memory company, so the layout and the whole flow can be exercised and
+   screenshotted without a login. It never engages on a real SILO host. */
+(function () {
+  const q = new URLSearchParams(location.search);
+  const h = location.hostname || '';
+  const demo = q.get('demo') === '1' || h === 'localhost' || h === '127.0.0.1'
+    || location.protocol === 'file:' || h.includes('usercontent');
+  if (!demo) return;
+
+  const TYPES = [['Tees', 0.38, 34], ['Hats', 0.17, 28], ['Outerwear', 0.14, 96],
+    ['Hoodies', 0.12, 62], ['Shorts', 0.1, 44], ['Accessories', 0.09, 18]];
+  const LOCS = [['online', 'ONL', 'Online', 0.55], ['scottsdale', 'SCT', 'Retail · Scottsdale', 0.18],
+    ['field_of_dreams', 'FOD', 'Retail · Field of Dreams', 0.12],
+    ['wholesale', 'WHL', 'Wholesale', 0.15]];
+  const sales = [], today = new Date();
+  for (let back = 1; back <= 24; back++) {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - back, 1));
+    const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const season = [0.8, 0.78, 0.92, 0.96, 1.05, 1.1, 1.0, 0.95, 1.0, 1.08, 1.35, 1.6][d.getUTCMonth()];
+    const base = 820000 * season * (1 + (24 - back) * 0.004);
+    for (const [tag, , , lshare] of LOCS) {
+      for (const [type, tshare, price] of TYPES) {
+        const net = Math.round(base * lshare * tshare);
+        sales.push({ month_key: month, product_type: type, location_tag: tag,
+          units: Math.round(net / price), net });
+      }
+    }
+  }
+  const inventory = [], openPo = [];
+  let i = 0;
+  for (const [type, , price] of TYPES) {
+    for (const [tag] of LOCS) {
+      i++;
+      inventory.push({ product_title: `${type} · core ${i}`, variant_sku: `${type.slice(0, 3).toUpperCase()}-${i}`,
+        product_type: type, location_tag: tag,
+        total_available_quantity: 900 + ((i * 37) % 700),
+        total_available_inventory_value: (900 + ((i * 37) % 700)) * price * 0.4,
+        sold_30: 120 + ((i * 13) % 90), qty_365d: 1400 + ((i * 97) % 1200) });
+    }
+    openPo.push({ product_title: `${type} · core 1`, sku: `${type.slice(0, 3).toUpperCase()}-1`,
+      product_type: type, location_tag: 'online', incoming_units: 1200 + ((i * 53) % 900),
+      po_name: `PO-10${i}`, factory_name: 'Acme Mills',
+      expected_arrival_date: `${today.getUTCFullYear()}-0${((i % 6) + 1)}-15` });
+  }
+  const projections = [];
+  for (let ahead = 0; ahead < 12; ahead++) {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + ahead, 1));
+    const season = [0.8, 0.78, 0.92, 0.96, 1.05, 1.1, 1.0, 0.95, 1.0, 1.08, 1.35, 1.6][d.getUTCMonth()];
+    for (let day = 1; day <= 28; day += 9) {
+      for (const [, , , share] of LOCS) {
+        projections.push({
+          projection_date: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+          location_id: LOCS.findIndex((l) => l[3] === share) + 1,
+          projected_sales: Math.round(820000 * 1.12 * season * share / 4),
+          scenario: 'active',
+        });
+      }
+    }
+  }
+  const locations = LOCS.map(([tag, code, name], idx) => ({ id: idx + 1, location_code: code, location_name: name }));
+  const TABLES = {
+    sales_monthly_product_type_rollup_v: sales,
+    inventory_workboard_v: inventory,
+    v_po_open_planning_lines: openPo,
+    revenue_projections: projections,
+    locations,
+  };
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: { user: { email: 'demo@silo.test' }, access_token: 'demo' } }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    },
+    from: (t) => {
+      const api = {
+        select() { return api; }, eq() { return api; }, gte() { return api; }, lte() { return api; },
+        order() { return api; },
+        range(a, b) { return Promise.resolve({ data: (TABLES[t] || []).slice(a, b + 1), error: null }); },
+      };
+      return api;
+    },
+    rpc: async () => ({ data: [], error: null }),
+  };
+  window.supabase = { createClient: () => client };
+  window.__SILO_CONFIG__ = {
+    SUPABASE_URL: 'https://demo.silo.test', SUPABASE_ANON_KEY: 'demo',
+    ensureActiveCompany: async () => ({ id: 'demo-company', name: 'Demo Co' }),
+    getActiveCompany: () => ({ id: 'demo-company', name: 'Demo Co' }),
+  };
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (url, opts) => {
+    if (!String(url).includes('/functions/v1/projection-draft')) return realFetch(url, opts);
+    const body = JSON.parse(opts?.body || '{}');
+    const months = (body.months || []).map((m) => ({
+      month: m.month,
+      plan_revenue: Math.round((m.plan || m.last_year) * 1.05),
+      mix_pct: Math.min(100, Math.round((m.mix_pct || 20) * 0.9 * 100) / 100),
+      price: Math.round((m.price || 40) * 1.08 * 100) / 100,
+    }));
+    return { ok: true, status: 200, json: async () => ({
+      growth_pct: 25, months,
+      rationale: 'Growth set to +25%. Tees held at last year’s units so their share falls, outerwear takes the difference, and the average price rises 8% with the heavier mix.',
+      model: 'demo',
+    }) };
+  };
+})();
+</script>
+<script src="planning-scenarios-model.js"></script>
+<script>
+(function () {
+  'use strict';
+  const M = window.SiloScenarioModel;
+  const cfg = window.__SILO_CONFIG__ || {};
+  const DRAFT_KEY = 'silo_scenarios_v2_draft_v1';
+  const PAGE = 10000;
+  let db = null, company = null, user = null;
+
+  const state = {
+    sales: [], inventory: [], openPo: [], projections: [], locations: [],
+    overrides: { rev: {}, mix: {}, asp: {}, channels: {} },
+    aiTouched: new Set(),
+    lift: 25, compare: '',
+  };
+
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
+  const money = (n) => Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  const money2 = (n) => Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+  const kmoney = (n) => {
+    const v = Math.abs(Number(n) || 0), sign = n < 0 ? '-' : '';
+    if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(2)}M`;
+    if (v >= 1000) return `${sign}$${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`;
+    return `${sign}$${Math.round(v)}`;
+  };
+  const int = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+  const pctTxt = (n) => (n > 0 ? '+' : '') + Number(n).toFixed(0) + '%';
+  const monthLabel = (key) => (/^\d{4}-\d{2}$/.test(key)
+    ? new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    : key);
+  function setStatus(msg, tone = 'info', ms = 0) {
+    const s = el('status');
+    s.className = 'bcn-status bcn-status--' + tone;
+    s.textContent = msg; s.hidden = false;
+    if (ms) { clearTimeout(setStatus._t); setStatus._t = setTimeout(() => { s.hidden = true; }, ms); }
+  }
+
+  /* ---- inputs ---------------------------------------------------------- */
+
+  function filters() {
+    return {
+      planMode: el('sc-mode').value,
+      planSource: el('sc-plan-source').value,
+      productType: el('sc-type').value || '__ALL__',
+      channel: el('sc-channel').value || '__ALL__',
+      productSearch: el('sc-search').value || '',
+      from: el('sc-from').value, to: el('sc-to').value,
+      safetyPct: (Number(el('sc-buffer').value) || 0) / 100,
+      totalRevenueOverride: Number(el('sc-total-override').value) || 0,
+      locationId: el('sc-loc').value || '',
+      projScenario: el('sc-proj-scenario').value || 'active',
+    };
+  }
+  const modelInput = () => ({
+    sales: state.sales, inventory: state.inventory, openPo: state.openPo,
+    projections: state.projections, filters: filters(), overrides: state.overrides,
+  });
+
+  /* ---- boot ------------------------------------------------------------ */
+
+  document.addEventListener('DOMContentLoaded', boot);
+
+  async function boot() {
+    if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
+    db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+    const { data: sess } = await db.auth.getSession();
+    if (!sess?.session) { window.location.href = '/pages/login.html'; return; }
+    user = sess.session.user || null;
+    company = await cfg.ensureActiveCompany?.(db) || null;
+    try {
+      window.SiloChrome?.mount({
+        appEl: '#silo-app', active: 'planning/scenarios',
+        user: { email: user?.email, role: '' },
+        crumbs: ['Planning', 'Scenario planning'],
+        supabaseClient: db,
+      });
+    } catch (e) { console.warn('chrome did not mount', e); }
+    wire();
+    restoreDraft();
+    await loadAll();
+  }
+
+  function wire() {
+    ['sc-mode', 'sc-plan-source', 'sc-type', 'sc-channel', 'sc-search', 'sc-from', 'sc-to',
+      'sc-buffer', 'sc-total-override', 'sc-loc', 'sc-proj-scenario'].forEach((id) => {
+      el(id).addEventListener('change', () => { render(); saveDraft(); });
+      el(id).addEventListener('input', () => { render(); saveDraft(); });
+    });
+    [0, 10, 25, 40, 60, 100].forEach((p) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'sc-chip'; b.textContent = pctTxt(p);
+      b.addEventListener('click', () => setLift(p));
+      el('sc-chips').append(b);
+    });
+    el('sc-range').addEventListener('input', () => setLift(Number(el('sc-range').value)));
+    el('sc-lift-num').addEventListener('input', () => setLift(Number(el('sc-lift-num').value)));
+    el('sc-compare').innerHTML = '<option value="">none</option>'
+      + M.SCENARIOS.map((p) => `<option value="${p}">${pctTxt(p)}</option>`).join('');
+    el('sc-compare').addEventListener('change', () => { state.compare = el('sc-compare').value; render(); });
+    el('sc-reload').addEventListener('click', loadAll);
+    el('sc-print').addEventListener('click', () => window.print());
+    el('sc-export').addEventListener('click', exportCsv);
+    el('sc-reset').addEventListener('click', resetTyped);
+    el('sc-ai-btn').addEventListener('click', () => { el('sc-ai').hidden = !el('sc-ai').hidden; });
+    el('sc-ai-cancel').addEventListener('click', () => { el('sc-ai').hidden = true; });
+    el('sc-ai-run').addEventListener('click', askForScenario);
+  }
+
+  function setLift(p) {
+    const v = Number.isFinite(p) ? Math.max(-100, Math.min(500, p)) : 0;
+    state.lift = v;
+    el('sc-range').value = Math.max(-20, Math.min(100, v));
+    if (document.activeElement !== el('sc-lift-num')) el('sc-lift-num').value = v;
+    el('sc-lift-pill').textContent = pctTxt(v);
+    [...el('sc-chips').children].forEach((b) => b.setAttribute('aria-pressed', String(b.textContent === pctTxt(v))));
+    render(); saveDraft();
+  }
+
+  /* ---- loading --------------------------------------------------------- */
+
+  async function loadPaged(view, select = '*', optional = false) {
+    const out = [];
+    try {
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db.from(view).select(select).range(from, from + PAGE - 1);
+        if (error) throw error;
+        out.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+      }
+    } catch (e) {
+      if (!optional) throw e;
+      console.warn(`optional view ${view} did not load`, e);
+      return [];
+    }
+    return out;
+  }
+
+  async function loadAll() {
+    setStatus('Loading…', 'info');
+    el('sc-status-line').textContent = 'Loading…';
+    try {
+      const [sales, inventory, openPo, proj, locs] = await Promise.all([
+        loadPaged('sales_monthly_product_type_rollup_v'),
+        loadPaged('inventory_workboard_v'),
+        loadPaged('v_po_open_planning_lines', '*', true),
+        loadPaged('revenue_projections', 'projection_date, location_id, projected_sales, scenario', true),
+        loadPaged('locations', 'id, location_code, location_name', true),
+      ]);
+      state.sales = sales.map(M.mapSalesRow);
+      state.inventory = inventory.map(M.mapInventoryRow);
+      state.openPo = openPo.map(M.mapOpenPORow);
+      state.projections = proj.map(M.mapProjRow);
+      state.locations = locs.slice().sort((a, b) => String(a.location_name || '').localeCompare(String(b.location_name || '')));
+      renderTypeOptions();
+      renderLocationOptions();
+      const months = [...new Set(state.sales.map((r) => r.month_key).filter(Boolean))].sort();
+      if (!el('sc-from').value && months.length) el('sc-from').value = months[months.length - 1];
+      if (!el('sc-to').value && months.length) el('sc-to').value = M.addMonths(months[months.length - 1], 11);
+      setLift(state.lift);
+      setStatus('Ready.', 'pos', 1200);
+    } catch (e) {
+      console.error(e);
+      setStatus('Could not load the planning data: ' + (e?.message || e), 'neg');
+      el('sc-status-line').textContent = 'Load failed.';
+    }
+  }
+
+  function renderTypeOptions() {
+    const types = [...new Set(state.sales.map((r) => r.product_type)
+      .concat(state.inventory.map((r) => r.product_type))
+      .concat(state.openPo.map((r) => r.product_type)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const sel = el('sc-type'), cur = sel.value || '__ALL__';
+    sel.innerHTML = '<option value="__ALL__">All product types</option>'
+      + types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    sel.value = types.includes(cur) ? cur : '__ALL__';
+  }
+  function renderLocationOptions() {
+    const sel = el('sc-loc'), cur = sel.value || '';
+    sel.innerHTML = '<option value="">All locations</option>'
+      + state.locations.map((l) => `<option value="${esc(String(l.id))}">${esc(l.location_code || l.location_name || l.id)}</option>`).join('');
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
+  }
+
+  /* ---- render ---------------------------------------------------------- */
+
+  function render() {
+    if (!state.sales.length) return;
+    const f = filters();
+    const input = modelInput();
+    const scenario = M.computeScenario(input, state.lift / 100);
+    const compare = state.compare === '' ? null : M.computeScenario(input, Number(state.compare) / 100);
+    el('sc-period').textContent = f.from && f.to ? `${monthLabel(f.from)} → ${monthLabel(f.to)}` : 'All months';
+    el('th-case').textContent = `${pctTxt(state.lift)} CASE`;
+    el('th-compare').hidden = !compare;
+    el('th-compare').textContent = compare ? `${pctTxt(Number(state.compare))} CASE` : '';
+    renderAssumptions(scenario, f);
+    renderKpis(scenario);
+    renderSheet(scenario, compare, f);
+    renderLadder(input);
+    renderChannels(scenario, f);
+    renderFamilies(input, f);
+    const t = scenario.total;
+    el('sc-status-line').textContent =
+      `${scenario.monthRows.length} months · ${state.sales.length.toLocaleString()} history rows · `
+      + `${state.inventory.length.toLocaleString()} inventory rows · ${state.openPo.length.toLocaleString()} open PO lines · `
+      + `mode ${t.mode}`;
+  }
+
+  function renderAssumptions(scenario, f) {
+    const rows = scenario.monthRows;
+    const planTotal = rows.reduce((s, r) => s + r.plan_revenue, 0);
+    const typed = (kind) => rows.filter((r) => r[`${kind}_source`] === 'typed').length;
+    const srcLabel = (kind, autoText) => {
+      const n = typed(kind);
+      if (!n) return `<span class="sc-pill-auto">AUTO</span> ${autoText}`;
+      const fromAi = rows.filter((r) => state.aiTouched.has(`${kind}|${r.month}`)).length;
+      const who = fromAi === n ? 'set by the scenario you asked for' : `${n} of ${rows.length} months typed over`;
+      return `<span class="sc-pill-typed">${fromAi === n ? 'FROM YOUR ASK' : 'TYPED'}</span> ${who}`;
+    };
+    el('a-plan').textContent = kmoney(planTotal);
+    el('a-plan-src').innerHTML = srcLabel('plan',
+      f.planSource === 'projections' ? 'from Projections, falling back to last year' : "last year's actuals");
+    const mixAvg = rows.length ? rows.reduce((s, r) => s + r.mix, 0) / rows.length : 0;
+    el('a-mix').textContent = (mixAvg * 100).toFixed(1) + '%'
+      + (f.productType === '__ALL__' ? ' of revenue' : ` · ${f.productType}`);
+    el('a-mix-src').innerHTML = srcLabel('mix', 'this scope’s share of revenue in the baseline months');
+    const aspAvg = rows.length ? rows.reduce((s, r) => s + r.asp, 0) / rows.length : 0;
+    el('a-asp').textContent = money2(aspAvg);
+    el('a-asp-src').innerHTML = srcLabel('asp', 'revenue ÷ units in the baseline months');
+    el('a-cover').textContent = int(scenario.total.available_units);
+    el('a-cover-src').textContent =
+      `${int(scenario.total.on_hand)} on hand + ${int(scenario.total.incoming_po_units)} on open POs`;
+  }
+
+  function renderKpis(scenario) {
+    const t = scenario.total;
+    el('k-rev').textContent = kmoney(t.revenue);
+    // The comparison is against the months this plan is built on -- last year
+    // for a future range -- not against whatever history happens to sit inside
+    // the range, which for a plan is usually nothing.
+    const baseline = scenario.monthRows.reduce((s, r) => s + r.last_year, 0) || t.hist_revenue;
+    el('k-rev-sub').innerHTML = baseline > 0
+      ? `<span class="${t.revenue >= baseline ? 'bcn-pos' : 'bcn-neg'}">${pctTxt(((t.revenue / baseline) - 1) * 100)}</span> vs ${kmoney(baseline)} in the baseline months`
+      : 'no baseline revenue in scope';
+    el('k-units').textContent = int(t.units);
+    el('k-units-sub').textContent = t.plan_asp > 0 ? `at ${money2(t.plan_asp)} each` : '—';
+    el('k-avail').textContent = int(t.available_units);
+    el('k-avail-sub').textContent = `${int(t.on_hand)} on hand · ${int(t.incoming_po_units)} incoming`;
+    el('k-gap').textContent = t.gap_buffer > 0 ? '-' + int(t.gap_buffer) : 'covered';
+    el('k-gap').className = 'bcn-kpi-value bcn-mono ' + (t.gap_buffer > 0 ? 'bcn-neg' : 'bcn-pos');
+    el('k-gap-sub').textContent = t.gap_buffer > 0
+      ? `${int(t.gap)} short, plus the buffer` : 'on hand and open POs cover the plan';
+  }
+
+  function renderSheet(scenario, compare, f) {
+    const rows = scenario.monthRows;
+    const cmp = compare ? new Map(compare.monthRows.map((r) => [r.month, r])) : null;
+    const body = el('sc-rows');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="10" class="bcn-empty">No months in this range.</td></tr>';
+      el('sc-foot').innerHTML = ''; return;
+    }
+    // Cover is a stock, not a monthly allowance: it is spent down month by
+    // month, so the shortfall appears in the month it actually runs out.
+    let spent = 0;
+    const available = scenario.total.available_units;
+    body.innerHTML = rows.map((r) => {
+      const left = Math.max(0, available - spent);
+      const covered = Math.min(left, r.units);
+      spent += r.units;
+      const gap = Math.max(0, Math.ceil(r.units - covered));
+      const cover = r.units > 0 ? Math.min(100, (covered / r.units) * 100) : 100;
+      const typedCls = (k) => (r[`${k}_source`] === 'typed'
+        ? (state.aiTouched.has(`${k}|${r.month}`) ? 'sc-in sc-in--ai' : 'sc-in sc-in--typed') : 'sc-in');
+      return `<tr>
+        <td class="bcn-th-left">${esc(monthLabel(r.month))}${r.baseline_month !== r.month
+          ? ` <span class="sc-hint">from ${esc(monthLabel(r.baseline_month))}</span>` : ''}</td>
+        <td class="bcn-mono" style="color:var(--bcn-ink-3)">${money(r.last_year)}</td>
+        <td><input class="${typedCls('plan')}" data-kind="rev" data-month="${r.month}" inputmode="decimal"
+             value="${state.overrides.rev[r.month] ?? ''}" placeholder="${Math.round(r.auto_revenue).toLocaleString()}"
+             aria-label="Plan revenue for ${r.month}" /></td>
+        <td><input class="${typedCls('mix')}" data-kind="mix" data-month="${r.month}" inputmode="decimal"
+             style="width:70px" value="${state.overrides.mix[r.month] ?? ''}"
+             placeholder="${(r.auto_mix * 100).toFixed(1)}" aria-label="Mix percent for ${r.month}" /></td>
+        <td><input class="${typedCls('asp')}" data-kind="asp" data-month="${r.month}" inputmode="decimal"
+             style="width:76px" value="${state.overrides.asp[r.month] ?? ''}"
+             placeholder="${r.auto_asp.toFixed(2)}" aria-label="Average price for ${r.month}" /></td>
+        <td class="bcn-mono" style="font-weight:700">${money(r.product_revenue)}</td>
+        ${cmp ? `<td class="bcn-mono" style="color:var(--bcn-ink-3)">${money(cmp.get(r.month)?.product_revenue || 0)}</td>` : ''}
+        <td class="bcn-mono">${int(r.units)}</td>
+        <td class="bcn-mono ${gap > 0 ? 'bcn-neg' : 'bcn-pos'}">${gap > 0 ? '-' + int(gap) : 'covered'}</td>
+        <td class="bcn-th-left"><span class="sc-bar"><i style="width:${cover}%;background:${cover < 70 ? 'var(--bcn-neg)' : 'var(--bcn-pos)'}"></i></span></td>
+      </tr>`;
+    }).join('');
+    const sum = (k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
+    el('sc-foot').innerHTML = `<tr>
+      <td class="bcn-th-left">TOTAL</td>
+      <td class="bcn-mono">${money(sum('last_year'))}</td>
+      <td class="bcn-mono">${money(sum('plan_revenue'))}</td>
+      <td colspan="2"></td>
+      <td class="bcn-mono">${money(scenario.total.revenue)}</td>
+      ${cmp ? `<td class="bcn-mono">${money(compare.total.revenue)}</td>` : ''}
+      <td class="bcn-mono">${int(scenario.total.units)}</td>
+      <td class="bcn-mono">${scenario.total.gap > 0 ? '-' + int(scenario.total.gap) : 'covered'}</td>
+      <td></td></tr>`;
+    body.querySelectorAll('.sc-in').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        const kind = inp.dataset.kind, month = inp.dataset.month;
+        const raw = String(inp.value).replace(/[$,%\s]/g, '');
+        if (raw === '') delete state.overrides[kind][month];
+        else state.overrides[kind][month] = Number(raw);
+        state.aiTouched.delete(`${kind === 'rev' ? 'plan' : kind}|${month}`);
+        render(); saveDraft();
+      });
+    });
+    void f;
+  }
+
+  function renderLadder(input) {
+    const ladder = M.computeLadder(input);
+    const head = '<tr><th class="bcn-th-left">SCENARIO</th><th>REVENUE</th><th>UNITS</th><th>GAP</th><th>GAP + BUFFER</th></tr>';
+    el('sc-ladder').innerHTML = `<thead>${head}</thead><tbody>` + ladder.map((s) => {
+      const p = Math.round(s.lift * 100);
+      return `<tr${p === state.lift ? ' style="background:var(--bcn-accent-soft)"' : ''}>
+        <td class="bcn-th-left bcn-mono">${pctTxt(p)}</td>
+        <td class="bcn-mono">${money(s.total.revenue)}</td>
+        <td class="bcn-mono">${int(s.total.units)}</td>
+        <td class="bcn-mono ${s.total.gap > 0 ? 'bcn-neg' : 'bcn-pos'}">${s.total.gap > 0 ? '-' + int(s.total.gap) : 'covered'}</td>
+        <td class="bcn-mono">${s.total.gap_buffer > 0 ? '-' + int(s.total.gap_buffer) : 'covered'}</td>
+      </tr>`;
+    }).join('') + '</tbody>';
+  }
+
+  function renderChannels(scenario, f) {
+    const head = '<tr><th class="bcn-th-left">CHANNEL</th><th>BASELINE REV</th><th>PLAN REV</th><th>UNITS</th>'
+      + '<th>ON HAND</th><th>INCOMING</th><th>GAP</th><th class="bcn-th-left">HOW</th></tr>';
+    el('sc-channels').innerHTML = `<thead>${head}</thead><tbody>` + scenario.rows.map((r) => `<tr>
+        <td class="bcn-th-left">${esc(r.label)}</td>
+        <td class="bcn-mono" style="color:var(--bcn-ink-3)">${money(r.hist_revenue)}</td>
+        <td class="bcn-mono">${money(r.revenue)}</td>
+        <td class="bcn-mono">${int(r.units)}</td>
+        <td class="bcn-mono">${int(r.on_hand)}</td>
+        <td class="bcn-mono">${int(r.incoming_po_units)}</td>
+        <td class="bcn-mono ${r.gap > 0 ? 'bcn-neg' : 'bcn-pos'}">${r.gap > 0 ? '-' + int(r.gap) : 'covered'}</td>
+        <td class="bcn-th-left sc-hint">${esc(r.mode)}</td></tr>`).join('') + '</tbody>';
+
+    // The historical-lift assumptions, exactly the ones the old page offered,
+    // shown only in the mode that uses them.
+    const wrap = el('sc-chan-assumptions');
+    if (f.planMode !== 'historical') {
+      wrap.innerHTML = '<div class="sc-hint">Per-channel assumptions apply in Historical lift mode. '
+        + 'In Revenue plan mode the channels are allocated on their share of baseline revenue.</div>';
+      return;
+    }
+    wrap.innerHTML = M.CHANNELS.map((ch) => {
+      const a = state.overrides.channels[ch.key] || {};
+      return `<div class="sc-chan" data-ch="${ch.key}">
+        <label><input type="checkbox" data-a="enabled" ${a.enabled === false ? '' : 'checked'} /> ${esc(ch.label)}</label>
+        <label>lift % <input type="number" data-a="bucketLift" step="1" value="${a.bucketLift ? a.bucketLift * 100 : ''}" placeholder="0" /></label>
+        <label>mix % <input type="number" data-a="mixPct" step="0.1" value="${a.mixPct ? a.mixPct * 100 : ''}" placeholder="auto" /></label>
+        <label>revenue $ <input type="number" data-a="revenueOverride" step="1000" value="${a.revenueOverride || ''}" placeholder="auto" /></label>
+        <label>price $ <input type="number" data-a="aspOverride" step="0.01" value="${a.aspOverride || ''}" placeholder="auto" /></label>
+        <label>price change % <input type="number" data-a="aspChange" step="1" value="${a.aspChange ? a.aspChange * 100 : ''}" placeholder="0" /></label>
+      </div>`;
+    }).join('');
+    wrap.querySelectorAll('[data-a]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        const key = inp.closest('[data-ch]').dataset.ch;
+        const a = state.overrides.channels[key] || (state.overrides.channels[key] = {});
+        const field = inp.dataset.a;
+        if (field === 'enabled') a.enabled = inp.checked;
+        else if (field === 'bucketLift' || field === 'mixPct' || field === 'aspChange') a[field] = (Number(inp.value) || 0) / 100;
+        else a[field] = Number(inp.value) || 0;
+        render(); saveDraft();
+      });
+    });
+  }
+
+  function renderFamilies(input, f) {
+    const filtered = M.filterRows(
+      { sales: state.sales, inventory: state.inventory, openPo: state.openPo }, input.filters);
+    const fams = M.productFamilies(filtered.inventory, filtered.openPo)
+      .sort((a, b) => b.qty_365d - a.qty_365d).slice(0, 50);
+    const head = '<tr><th class="bcn-th-left">PRODUCT</th><th class="bcn-th-left">TYPE</th><th>SKUs</th>'
+      + '<th>ON HAND</th><th>INCOMING</th><th>SOLD 30D</th><th>SOLD 365D</th></tr>';
+    el('sc-families').innerHTML = `<thead>${head}</thead><tbody>` + (fams.length
+      ? fams.map((r) => `<tr>
+          <td class="bcn-th-left">${esc(r.product)}</td>
+          <td class="bcn-th-left sc-hint">${esc(r.product_type)}</td>
+          <td class="bcn-mono">${int(r.sku_count)}</td>
+          <td class="bcn-mono">${int(r.avail_qty)}</td>
+          <td class="bcn-mono">${int(r.incoming_units)}</td>
+          <td class="bcn-mono">${int(r.sold_30)}</td>
+          <td class="bcn-mono">${int(r.qty_365d)}</td></tr>`).join('')
+      : '<tr><td colspan="7" class="bcn-empty">No inventory in this scope.</td></tr>') + '</tbody>';
+    void f;
+  }
+
+  /* ---- typed values: kept in this browser, as before -------------------- */
+
+  function saveDraft() {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        overrides: state.overrides, lift: state.lift,
+        f: {
+          mode: el('sc-mode').value, source: el('sc-plan-source').value, type: el('sc-type').value,
+          channel: el('sc-channel').value, from: el('sc-from').value, to: el('sc-to').value,
+          buffer: el('sc-buffer').value, search: el('sc-search').value,
+        },
+        at: new Date().toISOString(),
+      }));
+    } catch (_) { /* a private window is not an error */ }
+  }
+  function restoreDraft() {
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+      if (d.overrides) state.overrides = Object.assign({ rev: {}, mix: {}, asp: {}, channels: {} }, d.overrides);
+      if (Number.isFinite(d.lift)) state.lift = d.lift;
+      if (d.f) {
+        el('sc-mode').value = d.f.mode || 'revenue_plan';
+        el('sc-plan-source').value = d.f.source || 'projections';
+        el('sc-channel').value = d.f.channel || '__ALL__';
+        el('sc-from').value = d.f.from || ''; el('sc-to').value = d.f.to || '';
+        el('sc-buffer').value = d.f.buffer ?? 10; el('sc-search').value = d.f.search || '';
+        state._pendingType = d.f.type;
+      }
+    } catch (_) { /* nothing stored */ }
+  }
+  function resetTyped() {
+    state.overrides = { rev: {}, mix: {}, asp: {}, channels: {} };
+    state.aiTouched.clear();
+    render(); saveDraft();
+    setStatus('Typed values cleared. Every month is back on its own history.', 'pos', 2600);
+  }
+
+  /* ---- export ---------------------------------------------------------- */
+
+  function exportCsv() {
+    const scenario = M.computeScenario(modelInput(), state.lift / 100);
+    const f = filters();
+    const cell = (v) => (/[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
+    const lines = [
+      ['scenario_name', el('sc-name').value || 'scenario'].map(cell).join(','),
+      ['mode', f.planMode, 'plan_from', f.planSource, 'growth_pct', state.lift,
+        'product_type', f.productType, 'channel', f.channel, 'buffer_pct', el('sc-buffer').value].map(cell).join(','),
+      '',
+      ['month', 'last_year', 'plan_revenue', 'plan_source', 'mix_pct', 'mix_source', 'price', 'price_source',
+        'case_revenue', 'units'].map(cell).join(','),
+      ...scenario.monthRows.map((r) => [r.month, Math.round(r.last_year), Math.round(r.plan_revenue), r.plan_source,
+        (r.mix * 100).toFixed(2), r.mix_source, r.asp.toFixed(2), r.asp_source,
+        Math.round(r.product_revenue), Math.round(r.units)].map(cell).join(',')),
+      '',
+      ['channel', 'baseline_revenue', 'plan_revenue', 'units', 'on_hand', 'incoming', 'gap', 'gap_with_buffer'].map(cell).join(','),
+      ...scenario.rows.map((r) => [r.label, Math.round(r.hist_revenue), Math.round(r.revenue), Math.round(r.units),
+        Math.round(r.on_hand), Math.round(r.incoming_po_units), r.gap, r.gap_buffer].map(cell).join(',')),
+    ];
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    a.download = `scenario-${f.from || 'all'}-${pctTxt(state.lift)}.csv`;
+    document.body.append(a); a.click(); a.remove();
+  }
+
+  /* ---- ask for a scenario ---------------------------------------------- */
+
+  async function askForScenario() {
+    const question = String(el('sc-q').value || '').trim();
+    if (!question) { setStatus('Say what you want to test.', 'info', 2600); return; }
+    const facts = M.monthlyFacts(modelInput());
+    if (!facts.length) { setStatus('Pick a month range first.', 'info', 2600); return; }
+    el('sc-ai-run').disabled = true;
+    setStatus('Working out the assumptions…', 'info');
+    try {
+      const { data: sess } = await db.auth.getSession();
+      const f = filters();
+      const res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/projection-draft`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          apikey: cfg.SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${sess?.session?.access_token || ''}`,
+        },
+        body: JSON.stringify({
+          action: 'scenario',
+          instruction: question,
+          product_type: f.productType, channel: f.channel, plan_mode: f.planMode,
+          months: facts.map((r) => ({
+            month: r.month, last_year: Math.round(r.last_year),
+            projection: Math.round(r.projection),
+            plan: Math.round(r.plan_revenue),
+            mix_pct: Number((r.mix * 100).toFixed(2)),
+            price: Number(r.asp.toFixed(2)),
+          })),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || `The planning service answered ${res.status}`);
+      applyScenarioAnswer(body, facts);
+    } catch (e) {
+      console.error(e);
+      setStatus('Could not build it: ' + (e?.message || e), 'neg');
+    } finally {
+      el('sc-ai-run').disabled = false;
+    }
+  }
+
+  /* Everything it returns is an ASSUMPTION, written into the same boxes a
+     person types into — so it can be read, changed and cleared. */
+  function applyScenarioAnswer(body, facts) {
+    const known = new Set(facts.map((r) => r.month));
+    let written = 0;
+    if (Number.isFinite(Number(body.growth_pct))) setLift(Number(body.growth_pct));
+    for (const row of Array.isArray(body.months) ? body.months : []) {
+      const m = String(row?.month || '').slice(0, 7);
+      if (!known.has(m)) continue;
+      const plan = Number(row.plan_revenue), mix = Number(row.mix_pct), price = Number(row.price);
+      if (Number.isFinite(plan) && plan > 0) { state.overrides.rev[m] = Math.round(plan); state.aiTouched.add(`plan|${m}`); written++; }
+      if (Number.isFinite(mix) && mix > 0 && mix <= 100) { state.overrides.mix[m] = Number(mix.toFixed(2)); state.aiTouched.add(`mix|${m}`); written++; }
+      if (Number.isFinite(price) && price > 0) { state.overrides.asp[m] = Number(price.toFixed(2)); state.aiTouched.add(`asp|${m}`); written++; }
+    }
+    render(); saveDraft();
+    const out = el('sc-ai-out');
+    out.hidden = false;
+    out.innerHTML = `${esc(String(body.rationale || 'Assumptions set from your own history.'))}
+      <br><span class="sc-hint">${written} value${written === 1 ? '' : 's'} written into the sheet, every one editable.
+      RESET TYPED puts them all back.</span>`;
+    setStatus(written ? 'Scenario built. Nothing is saved to the database.' : 'Nothing usable came back.',
+      written ? 'pos' : 'info', 3200);
+  }
+
+  // The product-type option list only exists after the first load.
+  const _origRenderTypes = renderTypeOptions;
+  renderTypeOptions = function () {
+    _origRenderTypes();
+    if (state._pendingType) {
+      const sel = el('sc-type');
+      if ([...sel.options].some((o) => o.value === state._pendingType)) sel.value = state._pendingType;
+      state._pendingType = null;
+    }
+  };
+})();
+</script>
+</body>
+</html>
