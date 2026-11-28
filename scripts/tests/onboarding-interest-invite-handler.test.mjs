@@ -53,6 +53,15 @@ await test('claims, emails the stored address a link, then records sent', async 
   assert.match(mail.html, /https:\/\/silo\.example\/v2\/company-onboarding\.html\?invite=tok123/);
   assert.deepEqual(calls[2].body, { p_invite_id: 'inv-1', p_sent: true });
 });
+await test('the signup link stays on the public domain', async () => {
+  // The visitor typed their email on get-silo.com; the link they get back has
+  // to be get-silo.com, not the internal app origin. index.ts passes no
+  // siteUrl, so this default is what production actually sends.
+  const { handler, calls } = harness({ siteUrl: undefined });
+  await handler(req());
+  assert.match(calls[1].body.html, /https:\/\/get-silo\.com\/v2\/company-onboarding\.html\?invite=tok123/);
+  assert.doesNotMatch(calls[1].body.html, /silo-baseballism\.com/);
+});
 await test('the recipient is the stored lead, never the request body', async () => {
   const { handler, calls } = harness({ claim: { ...claimed, email: 'stored@example.com' } });
   await handler(req({ email: 'attacker-chosen@example.com' }));
