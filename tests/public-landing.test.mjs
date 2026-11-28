@@ -9,8 +9,18 @@ import vm from 'node:vm';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const html = readFileSync(`${root}index.html`, 'utf8');
 const landingCss = readFileSync(`${root}assets/landing/early-access.css`, 'utf8');
+// Three inline scripts now: the first-paint mode decision, the landing page's
+// own behaviour (tabs, marquee, typing demo -- exercised by the browser suite,
+// not here), and the auth router module. Pick the two this suite runs by what
+// they are, not by their position, so adding a fourth cannot silently shift
+// which script is under test.
 const inline = [...html.matchAll(/<script(?:\s+type="module")?>([\s\S]*?)<\/script>/g)].map(m => m[1]);
-assert.equal(inline.length, 2, 'test must exercise both actual inline scripts');
+const modeScripts = inline.filter(s => /setAttribute\('data-mode'/.test(s));
+const routerScripts = [...html.matchAll(/<script type="module">([\s\S]*?)<\/script>/g)].map(m => m[1]);
+assert.equal(modeScripts.length, 1, 'exactly one script decides the first-paint mode');
+assert.equal(routerScripts.length, 1, 'exactly one module is the auth router');
+const modeScript = modeScripts[0];
+const routerScript = routerScripts[0];
 
 async function openRoot({ hostname = 'get-silo.com', hash = '', session = null,
   config = true, profile = {}, sessionError = null, profileError = null } = {}) {
@@ -36,9 +46,9 @@ async function openRoot({ hostname = 'get-silo.com', hash = '', session = null,
       from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profile, error: profileError }) }) }) }),
     }),
   });
-  vm.runInContext(inline[0], context);
+  vm.runInContext(modeScript, context);
   const firstPaintMode = attributes.get('data-mode');
-  vm.runInContext(inline[1].replace(/^\s*import .*;$/m, '').replace(/\binit\(\);\s*$/, 'globalThis.finished = init();'), context);
+  vm.runInContext(routerScript.replace(/^\s*import .*;$/m, '').replace(/\binit\(\);\s*$/, 'globalThis.finished = init();'), context);
   await context.finished;
   timers.forEach(cb => cb());
   return { firstPaintMode, mode: attributes.get('data-mode'), redirects, authReads, element };
@@ -121,35 +131,41 @@ test('non-public router still reports config/session errors without looping', as
   }
 });
 
-test('welcome actions route guests to early access and sign-in', () => {
-  assert.match(html, /<a\b[^>]*class="bcn-btn lp-signin"[^>]*href="\/pages\/login\.html"[^>]*>Sign in<\/a>/);
-  assert.match(html, /<a\b[^>]*class="bcn-btn[^"]* lp-create"[^>]*href="#lpAccess"[^>]*>Create your SILO/);
+test('welcome actions route guests to the signup card and sign-in', () => {
+  // The home page became the Marketing/Affiliate Studio landing (2026-11-28).
+  // What a guest must still be able to do from it is unchanged: sign in, reach
+  // the signup card, and submit the one form the shared controller drives.
+  assert.match(html, /<a class="btn" href="\/pages\/login\.html">Sign in<\/a>/);
+  assert.match(html, /<a[^>]*href="#create"[^>]*>Create your SILO/);
+  assert.ok(/\bid="create"/.test(html), 'the Create your SILO links have a target on the page');
   assert.match(html, /<form\b[^>]*id="lpInterestForm"[^>]*data-ack-success=/);
-  assert.match(html, /lp-connects--chips/);
-  assert.match(html, /id="lpAsk"/);
-  assert.match(html, /icon-redo/);
-  assert.match(html, /Redo Marketing/);
-  assert.match(html, /icon-stripe/);
-  assert.match(html, /icon-plaid/);
-  assert.match(html, /klaviyo-logo\.png/);
-  assert.match(html, /lp-int-chip--more/);
+  for (const id of ['lpJoinButton', 'lpFormStatus', 'lpName', 'lpCompanyName', 'lpEmail', 'lpWebsite', 'lpYear']) {
+    assert.match(html, new RegExp(`id="${id}"`), id);
+  }
   assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
-  assert.doesNotMatch(html, /company-onboarding\.html|lpInviteNote|silo-hero-motion\.js/);
+  // The signup card never links the invitation-gated founder page: the invite
+  // is emailed after the form, it is not something a guest navigates to.
+  assert.doesNotMatch(html, /company-onboarding\.html|lpInviteNote/);
   for (const file of ['pages/login.html', 'legal/privacy.html', 'legal/eula.html']) assert.ok(existsSync(root + file));
 });
 
-test('walkthrough placeholder stays honest until a configured demo video exists', () => {
-  assert.match(html, /<source type="image\/webp"[^>]+silo-hero-1080.webp 1080w, \/assets\/landing\/silo-hero.webp 1800w/);
-  assert.match(html, /<img src="\/assets\/landing\/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high"/);
-  const video = html.match(/<video[^>]*id="lpDemoVideo"[^>]*>/)[0];
-  assert.match(video, /controls[^>]*playsinline[^>]*preload="none"/);
-  assert.doesNotMatch(video, /\bsrc=/);
+test('every screenshot the home page shows is actually in the repository', () => {
+  const assets = [...html.matchAll(/\/assets\/landing-v2\/[A-Za-z0-9._-]+/g)].map(m => m[0]);
+  assert.ok(assets.length >= 20, `expected the landing screenshots, found ${assets.length}`);
+  for (const asset of new Set(assets)) assert.ok(existsSync(root + asset.slice(1)), asset);
+  // The hero image is the one that decides first paint, so it is not lazy.
+  assert.match(html, /<img[^>]+\/assets\/landing-v2\/[^"]+"[^>]*>/);
+  // No leftover mockup scaffolding, and no path that only resolved in the
+  // scratch build the page was generated from.
+  assert.doesNotMatch(html, /src="media\/|class="note"/);
 });
 
-test('keyboard focus and responsive layout use the shared early-access stylesheet', () => {
-  assert.match(html, /href="\/assets\/landing\/early-access\.css\?v=\d+"/);
-  assert.match(landingCss, /#landing a:focus-visible/);
-  assert.match(landingCss, /@media \(max-width: 900px\)/);
+test('keyboard focus and the legal footer survive the redesign', () => {
+  // The old page got its focus ring from the shared early-access stylesheet.
+  // This one carries its own styles, so the ring has to be in the page.
+  assert.match(html, /#landing a:focus-visible/);
+  assert.match(html, /#landing input:focus-visible/);
+  assert.match(html, /@media \(max-width:\s*700px\)/);
   assert.match(html, /<nav aria-label="Legal and contact">/);
 });
 
