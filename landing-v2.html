@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SILO — Marketing, affiliates, inventory and finances on one platform</title>
+<meta name="description" content="SILO is one platform for marketing attribution, affiliate management, inventory and finances. Built on your own systems, with AI you can check." />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/silo-icon.png" />
+<script>document.documentElement.setAttribute('data-mode','landing');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#fbfbfc; --surface:#ffffff; --sunken:#f4f5f7;
+  --band:#0b0f16; --band-hi:#131923; --band-ink:#f2f4f7; --band-ink-2:#a4aebc; --band-ink-3:#6f7a89;
+  --line-dark:#212936; --edge-dark:#2b3340;
+  --border:#e2e5ea; --border-strong:#cfd4dc;
+  --ink:#12161d; --ink-2:#4b5563; --ink-3:#737d8b;
+  --accent:#1f6feb; --accent-soft:#eef4ff; --accent-border:#b9d1f7; --accent-lite:#7fb0ff;
+  --r:4px;
+  --font:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --max:1280px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+img,video{display:block;max-width:100%}
+a{color:inherit}
+.wrap{width:100%;max-width:var(--max);margin-inline:auto;padding-inline:clamp(16px,4vw,48px)}
+.eyebrow{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
+.eyebrow--on-dark{color:var(--accent-lite)}
+h1,h2,h3{letter-spacing:-.035em;margin:0}
+h1{font-size:clamp(30px,3.15vw,44px);line-height:1.08;font-weight:800;letter-spacing:-.032em;text-wrap:balance}
+h2{font-size:clamp(25px,2.6vw,35px);line-height:1.1;font-weight:800;letter-spacing:-.028em;text-wrap:balance}
+h3{font-size:16px;font-weight:700;letter-spacing:-.02em}
+p{margin:0;line-height:1.6}
+.lead{margin-top:16px;max-width:62ch;font-size:17px;color:var(--ink-2)}
+.lead--dark{color:var(--band-ink-2)}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:42px;padding:10px 20px;border-radius:var(--r);
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);
+  font:600 14px/1 var(--font);text-decoration:none;cursor:pointer;transition:background .12s,border-color .12s}
+.btn--primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn--primary:hover{background:#1a5fcc}
+.btn--dark{background:var(--band);border-color:var(--band);color:#fff}
+.btn--ghost-dark{background:transparent;border-color:#3b4553;color:var(--band-ink)}
+.btn--ghost-dark:hover{background:var(--band-hi)}
+.btn--ghost-lite{background:var(--surface);border-color:var(--border-strong);color:var(--ink)}
+.btn--ghost-lite:hover{background:var(--sunken)}
+.btn--lg{min-height:48px;padding:13px 24px;font-size:15px}
+.sec-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+section{scroll-margin-top:68px}
+
+/* ---------- top bar ---------- */
+.top{position:sticky;top:0;z-index:30;background:rgba(251,251,252,.93);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.top-in{display:flex;align-items:center;gap:26px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-weight:700;font-size:19px;letter-spacing:-.02em}
+.mark{width:28px;height:28px;border-radius:var(--r);background:var(--band);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+.top nav{display:flex;gap:22px}
+.top nav a{font-size:13.5px;font-weight:600;color:var(--ink-2);text-decoration:none;white-space:nowrap}
+.top nav a:hover{color:var(--ink)}
+.tag-new{margin-left:6px;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.08em;
+  color:var(--accent);background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:2px;padding:1px 4px;vertical-align:2px}
+.top .spacer{flex:1}
+.top-actions{display:flex;gap:10px;align-items:center}
+
+/* ---------- hero ---------- */
+.hero{position:relative;background:#fff;color:var(--ink);overflow:hidden}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+   radial-gradient(46% 52% at 16% 4%,rgba(31,111,235,.34),transparent 64%),
+   radial-gradient(44% 48% at 86% 0%,rgba(99,160,255,.44),transparent 66%),
+   radial-gradient(54% 40% at 50% 96%,rgba(31,111,235,.30),transparent 70%),
+   radial-gradient(90% 60% at 50% 42%,rgba(130,185,255,.18),transparent 72%),
+   linear-gradient(180deg,#f7faff 0%,#eaf1fd 100%)}
+.hero-in{position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;
+  text-align:center;gap:0;padding-block:clamp(52px,6vw,84px) 0}
+.hero-in > div:first-child{max-width:830px}
+.hero-lead{margin-inline:auto}
+.hero-cta{justify-content:center}
+.hero-stats{display:none}
+.hero h1{color:var(--ink);font-size:clamp(34px,4.4vw,60px);line-height:1.02;letter-spacing:-.038em}
+.hero h1 em{font-style:normal;color:inherit}
+.hero-lead{margin-top:16px;max-width:54ch;font-size:17.5px;line-height:1.55;color:var(--ink-2)}
+.hero-cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.hero-stats{margin-top:32px;padding-top:18px;border-top:1px solid var(--line-dark)}
+.hs-k{font-family:var(--mono);font-size:14.5px;font-weight:600;color:#fff}
+.hs-l{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--band-ink-3);margin-top:5px}
+
+/* film players */
+.stage{position:relative}
+.film{position:relative;border:1px solid var(--edge-dark);border-radius:var(--r);overflow:hidden;background:#05080c;
+  box-shadow:0 34px 76px rgba(0,0,0,.55)}
+.film video{width:100%;aspect-ratio:16/9;object-fit:cover}
+.film-play{position:absolute;inset:0;width:100%;appearance:none;cursor:pointer;border:0;padding:0;
+  background:linear-gradient(0deg,rgba(5,8,12,.55),rgba(5,8,12,.18));color:#fff;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;font-family:var(--font);transition:background .15s}
+.film-play:hover{background:linear-gradient(0deg,rgba(5,8,12,.64),rgba(5,8,12,.28))}
+.film-play .fp-ic{width:54px;height:54px;border-radius:50%;border:1px solid rgba(255,255,255,.55);
+  background:rgba(8,12,18,.42);display:grid;place-items:center}
+.film-play .fp-ic svg{width:19px;height:19px;margin-left:3px}
+.film-play .fp-t{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.film-play .fp-s{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#c3ccd8}
+
+.film--shot .film-play{padding:0;background:linear-gradient(0deg,rgba(5,8,12,.95) 0,rgba(5,8,12,.95) 58px,rgba(5,8,12,0) 58px)}
+.film--shot .film-play:hover{background:linear-gradient(0deg,rgba(11,18,28,.97) 0,rgba(11,18,28,.97) 58px,rgba(5,8,12,.06) 58px)}
+.film--shot .film-play .fp-ic{position:absolute;left:14px;bottom:10px;width:38px;height:38px;background:transparent;border-color:rgba(255,255,255,.45)}
+.film--shot .film-play .fp-ic svg{width:14px;height:14px}
+.film--shot .film-play .fp-t{position:absolute;left:62px;bottom:28px;font-size:13.5px}
+.film--shot .film-play .fp-s{position:absolute;left:62px;bottom:12px}
+.film[data-started] .film-play{display:none}
+.film:not([data-started]) .film-bar{opacity:0;pointer-events:none}
+.film-bar{transition:opacity .2s;position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:linear-gradient(0deg,rgba(5,8,12,.82),rgba(5,8,12,0))}
+.film-bar .pp{appearance:none;cursor:pointer;width:28px;height:28px;flex:none;border-radius:var(--r);
+  border:1px solid rgba(255,255,255,.26);background:rgba(10,14,20,.6);color:#fff;display:grid;place-items:center;padding:0}
+.film-bar .pp svg{width:12px;height:12px}
+.film-bar .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#cfd6e0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.film-bar .prog{margin-left:auto;flex:none;width:min(36%,190px);height:3px;background:rgba(255,255,255,.18);border-radius:2px;overflow:hidden}
+.film-bar .prog i{display:block;height:100%;width:0;background:var(--accent-lite)}
+.reel{position:absolute;right:-12px;bottom:-34px;width:min(24%,146px);aspect-ratio:9/16;border:1px solid var(--edge-dark);
+  border-radius:var(--r);overflow:hidden;background:#000;box-shadow:0 26px 54px rgba(0,0,0,.7)}
+.reel video{width:100%;height:100%;object-fit:cover}
+.reel-tag{position:absolute;left:7px;top:7px;font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+  color:#fff;background:rgba(6,10,16,.74);border:1px solid rgba(255,255,255,.2);border-radius:2px;padding:3px 6px}
+
+/* ---------- works with ---------- */
+.works{background:var(--band-hi);border-bottom:1px solid var(--border)}
+.works-in{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding-block:16px}
+.works-l{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--band-ink-3);flex:none}
+.works ul{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.works li{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--band-ink-2);
+  background:rgba(255,255,255,.03);border:1px solid var(--edge-dark);border-radius:2px;padding:6px 11px}
+.works li svg{width:16px;height:16px;flex:none}
+.works li svg.wide{width:36px;height:13px}
+.works li img{width:48px;height:14px;object-fit:contain;filter:invert(1) grayscale(1) brightness(1.9)}
+.works li.more{color:var(--band-ink-3);border-style:dashed}
+
+/* ---------- spotlight ---------- */
+.spot{padding-block:clamp(52px,6vw,86px)}
+.spot--dark{background:var(--band);color:var(--band-ink)}
+.spot--dark h2{color:#fff}
+.spot-grid{display:grid;grid-template-columns:minmax(0,1fr) 262px;gap:clamp(28px,4vw,52px);align-items:start;margin-top:34px}
+.spot-grid--flip{grid-template-columns:262px minmax(0,1fr)}
+.spot-grid--aff{align-items:center}
+.vframe{position:relative;aspect-ratio:9/16;border:1px solid var(--border-strong);border-radius:var(--r);overflow:hidden;
+  background:#05080c;box-shadow:0 18px 44px rgba(12,16,23,.16)}
+.spot--dark .vframe{border-color:var(--edge-dark);box-shadow:0 24px 54px rgba(0,0,0,.5)}
+.vframe video{width:100%;height:100%;object-fit:cover}
+.vcap{margin-top:10px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.spot--dark .vcap{color:var(--band-ink-3)}
+.caps{list-style:none;margin:0;padding:0;border-top:1px solid var(--border)}
+.spot--dark .caps{border-color:var(--line-dark)}
+.caps li{display:grid;grid-template-columns:26px minmax(0,196px) minmax(0,1fr);gap:14px;align-items:baseline;
+  padding:13px 0;border-bottom:1px solid var(--border)}
+.spot--dark .caps li{border-color:var(--line-dark)}
+.caps .n{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.spot--dark .caps .n{color:var(--band-ink-3)}
+.caps .t{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.caps .d{font-size:14px;color:var(--ink-2)}
+.caps .who{font-style:normal;display:inline-block;margin-left:4px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);border:1px solid var(--border);border-radius:2px;padding:2px 6px;vertical-align:1px}
+.spot--dark .caps .who{color:var(--band-ink-3);border-color:var(--edge-dark)}
+.caps--3up{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:clamp(20px,2.6vw,38px);border-top:none;margin-top:32px}
+.caps--3up li{display:block;padding:14px 0 17px;border-top:1px solid var(--border)}
+.spot--dark .caps--3up li{border-top-color:var(--line-dark)}
+.caps--3up .n{display:block;margin-bottom:9px}
+.caps--3up .t{display:block;font-size:15px}
+.caps--3up .d{display:block;margin-top:5px;font-size:13.5px;line-height:1.5}
+.caps--2up{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:clamp(24px,3vw,44px);border-top:none;margin-top:30px}
+.caps--2up li{border-top:1px solid var(--border)}
+.spot--dark .caps--2up li{border-top-color:var(--line-dark)}
+@media (max-width:860px){.caps--2up{grid-template-columns:minmax(0,1fr)}}
+.spot--dark .caps .d{color:var(--band-ink-2)}
+
+/* screen switcher */
+.screens{margin-top:34px;max-width:1180px;margin-inline:auto}
+.screens--tight{margin-top:26px}
+.sw{display:flex;border:1px solid var(--border);border-bottom:none;border-radius:var(--r) var(--r) 0 0;overflow:hidden;background:var(--surface)}
+.spot--dark .sw{border-color:var(--edge-dark);background:#0f141c}
+.sw button{flex:1;min-width:0;appearance:none;background:transparent;border:0;border-right:1px solid var(--border);
+  padding:12px 14px;text-align:left;cursor:pointer;font-family:var(--font);color:var(--ink-2)}
+.spot--dark .sw button{border-color:var(--edge-dark);color:var(--band-ink-2)}
+.sw button:last-child{border-right:0}
+.sw button b{display:block;font-size:13.5px;font-weight:700;letter-spacing:-.01em}
+.sw button span{display:block;margin-top:3px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.spot--dark .sw button span{color:var(--band-ink-3)}
+.sw button[aria-selected="true"]{background:var(--accent-soft);color:var(--ink);box-shadow:inset 0 -2px 0 var(--accent)}
+.spot--dark .sw button[aria-selected="true"]{background:#111a28;color:#fff;box-shadow:inset 0 -2px 0 var(--accent-lite)}
+.screen-frame{border:1px solid var(--border);border-top:none;border-radius:0 0 var(--r) var(--r);overflow:hidden;background:var(--sunken);padding:10px}
+.spot--dark .screen-frame{border-color:var(--edge-dark);background:#0f141c}
+.screen-win{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:#fff}
+.spot--dark .screen-win{border-color:var(--edge-dark);background:#05080c}
+.screen-win .bar{display:flex;align-items:center;gap:6px;height:24px;padding:0 9px;background:var(--sunken);border-bottom:1px solid var(--border)}
+.spot--dark .screen-win .bar{background:#141a23;border-color:var(--edge-dark)}
+.screen-win .bar i{width:6px;height:6px;border-radius:50%;background:var(--border-strong);display:block}
+.spot--dark .screen-win .bar i{background:#2f3947}
+.screen-win .bar span{margin-left:8px;font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;color:var(--ink-3)}
+.spot--dark .screen-win .bar span{color:var(--band-ink-3)}
+.screen-frame img{width:100%;height:auto;display:block}
+.screen-win--clip{position:relative}
+.screen-win--clip .shot{aspect-ratio:16/10;overflow:hidden}
+.screen-win--clip .shot img{width:100%;height:100%;object-fit:cover;object-position:top center}
+
+
+/* ---------- departments ---------- */
+.dept-tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:30px}
+.dept-tiles button{appearance:none;cursor:pointer;text-align:left;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r);padding:14px 14px 15px;font-family:var(--font);transition:border-color .12s,background .12s}
+.dept-tiles button:hover{border-color:var(--border-strong)}
+.dept-tiles button[aria-selected="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 -2px 0 var(--accent)}
+.dt-i{display:block;width:22px;height:22px;color:var(--ink-3)}
+.dept-tiles button[aria-selected="true"] .dt-i{color:var(--accent)}
+.dt-n{display:block;margin-top:10px;font-size:14px;font-weight:700;letter-spacing:-.015em}
+.dt-s{display:block;margin-top:3px;font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.dept-panel{margin-top:18px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.dp-in{display:grid;grid-template-columns:minmax(0,1fr)}
+.dp-copy{padding:clamp(18px,2.2vw,26px) clamp(20px,2.4vw,30px);border-bottom:1px solid var(--border);
+  display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.35fr);gap:clamp(20px,3vw,40px);align-items:start}
+.dp-copy h3{font-size:22px;letter-spacing:-.03em}
+.dp-copy > p{margin-top:10px;font-size:14.5px;color:var(--ink-2)}
+.dp-caps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 clamp(18px,2.5vw,32px)}
+.dp-caps li{padding:7px 0;font-size:13.5px;line-height:1.45;color:var(--ink-2);display:flex;gap:9px}
+.dp-caps li::before{content:"";flex:none;width:5px;height:5px;margin-top:8px;background:var(--accent);border-radius:1px}
+.dp-shot{background:var(--sunken);overflow:hidden;aspect-ratio:16/8.9}
+.dp-shot img{width:100%;height:100%;object-fit:cover;object-position:top center}
+
+/* ---------- ask silo ---------- */
+.ask{background:var(--sunken);border-block:1px solid var(--border);padding-block:clamp(48px,5vw,76px)}
+.ask-grid{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);gap:clamp(28px,4vw,52px);align-items:center}
+.ask-shot{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface);box-shadow:0 16px 40px rgba(12,16,23,.08)}
+.ask-shot img{width:100%;height:auto;display:block}
+
+
+
+.stage{width:100%;max-width:1150px;margin-top:clamp(40px,4.5vw,64px)}
+.hero-shot{border:1px solid var(--border-strong);border-bottom:0;border-radius:var(--r) var(--r) 0 0;
+  background:var(--surface);padding:9px;box-shadow:0 -2px 80px rgba(12,16,23,.14)}
+.hero-shot .screen-win{border-bottom:0;border-radius:var(--r) var(--r) 0 0}
+.hero-shot img{width:100%;height:auto;display:block;aspect-ratio:16/6.6;object-fit:cover;object-position:top center}
+.float-card{display:none}
+
+
+
+/* ---------- ask silo chat ---------- */
+.chat{border:1px solid var(--border);border-radius:var(--r);background:var(--surface);overflow:hidden;
+  box-shadow:0 18px 44px rgba(12,16,23,.10)}
+.chat-top{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--sunken);
+  font-size:13.5px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.chat-top em{font-style:normal;margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.chat-mark{width:20px;height:20px;border-radius:5px;background:var(--accent);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center}
+.chat-log{padding:18px 16px;display:grid;gap:14px}
+.cm{display:grid;grid-template-columns:30px minmax(0,1fr);gap:10px;align-items:start}
+.cm-av{width:30px;height:30px;border-radius:50%;background:var(--sunken);border:1px solid var(--border);
+  font-family:var(--mono);font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);
+  display:flex;align-items:center;justify-content:center}
+.cm-av--s{background:var(--accent);border-color:var(--accent);color:#fff;font-size:11px;font-weight:700}
+.cm-b{border:1px solid var(--border);border-radius:var(--r);padding:11px 13px;font-size:14.5px;line-height:1.5;color:var(--ink);min-height:40px}
+.cm--you .cm-b{background:var(--sunken)}
+.cm-b p + p{margin-top:8px}
+.cm-b b{font-weight:700}
+.cm-cue{display:inline-block;width:2px;height:15px;background:var(--accent);vertical-align:-3px;animation:cue 1s steps(1) infinite}
+@keyframes cue{50%{opacity:0}}
+.cm--silo{opacity:0;transform:translateY(6px);transition:opacity .45s ease,transform .45s ease}
+.cm--silo[data-on]{opacity:1;transform:none}
+.cm-q{margin-top:11px;border-top:1px solid var(--border);padding-top:9px}
+.cm-q span{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.cm-q code{display:block;margin-top:5px;font-family:var(--mono);font-size:11px;color:var(--ink-2);word-break:break-word}
+.cm-act{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}
+.cm-chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);
+  border:1px solid var(--border);border-radius:3px;padding:6px 10px}
+.chat-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--border);background:var(--sunken);
+  font-size:13.5px;color:var(--ink-3)}
+.chat-bar i{font-style:normal;margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  border:1px solid var(--border);border-radius:3px;padding:2px 7px}
+
+/* ---------- quote + clients ---------- */
+.proof{background:var(--band);color:var(--band-ink);padding-block:clamp(48px,5.5vw,80px)}
+.quote{max-width:900px;margin:0 auto;text-align:center}
+blockquote{margin:0;font-size:clamp(23px,2.9vw,38px);line-height:1.26;font-weight:700;letter-spacing:-.03em;color:#fff;text-wrap:balance}
+blockquote span{color:var(--accent-lite)}
+.qby{margin-top:26px;display:flex;align-items:center;justify-content:center;gap:12px}
+.qby .tx{text-align:left}
+.qby .ini{width:42px;height:42px;border-radius:var(--r);background:var(--band-hi);border:1px solid var(--edge-dark);
+  display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--band-ink-2);overflow:hidden}
+.qby .ini img{width:28px;height:28px;object-fit:contain;display:block}
+.qby b{display:block;font-size:14px;color:#fff}
+.qby i{display:block;font-style:normal;font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--band-ink-3);margin-top:3px}
+.clients{margin-top:clamp(36px,4vw,56px);padding-top:26px;border-top:1px solid var(--line-dark)}
+.clients-l{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--band-ink-3)}
+.clients ul{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:clamp(20px,4.5vw,60px);margin:16px 0 0;padding:0}
+.clients li{display:flex;align-items:center}
+.clients li img{width:auto;display:block;opacity:.92}
+.clients li img.l-mark{height:clamp(38px,3.8vw,50px)}
+.clients li img.l-wide{height:clamp(30px,3vw,40px)}
+.clients li img.l-word{height:clamp(19px,1.9vw,25px)}
+.clients li em{font-style:normal;font-family:var(--mono);font-weight:600;letter-spacing:.14em;text-transform:uppercase;font-size:.74em}
+
+/* ---------- cta ---------- */
+.cta{padding-block:clamp(52px,6vw,84px)}
+.cta-box{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,364px);gap:clamp(28px,4vw,52px);
+  border:1px solid var(--border);border-radius:var(--r);background:var(--surface);padding:clamp(24px,3vw,40px)}
+.field{margin-bottom:12px}
+.field label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.field input{width:100%;height:40px;padding:0 11px;border:1px solid var(--border-strong);border-radius:var(--r);
+  font:400 14px/1 var(--font);color:var(--ink);background:var(--surface)}
+.fine{margin-top:10px;font-size:12px;color:var(--ink-3);line-height:1.5}
+.lp-honeypot{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.bcn-status{margin-top:12px;padding:10px 12px;border-radius:var(--r);font-size:13.5px;line-height:1.45;
+  border:1px solid var(--border);background:var(--sunken);color:var(--ink-2)}
+.bcn-status--info{border-color:var(--accent-border);background:var(--accent-soft);color:var(--ink)}
+.bcn-status--pos{border-color:#b7e0c2;background:#eef8f1;color:#17602f}
+.bcn-status--neg{border-color:#f0bcbe;background:#fdf0f0;color:#8c1f23}
+#lpJoinButton[disabled]{opacity:.6;cursor:not-allowed}
+footer{border-top:1px solid var(--border);padding-block:22px;background:var(--surface)}
+.foot-in{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-3)}
+.foot-in nav{display:flex;gap:18px}
+.foot-in a{text-decoration:none}
+
+/* rendering-only banner */
+.note{position:relative;z-index:40;background:#fffbeb;border-bottom:1px solid #f3e2b4;color:#5c4408}
+.note-in{display:flex;gap:12px;align-items:flex-start;padding-block:10px;font-size:12.5px;line-height:1.5}
+.note b{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;flex:none;padding-top:1px}
+
+@media (max-width:1060px){ .dept-tiles{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media (max-width:1000px){
+  .hero-in,.spot-grid,.spot-grid--flip,.ask-grid,.cta-box,.dp-in{grid-template-columns:minmax(0,1fr)}
+  .vwrap{max-width:262px}
+  .flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .top nav{display:none}
+  .reel{width:108px;right:8px;bottom:-22px}
+  .dp-copy{border-right:0;border-bottom:1px solid var(--border)}
+}
+@media (max-width:620px){
+  .flow,.dept-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .caps li{grid-template-columns:20px minmax(0,1fr)}
+  .caps .d{grid-column:2}
+  .sw{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .sw::-webkit-scrollbar{display:none}
+  .sw button{flex:0 0 auto;min-width:138px}
+}
+
+.caps-more{display:none}
+@media (max-width:700px){
+  .caps-more{display:block;width:100%;margin-top:14px;appearance:none;cursor:pointer;
+    background:transparent;border:1px solid var(--border);border-radius:var(--r);padding:11px 14px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+  .spot--dark .caps-more{border-color:var(--edge-dark);color:var(--band-ink-2)}
+  .spot,.ask,.proof,.cta{padding-block:40px}
+  .hero-in{padding-block:32px 38px}
+  .hero-lead{margin-top:12px;font-size:15.5px}
+  .hero-cta{margin-top:20px}
+  .hero-stats{gap:16px;margin-top:22px;padding-top:18px}
+  .works-in{padding-block:12px}
+  .spot-grid{margin-top:22px;gap:0}
+  .vwrap{display:none}
+  .caps--2up{margin-top:20px}
+  .caps li{padding:11px 0;gap:10px}
+  .caps .t{font-size:14px}
+  .caps .d{font-size:13.5px}
+  .screens{margin-top:20px}
+  .screens--tight{margin-top:18px}
+  .screen-frame{padding:6px}
+  .sw button{padding:9px 10px}
+  .sw button b{font-size:12.5px}
+  .film video{aspect-ratio:16/10}
+  .film-play{gap:7px}
+  .film-play .fp-ic{width:46px;height:46px}
+  .film-play .fp-t{font-size:13.5px}
+  .film-bar .lbl{display:none}
+  .dept-tiles{margin-top:20px;gap:8px}
+  .dept-tiles button{padding:11px 11px 12px}
+  .dept-panel{margin-top:14px}
+  .dept-tiles button{padding:12px 12px 13px}
+  .dp-copy{padding:18px;grid-template-columns:minmax(0,1fr);gap:14px}
+  .dp-caps{grid-template-columns:minmax(0,1fr)}
+  .dp-caps li{padding:8px 0;font-size:13.5px}
+  .dp-shot{aspect-ratio:4/3.2}
+  .clients{margin-top:28px;padding-top:20px}
+}
+
+.works-brands{display:flex;align-items:center;gap:22px;padding-block:14px;border-bottom:1px solid var(--line-dark)}
+.bshow{position:relative;height:44px;flex:1;min-width:0;overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 46px,#000 calc(100% - 46px),transparent 100%);
+  mask-image:linear-gradient(90deg,transparent 0,#000 46px,#000 calc(100% - 46px),transparent 100%)}
+.btrack{display:flex;align-items:center;gap:clamp(44px,6vw,86px);height:100%;width:max-content;
+  animation:bmarq 46s linear infinite;will-change:transform}
+.bshow:hover .btrack{animation-play-state:paused}
+@keyframes bmarq{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+.btrack img{width:auto;display:block;opacity:.95;flex:none}
+.btrack img.l-mark{height:40px}
+.btrack img.l-wide{height:33px}
+.btrack img.l-word{height:21px}
+@media (prefers-reduced-motion:reduce){.btrack{animation:none}}
+.bdots{display:flex;gap:6px;flex:none}
+.bdots button{appearance:none;cursor:pointer;border:0;padding:0;width:16px;height:3px;border-radius:2px;background:rgba(255,255,255,.22)}
+.bdots button[aria-selected="true"]{background:var(--accent-lite)}
+@media (max-width:700px){
+  .stage{margin-inline:calc(-1 * clamp(16px,4vw,48px));width:auto;max-width:none;margin-top:30px}
+  .hero-shot{border-left:0;border-right:0;border-radius:0;padding:0}
+  .hero-shot .screen-win{border-left:0;border-right:0;border-radius:0}
+  .hero-shot img{aspect-ratio:4/3.1;object-position:top left}
+  .works-brands{gap:14px;padding-block:12px}
+  .bshow{height:34px}
+  .btrack{gap:36px;animation-duration:34s}
+  .btrack img.l-mark{height:30px}
+  .btrack img.l-wide{height:25px}
+  .btrack img.l-word{height:16px}
+}
+</style>
+</head>
+<body>
+
+
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand"><span class="mark">S</span>SILO</div>
+    <nav>
+      <a href="#marketing">Marketing suite</a>
+      <a href="#affiliates">Affiliate Studio<span class="tag-new">NEW</span></a>
+      <a href="#departments">Platform</a>
+      <a href="#ask">Ask SILO</a>
+    </nav>
+    <span class="spacer"></span>
+    <div class="top-actions">
+      <a class="btn" href="/pages/login.html">Sign in</a>
+      <a class="btn btn--primary" href="#create">Create your SILO</a>
+    </div>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap hero-in">
+    <div>
+      <h1>The platform your brand runs on.</h1>
+      <p class="hero-lead">Marketing, affiliate management, inventory and finances, on one platform.</p>
+      <div class="hero-cta">
+        <a class="btn btn--primary btn--lg" href="#create">Create your SILO →</a>
+        <a class="btn btn--ghost-lite btn--lg" href="#affiliates">See Affiliate Studio</a>
+      </div>
+      <div class="hero-stats">
+        <div><div class="hs-k">AI with receipts</div><div class="hs-l">Built on your own systems · you choose what it can do</div></div>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="hero-shot">
+        <div class="screen-win"><div class="bar"><i></i><i></i><i></i><span>SILO &middot; Attribution</span></div>
+          <img src="/assets/landing-v2/hi-mkt-attribution.webp" alt="Attribution in SILO" width="1200" height="1020" /></div>
+      </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<div class="works">
+  <div class="wrap">
+  <div class="works-brands">
+    <span class="works-l">Brands running on SILO</span>
+    <div class="bshow" id="bshow"></div>
+  </div>
+  <div class="works-in">
+    <span class="works-l">Works with</span>
+    <ul>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-shopify"/></svg>Shopify</li>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-meta"/></svg>Meta Ads</li>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-google-ads"/></svg>Google Ads</li>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-tiktok"/></svg>TikTok</li>
+      <li><img src="/assets/landing-v2/klaviyo-logo.png" alt="" width="48" height="14" />Klaviyo</li>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-quickbooks"/></svg>QuickBooks</li>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-stripe"/></svg>Stripe</li>
+      <li><svg viewBox="0 0 24 24"><use href="/assets/landing-v2/integration-icons.svg#icon-plaid"/></svg>Plaid</li>
+      <li><svg class="wide" viewBox="0 0 56 20"><use href="/assets/landing-v2/integration-icons.svg#icon-redo"/></svg>Redo</li>
+      <li class="more">&amp; more</li>
+    </ul>
+  </div>
+  </div>
+</div>
+
+<!-- MARKETING SUITE -->
+<section class="spot" id="marketing">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <p class="eyebrow">The marketing suite</p>
+        <h2>Every dollar of spend, tied to the sales it made.</h2>
+        <p class="lead">Every channel in one view, scored against your own baselines, with an AI that drafts the next campaign from the ads that already worked.</p>
+      </div>
+    </div>
+
+    
+
+    <div class="screens screens--tight" data-switcher>
+      <div class="sw" role="tablist" aria-label="Marketing screens">
+        <button role="tab" aria-selected="true" data-img="/assets/landing-v2/hi-mkt-journey.webp"><b>Customer journey</b><span>Every touch before the order</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/hi-mkt-attribution.webp"><b>Attribution</b><span>Credited once</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/hi-mkt-perf.webp"><b>Performance</b><span>Spend → net sales</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/hi-mkt-adstudio.webp"><b>Ad Studio</b><span>Baselines</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/hi-mkt-ideabank.webp"><b>Idea bank</b><span>Draft → testing → live</span></button>
+      </div>
+      <div class="screen-frame"><div class="screen-win"><div class="bar"><i></i><i></i><i></i><span>SILO · Marketing</span></div>
+        <div class="shot"><img src="/assets/landing-v2/hi-mkt-journey.webp" alt="SILO marketing screens" width="1200" height="1020" /></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- AFFILIATE STUDIO -->
+<section class="spot spot--dark" id="affiliates">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <p class="eyebrow eyebrow--on-dark">New · Affiliate Studio</p>
+        <h2>Your best ambassadors already bought from you. Discover the rest with SILO.</h2>
+        <p class="lead lead--dark">SILO reads your own customer list for the people already wearing the brand, and runs focused AI assisted searches for creators you have not met, side by side.</p>
+      </div>
+    </div>
+
+    <ul class="caps caps--3up">
+        <li><span class="n">01</span><span class="t">Find creators</span><span class="d">Your own customers with a following, plus searches for creators you have not met. <em class="who">AI assisted</em></span></li>
+        <li><span class="n">02</span><span class="t">Approve and invite</span><span class="d">You pick who gets asked. Invites go out from your own mailbox. <em class="who">Your team</em></span></li>
+        <li><span class="n">03</span><span class="t">Rep joins</span><span class="d">They accept your terms and their code goes live the same minute. <em class="who">Automatic</em></span></li>
+        <li><span class="n">04</span><span class="t">Share a launch</span><span class="d">Send a drop to every rep before it goes live, with products and images to post. <em class="who">Your team</em></span></li>
+        <li><span class="n">05</span><span class="t">Buy their best content</span><span class="d">See what each post did, then buy the ones worth running as ads. <em class="who">Your call</em></span></li>
+        <li><span class="n">06</span><span class="t">Paid automatically</span><span class="d">Commission on every order, paid through PayPal on your schedule. <em class="who">Automatic</em></span></li>
+      </ul>
+
+    <div class="screens" data-switcher>
+      <div class="sw" role="tablist" aria-label="Affiliate Studio screens">
+        <button role="tab" aria-selected="true" data-img="/assets/landing-v2/real-discovery.webp"><b>Find creators</b><span>Who to ask</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/real-share.webp"><b>Share</b><span>Launches and ads</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/real-money.webp"><b>Money</b><span>Earned to paid</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/real-join.webp"><b>Rep join page</b><span>Your terms</span></button>
+        <button role="tab" aria-selected="false" data-img="/assets/landing-v2/real-portal.webp"><b>Partner Portal</b><span>What reps see</span></button>
+      </div>
+      <div class="screen-frame"><div class="screen-win"><div class="bar"><i></i><i></i><i></i><span>SILO · Affiliate Studio</span></div>
+        <div class="shot"><img src="/assets/landing-v2/real-discovery.webp" alt="Affiliate Studio screens" width="2600" height="1419" /></div></div></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ASK SILO -->
+<section class="ask" id="ask">
+  <div class="wrap ask-grid">
+    <div>
+      <p class="eyebrow">Ask SILO</p>
+      <h2>Talk to your business.</h2>
+      <p class="lead">Type a question. SILO answers, and shows the context used so you can trust the number.</p>
+      <p class="lead">Connect SILO over MCP to empower your own agents. They read by default, they only do what you switch on, and money and approvals always stay with a person.</p>
+    </div>
+    <div class="chat" id="chat">
+      <div class="chat-top"><span class="chat-mark">S</span>Ask SILO<em>your workspace</em></div>
+      <div class="chat-log">
+        <div class="cm cm--you"><span class="cm-av">You</span><div class="cm-b" id="cmAsk"><span class="cm-cue"></span></div></div>
+        <div class="cm cm--silo" id="cmAns">
+          <span class="cm-av cm-av--s">S</span>
+          <div class="cm-b">
+            <p><b>Outerwear and headwear</b> grew fastest last quarter, up 18 to 24% on Shopify sales.</p>
+            <p><b>11 SKUs</b> are under 14 days of cover at your main warehouse. Three of them are repeat best sellers.</p>
+            <div class="cm-q"><span>Context used</span><code>sales_by_product_title_daily_v · inventory_on_hand_current_v · sales_velocity_by_sku_location_v</code></div>
+            <div class="cm-act"><span class="cm-chip">Save as a dashboard</span><span class="cm-chip">Show the rows</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-bar"><span>Ask about sales, stock, ads or finances</span><i>&#8629;</i></div>
+    </div>
+  </div>
+</section>
+
+<!-- DEPARTMENTS -->
+<section class="spot" id="departments">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <p class="eyebrow">Every department</p>
+        <h2>Marketing doesn't run on its own.</h2>
+        <p class="lead">Pick a department to see what its suite covers and what the screen looks like.</p>
+      </div>
+    </div>
+
+    <div class="dept-tiles" role="tablist" aria-label="Departments" id="deptTiles"></div>
+    <div class="dept-panel"><div class="dp-in">
+      <div class="dp-copy">
+        <div><h3 id="dpTitle"></h3><p id="dpLead"></p></div>
+        <ul class="dp-caps" id="dpCaps"></ul>
+      </div>
+      <div class="dp-shot"><img id="dpShot" alt="" width="1200" height="1020" /></div>
+    </div></div>
+  </div>
+</section>
+
+<!-- PROOF -->
+<section class="proof">
+  <div class="wrap">
+    <div class="quote">
+      <blockquote>“SILO helps us manage our marketing, our inventory and our finances in one place. <span>We can share a launch with our affiliate community before it goes live and buy the best content that comes back.</span>”</blockquote>
+      <div class="qby">
+        <span class="ini"><img src="/assets/landing-v2/logo-baseballism.png" alt="Baseballism" /></span>
+        <div class="tx"><b>Jon Loomis</b><i>Baseballism</i></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CREATE -->
+<section class="cta" id="create">
+  <div class="wrap">
+    <div class="cta-box">
+      <div>
+        <p class="eyebrow">Create your SILO</p>
+        <h2>Your marketing and your creator program, in one workspace.</h2>
+        <p class="lead">Enter your work email and we'll send a secure link to create your account and walk through company setup, usually within a few minutes.</p>
+      </div>
+      <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote"
+        data-ack-success="Check your inbox. We sent a link to create your account and set up your company. The link is tied to this email and expires in 14 days.">
+        <div class="field"><label for="lpName">Name</label><input id="lpName" name="name" type="text" autocomplete="name" maxlength="120" required /></div>
+        <div class="field"><label for="lpCompanyName">Company name</label><input id="lpCompanyName" name="company_name" type="text" autocomplete="organization" maxlength="200" required /></div>
+        <div class="field"><label for="lpEmail">Work email</label><input id="lpEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required /></div>
+        <div class="lp-honeypot" aria-hidden="true" inert>
+          <label for="lpWebsite">Leave this field empty</label>
+          <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
+        </div>
+        <button class="btn btn--primary btn--lg" id="lpJoinButton" type="submit" style="width:100%;justify-content:center" disabled>Create your SILO</button>
+        <p class="fine" id="lpPrivacyNote">We process name, company and email only to send your signup link and onboard your workspace. <a href="/legal/privacy.html">Privacy policy</a></p>
+        <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
+        <noscript><p class="fine">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
+      </form>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>&copy; <span id="lpYear">2026</span> SILO</span>
+    <nav><a href="/legal/privacy.html">Privacy</a><a href="/legal/eula.html">Terms of use</a><a href="mailto:support@get-silo.com">Contact</a></nav>
+  </div>
+</footer>
+
+<script>
+// ---- film players: pause button + progress ----
+const PLAY = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 1.5 10 6l-7 4.5Z"/></svg>';
+const PAUSE = '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="1.5" width="3" height="9"/><rect x="7" y="1.5" width="3" height="9"/></svg>';
+const MUTED = '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 3 4 5.2H2v3.6h2L6.5 11V3Z" fill="currentColor" stroke-linejoin="round"/><path d="m9.2 5.4 3.2 3.2M12.4 5.4 9.2 8.6"/></svg>';
+const SOUND = '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 3 4 5.2H2v3.6h2L6.5 11V3Z" fill="currentColor" stroke-linejoin="round"/><path d="M9.2 5.2a2.6 2.6 0 0 1 0 3.6M11 3.6a5 5 0 0 1 0 6.8"/></svg>';
+for (const film of document.querySelectorAll('[data-film]')) {
+  const v = film.querySelector('video'), btn = film.querySelector('.pp'), bar = film.querySelector('.prog i');
+  const start = () => { film.setAttribute('data-started',''); v.muted = false; v.volume = 1; v.play(); };
+  film.querySelector('.film-play').addEventListener('click', start);
+  btn.addEventListener('click', () => { if (v.paused) v.play(); else v.pause(); });
+  v.addEventListener('ended', () => film.removeAttribute('data-started'));
+  const snd = film.querySelector('.snd');
+  const syncSnd = () => { snd.innerHTML = v.muted ? MUTED : SOUND; snd.setAttribute('aria-label', v.muted ? 'Unmute' : 'Mute'); };
+  snd.addEventListener('click', () => { v.muted = !v.muted; if (!v.muted && v.paused) v.play(); syncSnd(); });
+  v.addEventListener('volumechange', syncSnd);
+  syncSnd();
+  const sync = () => { btn.innerHTML = v.paused ? PLAY : PAUSE; btn.setAttribute('aria-label', v.paused ? 'Play' : 'Pause'); };
+  v.addEventListener('play', sync); v.addEventListener('pause', sync);
+  v.addEventListener('timeupdate', () => { if (v.duration) bar.style.width = (v.currentTime / v.duration * 100) + '%'; });
+}
+
+// ---- screen switchers ----
+for (const box of document.querySelectorAll('[data-switcher]')) {
+  const img = box.querySelector('.screen-frame img');
+  box.querySelectorAll('.sw button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      box.querySelectorAll('.sw button').forEach(b => b.setAttribute('aria-selected', String(b === btn)));
+      img.src = btn.dataset.img;
+    });
+  });
+}
+
+// ---- departments ----
+const ICON = {
+  inventory:'<path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  purchasing:'<path d="M4 7h12m0 0-3-3m3 3-3 3"/><path d="M20 17H8m0 0 3-3m-3 3 3 3"/>',
+  finance:'<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
+  planning:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  ai:'<path d="M11 4.5 12.6 9l4.4 1.6-4.4 1.6L11 16.7l-1.6-4.5L5 10.6 9.4 9Z"/><path d="M18 15v5M15.5 17.5h5"/>',
+  scopes:'<path d="M12 3 4 6v6c0 4.5 3.3 8.3 8 9 4.7-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/>'
+};
+const DEPTS = [
+  { key:'inventory', name:'Inventory', sub:'Cover', icon:'inventory', shot:'/assets/landing-v2/hi-plan-c.webp',
+    lead:'What runs out first, at the sell-through you are actually seeing, not what is sitting on the shelf.',
+    caps:['Weeks of cover by SKU and by location, blended or per location',
+          'What runs out before the next drop, flagged ahead of the launch',
+          'Inbound units on the water counted toward cover, not ignored',
+          'Reorder straight from the same screen'] },
+  { key:'purchasing', name:'Purchasing', sub:'POs', icon:'purchasing', shot:'/assets/landing-v2/hi-plan-b.webp',
+    lead:'What is on the water, what landed, and what every unit really cost once freight and duty are in.',
+    caps:['Open POs, inbound units, past-due lines and landed value in one band',
+          'Landed cost per unit, so margin is the real margin',
+          'Receiving against the PO line, with partial deliveries handled',
+          'Your own AI can track the shipment, draft the receipt for a person to confirm, and move the PO to its next step'] },
+  { key:'planning', name:'Launch calendar', sub:'Drops', icon:'planning', shot:'/assets/landing-v2/hi-plan-a.webp',
+    lead:'Every drop on one calendar, against the stock and the campaign behind it.',
+    caps:['Launches, tasks and checklists for the month in one view',
+          'At-risk launches flagged against factory ETA',
+          'Owners set per launch, so nothing sits unassigned',
+          'The campaign and the inventory read from the same place'] },
+  { key:'finance', name:'Finance', sub:'Books', icon:'finance', shot:'/assets/landing-v2/hi-fin-b.webp',
+    lead:'A close that is a list, not a scavenger hunt, with a P&L that ties out to the books you already keep.',
+    caps:['Month-end as steps with a status each, and a lock when it is done',
+          'Every transaction matched to a journal SILO posted, not guessed',
+          'P&L and balance sheet with the source rows behind each line',
+          'Only money approvers can post, approve or pay'] },
+  { key:'ai', name:'Ask SILO', sub:'Answers', icon:'ai', shot:'/assets/landing-v2/hi-ai-a.webp',
+    lead:'Ask about sales, inventory, marketing or returns and get the answer with the queries behind it.',
+    caps:['Plain language in, real numbers out, every time',
+          'The queries that produced the answer are shown, always',
+          'Keep any answer as a saved report or a dashboard tile',
+          'Training notes teach it your brand’s own definitions'] },
+  { key:'scopes', name:'Connected AI', sub:'MCP', icon:'scopes', shot:'/assets/landing-v2/hi-ai-b.webp',
+    lead:'Connect your own AI client to SILO. Reading is the default; anything it can change is a scope you switch on, and money stays human.',
+    caps:['Your assistant on desktop, phone or your own agent over the API',
+          'Reads everything you publish to it, with the query behind every answer',
+          'Opt-in scopes: draft a shipment receipt, move a PO forward, open a task, create a discount code, send an approved message',
+          'Moving money or approving is never available to an agent',
+          'Every write is capped, logged and reversible by a person'] }
+];
+const tiles = document.getElementById('deptTiles');
+tiles.innerHTML = DEPTS.map((d,i) => `
+  <button role="tab" aria-selected="${i===0}" data-i="${i}">
+    <svg class="dt-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICON[d.icon]}</svg>
+    <span class="dt-n">${d.name}</span><span class="dt-s">${d.sub}</span>
+  </button>`).join('');
+function showDept(i) {
+  const d = DEPTS[i];
+  tiles.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(+b.dataset.i === i)));
+  document.getElementById('dpTitle').textContent = d.name;
+  document.getElementById('dpLead').textContent = d.lead;
+  document.getElementById('dpCaps').innerHTML = d.caps.map(c => `<li>${c}</li>`).join('');
+  const img = document.getElementById('dpShot');
+  img.src = d.shot; img.alt = d.name + ' in SILO';
+}
+const panel = document.querySelector('.dept-panel');
+const mqD = window.matchMedia('(max-width:700px)');
+function syncPanel(){ if (mqD.matches && !panel.dataset.open) panel.hidden = true; else panel.hidden = false; }
+tiles.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  showDept(+b.dataset.i);
+  panel.dataset.open = '1'; syncPanel();
+  if (mqD.matches) panel.scrollIntoView({ behavior:'smooth', block:'start' });
+});
+mqD.addEventListener('change', syncPanel);
+showDept(0);
+syncPanel();
+
+// ---- brand marquee ----
+(function(){
+  const BRANDS = [
+    { name:'Baseballism',       img:'/assets/landing-v2/logo-baseballism.png', cls:'l-mark' },
+    { name:'State Forty Eight', img:'/assets/landing-v2/logo-sfe.png',         cls:'l-mark' },
+    { name:'STLHD',             img:'/assets/landing-v2/logo-stlhd.png',       cls:'l-wide' },
+    { name:'S\u00fcti',            img:'/assets/landing-v2/client-suti.svg',      cls:'l-word' }
+  ];
+  const show = document.getElementById('bshow');
+  if (!show) return;
+  const track = document.createElement('div');
+  track.className = 'btrack';
+  show.appendChild(track);
+  const one = () => BRANDS.map(b => `<img src="${b.img}" alt="${b.name}" class="${b.cls}" />`).join('');
+  function fill(){
+    // repeat the set enough times to overflow the rail, then duplicate for a seamless loop
+    track.style.animation = 'none';
+    track.innerHTML = one();
+    let guard = 0;
+    while (track.scrollWidth < show.clientWidth * 1.15 && guard++ < 8) track.innerHTML += one();
+    track.innerHTML += track.innerHTML;
+    track.style.animation = '';
+  }
+  fill();
+  let t; addEventListener('resize', () => { clearTimeout(t); t = setTimeout(fill, 220); });
+})();
+
+// ---- ask silo chat ----
+(function(){
+  const box = document.getElementById('chat'); if (!box) return;
+  const ask = document.getElementById('cmAsk'), ans = document.getElementById('cmAns');
+  const Q = 'Which product types grew fastest last quarter, and where are we understocked?';
+  let started = false;
+  function play(){
+    if (started) return; started = true;
+    let i = 0;
+    const cue = '<span class="cm-cue"></span>';
+    const tick = setInterval(() => {
+      i++; ask.innerHTML = Q.slice(0, i) + (i < Q.length ? cue : '');
+      if (i >= Q.length) { clearInterval(tick); setTimeout(() => ans.setAttribute('data-on',''), 500); }
+    }, 26);
+  }
+  new IntersectionObserver((es, o) => es.forEach(e => { if (e.isIntersecting) { play(); o.disconnect(); } }),
+    { threshold:.35 }).observe(box);
+})();
+</script>
+<script src="/pages/config.js"></script>
+<script src="/assets/landing/early-access.js?v=4" defer></script>
+</body>
+</html>

@@ -7,5 +7,6 @@ Deno.serve(createHandler({
   dailyCap: Number(Deno.env.get('ONBOARDING_AUTO_INVITE_DAILY_CAP') || 100),
   resendKey: Deno.env.get('RESEND_API_KEY') || '',
   mailFrom: Deno.env.get('SILO_MAIL_FROM') || undefined,
-  siteUrl: Deno.env.get('SILO_SITE_URL') || undefined,
+  // No SILO_SITE_URL here on purpose -- see handler.ts. The public signup
+  // link stays on the public domain.
 }));
