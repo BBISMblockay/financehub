@@ -221,3 +221,132 @@ export function validateRequest(body, visibleLocationIds) {
     onlyEmptyDays: body?.only_empty_days !== false,
   };
 }
+
+/* ---------------------------------------------------------------------------
+ * action: 'scenario' — the assumptions behind a scenario, for
+ * /v2/planning-scenarios-v2.html.
+ *
+ * The page sends the monthly facts it already computed and shows (last year,
+ * the projection, the current plan, mix and price). They are aggregates of
+ * data the caller can already read, and the answer is written into the same
+ * boxes the person types into, so nothing here is a new way to reach data or
+ * to change anything. The function still bounds the size and the shape.
+ * ------------------------------------------------------------------------- */
+
+export const MAX_SCENARIO_MONTHS = 48;
+
+export const SCENARIO_SYSTEM = [
+  'You set the assumptions behind a merchandise planning scenario in SILO.',
+  '',
+  'You are given one line per month: last year\'s revenue for the scope, the revenue projection if',
+  'there is one, and the plan, product mix % and average selling price the page is using now.',
+  '',
+  'Rules:',
+  '- Ground every number in the months given. Keep the seasonal shape of last year.',
+  '- growth_pct is the single lift applied on top of the monthly plan. Use it for "grow 25%".',
+  '- Only return a month\'s plan_revenue, mix_pct or price when the request actually changes it;',
+  '  leave the rest out and the page keeps its own figure.',
+  '- mix_pct is a percentage between 0 and 100. price is in dollars.',
+  '- Say in the rationale what you changed, by how much, and off which base.',
+  '- Answer only by calling set_scenario.',
+].join('\n');
+
+export const SCENARIO_TOOL = {
+  name: 'set_scenario',
+  description: 'Set the growth tested and, where the request changes them, the monthly assumptions.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      rationale: { type: 'string', description: 'One or two sentences: what changed, by how much, off which base.' },
+      growth_pct: { type: 'number', description: 'The lift on top of the plan, as a percentage. 25 means +25%.' },
+      months: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            month: { type: 'string', description: 'YYYY-MM, one of the months given.' },
+            plan_revenue: { type: 'number' },
+            mix_pct: { type: 'number', description: '0 to 100.' },
+            price: { type: 'number', description: 'Dollars.' },
+          },
+          required: ['month'],
+        },
+      },
+    },
+    required: ['rationale', 'growth_pct'],
+  },
+};
+
+export function validateScenarioRequest(body) {
+  const instruction = String(body?.instruction || '').trim();
+  if (!instruction) return { error: 'instruction is required' };
+  const months = Array.isArray(body?.months) ? body.months : [];
+  if (!months.length) return { error: 'months is required' };
+  if (months.length > MAX_SCENARIO_MONTHS) return { error: `at most ${MAX_SCENARIO_MONTHS} months per scenario` };
+  const clean = [];
+  for (const m of months) {
+    const month = String(m?.month || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return { error: `month must be YYYY-MM, got ${month || 'nothing'}` };
+    const n = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 100) / 100 : 0);
+    clean.push({
+      month,
+      last_year: n(m.last_year), projection: n(m.projection),
+      plan: n(m.plan), mix_pct: n(m.mix_pct), price: n(m.price),
+    });
+  }
+  return {
+    instruction: instruction.slice(0, MAX_INSTRUCTION),
+    months: clean,
+    productType: String(body?.product_type || '__ALL__').slice(0, 120),
+    channel: String(body?.channel || '__ALL__').slice(0, 40),
+    planMode: body?.plan_mode === 'historical' ? 'historical' : 'revenue_plan',
+  };
+}
+
+export function buildScenarioMessage(req) {
+  const lines = [];
+  lines.push(`Mode: ${req.planMode === 'historical' ? 'historical lift' : 'revenue plan (plan x mix / price)'}.`);
+  lines.push(`Scope: product type ${req.productType === '__ALL__' ? 'all' : req.productType}, channel ${req.channel === '__ALL__' ? 'all' : req.channel}.`);
+  lines.push('');
+  lines.push('month last_year projection current_plan mix_pct price');
+  for (const m of req.months) {
+    lines.push(`${m.month} ${Math.round(m.last_year)} ${m.projection ? Math.round(m.projection) : 'none'} ${Math.round(m.plan)} ${m.mix_pct} ${m.price}`);
+  }
+  lines.push('');
+  lines.push(`What the person asked for: ${req.instruction}`);
+  return lines.join('\n');
+}
+
+/** Keep only months that were offered, and values that are plausible. */
+export function clampScenarioAnswer(answer, months) {
+  const known = new Set(months.map((m) => m.month));
+  const growth = Number(answer?.growth_pct);
+  const out = [];
+  for (const row of Array.isArray(answer?.months) ? answer.months : []) {
+    const month = String(row?.month || '').slice(0, 7);
+    if (!known.has(month)) continue;
+    const entry = { month };
+    const plan = Number(row?.plan_revenue);
+    const mix = Number(row?.mix_pct);
+    const price = Number(row?.price);
+    if (Number.isFinite(plan) && plan > 0 && plan <= MAX_VALUE) entry.plan_revenue = Math.round(plan);
+    if (Number.isFinite(mix) && mix > 0 && mix <= 100) entry.mix_pct = Math.round(mix * 100) / 100;
+    if (Number.isFinite(price) && price > 0 && price <= 100000) entry.price = Math.round(price * 100) / 100;
+    if (Object.keys(entry).length > 1) out.push(entry);
+  }
+  return {
+    growth_pct: Number.isFinite(growth) ? Math.max(-100, Math.min(500, Math.round(growth * 10) / 10)) : 0,
+    months: out,
+    rationale: String(answer?.rationale || '').slice(0, 1200),
+  };
+}
+
+/** Read a set_scenario call out of an Anthropic message. */
+export function readScenarioToolUse(message) {
+  const blocks = Array.isArray(message?.content) ? message.content : [];
+  for (const b of blocks) {
+    if (b?.type === 'tool_use' && b?.name === SCENARIO_TOOL.name && b.input && typeof b.input === 'object') return b.input;
+  }
+  const text = blocks.filter((b) => b?.type === 'text').map((b) => b.text).join(' ').trim();
+  return { rationale: text.slice(0, 400), months: [] };
+}

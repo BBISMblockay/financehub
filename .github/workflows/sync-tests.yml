@@ -324,6 +324,8 @@ on:
       - 'supabase/functions/silo-chat/**'
       - 'supabase/functions/projection-draft/**'
       - 'v2/projections-v2*'
+      - 'v2/planning-scenarios-v2*'
+      - 'v2/planning-scenarios-model.js'
       - 'supabase/functions/quickbooks-post-journal/**'
       - 'supabase/functions/quickbooks-report/**'
       - 'v2/accounting-books*'
@@ -767,6 +769,11 @@ jobs:
       # both: weekday alignment broken, and the "already planned" guard off.
       - name: Projections planning sheet
         run: node --test scripts/tests/projections-planning.test.mjs
+
+      # The scenario model, ported from the live page: revenue x mix / price,
+      # the historical-lift assumptions, the channel split and the gap.
+      - name: Scenario planning model
+        run: node --test scripts/tests/planning-scenarios-model.test.mjs
 
       - name: Plaid protocol and encrypted credential binding
         run: node scripts/tests/plaid-core.test.mjs
