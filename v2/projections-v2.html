@@ -67,6 +67,26 @@
     .pv-tag { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; color:var(--bcn-warn);
       border:1px solid var(--bcn-warn); border-radius:3px; padding:1px 4px; white-space:nowrap; }
 
+    /* The sheet is meant to be dense: a month of days readable without
+       scrolling past a screen, which is what makes one narrow column work in
+       place of the 30-column matrix. */
+    #pv-table td { height:30px; padding:0 10px; font-size:12.5px; }
+    #pv-table th { padding:7px 10px; }
+    #pv-table tfoot td { position:sticky; bottom:0; z-index:2; background:var(--bcn-band);
+      color:#fff; font-weight:700; border:none; height:32px; }
+    #pv-table tfoot td:first-child { color:rgba(255,255,255,.75); font-family:var(--bcn-mono);
+      font-size:10px; letter-spacing:.09em; }
+    .pv-spark { grid-column:1/-1; display:flex; align-items:flex-end; gap:2px; height:16px; margin-top:4px; }
+    .pv-spark i { flex:1; background:var(--bcn-accent); opacity:.3; border-radius:1px; min-height:1px; }
+    .pv-spark i.pv-hi { opacity:.85; }
+    .pv-meter { height:4px; border-radius:3px; background:var(--bcn-border); margin-top:6px; overflow:hidden; }
+    .pv-meter i { display:block; height:100%; background:var(--bcn-accent); }
+    .pv-all { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:8px 12px;
+      border-top:1px solid var(--bcn-border); background:var(--bcn-surface); }
+    .pv-all-n { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; letter-spacing:.09em;
+      color:var(--bcn-ink-3); }
+    .pv-all-t { font-family:var(--bcn-mono); font-size:13px; font-weight:700; }
+    .pv-all-s { font-size:10.5px; color:var(--bcn-ink-3); }
     .pv-drawer { border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken);
       padding:10px 12px; display:grid; gap:8px; }
     .pv-drawer[hidden] { display:none; }
@@ -137,11 +157,12 @@
         <div class="bcn-kpi-label">COVERAGE</div>
         <div class="bcn-kpi-value bcn-mono" id="kpi-cov">—</div>
         <div class="bcn-kpi-delta" id="kpi-cov-sub">location-days with a plan</div>
+        <div class="pv-meter"><i id="kpi-cov-bar" style="width:0%"></i></div>
       </div>
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">LOCATIONS</div>
-        <div class="bcn-kpi-value bcn-mono" id="kpi-locs">—</div>
-        <div class="bcn-kpi-delta" id="kpi-locs-sub">active</div>
+        <div class="bcn-kpi-label">PACE VS PLAN</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpi-pace">—</div>
+        <div class="bcn-kpi-delta" id="kpi-pace-sub">days with actuals so far</div>
       </div>
     </section>
 
@@ -562,8 +583,13 @@
       .toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     setStatus('Loading…', 'info');
     try {
+      // The plan is what the person came to edit, and it is one quick read, so
+      // the sheet is on screen before the history behind it arrives. Last year,
+      // the deltas, the bars and the sparklines fill in as each block lands,
+      // and nothing is editable-but-wrong in between: an empty LY cell reads
+      // the same as a day with no history.
       await loadLocations();
-      await Promise.all([loadPlan(range), loadActuals(range), loadLaunches(range)]);
+      await loadPlan(range);
       state.undo = null; el('pv-undo').hidden = true;
       if (state.openOnGap) {
         state.openOnGap = false;
@@ -574,6 +600,12 @@
         }
         if (worst != null) state.locationId = worst;
       }
+      render();
+      setStatus('Reading last year…', 'info');
+      await Promise.all([
+        loadActuals(range, () => render()),
+        loadLaunches(range),
+      ]);
       render();
       setStatus('Ready.', 'pos', 1200);
     } catch (e) {
@@ -619,7 +651,7 @@
    * engine (chat_run_readonly_query) as the signed-in person, and joined
    * locations -> sales_by_day through silo_location_slug(), which is the one
    * definition of that join — the page does not re-slugify in JS. */
-  async function loadActuals(range) {
+  async function loadActuals(range, onBlock) {
     // Only the days a basis can read, and ONE BLOCK OF DAYS PER QUERY.
     //
     // Both halves of that matter, measured on production as the signed-in
@@ -633,7 +665,9 @@
     const blocks = L.historyRanges(state.dates.length ? state.dates : L.datesBetween(range.from, range.to), range.from);
     if (!blocks.length) { state.actuals = new Map(); return; }
     const rows = [];
-    for (const b of blocks) {
+    // Newest block first: the period's own days and the weeks just behind it
+    // are what the first screen shows, so they land first.
+    for (const b of blocks.slice().reverse()) {
       // The join carries company_entity_id as well as the slug: two companies
       // can own locations whose names slugify the same, and the tag alone would
       // pool their sales. RLS scopes what comes back either way; this keeps the
@@ -660,6 +694,8 @@
         throw new Error(`History for ${b.from} to ${b.to} came back in ${pages} full pages, `
           + 'so some days are missing. Plan a shorter period.');
       }
+      state.actuals = L.indexActuals(rows);
+      if (typeof onBlock === 'function') onBlock();
     }
     state.actuals = L.indexActuals(rows);
   }
@@ -705,19 +741,51 @@
 
   function renderRail() {
     const rail = el('pv-rail');
-    rail.querySelectorAll('.pv-loc').forEach((n) => n.remove());
+    rail.querySelectorAll('.pv-loc, .pv-all').forEach((n) => n.remove());
+
+    // The company's own total sits above the list, so picking one location
+    // never loses sight of what the period adds up to.
+    if (state.locations.length) {
+      let allPlan = 0, allLy = 0, allFilled = 0;
+      for (const loc of state.locations) {
+        const t = periodTotals(loc.id);
+        allPlan += t.plan; allLy += t.ly; allFilled += t.filled;
+      }
+      const d = allLy > 0 ? ((allPlan / allLy) - 1) * 100 : null;
+      const sum = document.createElement('div');
+      sum.className = 'pv-all';
+      sum.innerHTML =
+        `<span class="pv-all-n">ALL ${state.locations.length} LOCATIONS</span>
+         <span class="pv-all-t">${kmoney(allPlan)}</span>
+         <span class="pv-all-s">${allFilled} of ${state.locations.length * state.dates.length} days planned</span>
+         <span class="pv-loc-d ${d == null ? '' : d >= 0 ? 'pv-pos' : 'pv-neg'}">${
+           allPlan && d != null ? pctTxt(d) : '—'}</span>`;
+      rail.append(sum);
+    }
+
     for (const loc of state.locations) {
       const { plan, ly, filled } = periodTotals(loc.id);
       const delta = ly > 0 ? ((plan / ly) - 1) * 100 : null;
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'pv-loc';
       if (loc.id === state.locationId) b.setAttribute('aria-current', 'true');
+      // One bar per day of the period: last year's shape, with the days that
+      // already have a plan picked out. It is the quickest read of where the
+      // work is left, and it is why the rail replaces 30 columns of grid.
+      const series = state.dates.map((d) => ({
+        ly: lyOf(loc.id, d) || 0,
+        planned: state.plan.get(L.actualKey(loc.id, d)) != null,
+      }));
+      const peak = Math.max(1, ...series.map((x) => x.ly));
+      const spark = series.map((x) =>
+        `<i class="${x.planned ? 'pv-hi' : ''}" style="height:${Math.max(8, (x.ly / peak) * 100)}%"></i>`).join('');
       b.innerHTML =
         `<span class="pv-loc-n">${esc(loc.location_name || loc.location_code || 'Location')}</span>
          <span class="pv-loc-t">${kmoney(plan)}</span>
          <span class="pv-loc-s">${filled}/${state.dates.length} days</span>
          <span class="pv-loc-d ${delta == null ? '' : delta >= 0 ? 'pv-pos' : 'pv-neg'}">${
-           plan && delta != null ? pctTxt(delta) : '—'}</span>`;
+           plan && delta != null ? pctTxt(delta) : '—'}</span>
+         <span class="pv-spark" aria-hidden="true">${spark}</span>`;
       b.addEventListener('click', () => { state.locationId = loc.id; render(); });
       rail.append(b);
     }
@@ -785,9 +853,34 @@
       ? `<span class="${plan >= ly ? 'pv-pos' : 'pv-neg'}">${pctTxt(((plan / ly) - 1) * 100)}</span> vs last year`
       : 'no history for this period';
     el('kpi-ly').textContent = kmoney(ly);
-    el('kpi-cov').textContent = cells ? Math.round((filled / cells) * 100) + '%' : '—';
+    const cov = cells ? (filled / cells) * 100 : 0;
+    el('kpi-cov').textContent = cells ? Math.round(cov) + '%' : '—';
     el('kpi-cov-sub').textContent = `${filled} of ${cells} location-days`;
-    el('kpi-locs').textContent = String(state.locations.length);
+    el('kpi-cov-bar').style.width = cov + '%';
+
+    // Pace compares the days that HAVE happened with what was planned for
+    // exactly those days, so a half-finished month is not read as a shortfall.
+    let actual = 0, planned = 0, lastDay = '';
+    for (const loc of state.locations) {
+      for (const d of state.dates) {
+        const a = state.actuals.get(L.actualKey(loc.id, d));
+        if (!Number.isFinite(a)) continue;
+        const p = state.plan.get(L.actualKey(loc.id, d));
+        if (p == null) continue;
+        actual += a; planned += p;
+        if (d > lastDay) lastDay = d;
+      }
+    }
+    if (planned > 0) {
+      const pace = ((actual / planned) - 1) * 100;
+      el('kpi-pace').innerHTML = `<span class="${pace >= 0 ? 'pv-pos' : 'pv-neg'}">${pctTxt(pace)}</span>`;
+      el('kpi-pace-sub').textContent = `actuals through ${lastDay}`;
+    } else {
+      el('kpi-pace').textContent = '—';
+      el('kpi-pace-sub').textContent = state.locations.length
+        ? `${state.locations.length} locations · no planned day has happened yet`
+        : 'days with actuals so far';
+    }
   }
 
   /* ---- editing --------------------------------------------------------- */
