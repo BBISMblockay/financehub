@@ -11221,3 +11221,99 @@ select 'PO step set by AI' as check_name,
       then 'BROKEN — a PO status history row takes its company from the session, not from the PO'
     else 'ok'
   end as status;
+
+-- =============================================================================
+-- Landed-cost bill bank (20261128040000)
+-- A freight / duty invoice is a BILL, sourced from its inventory_freight payment
+-- request, and is SPENT across purchase orders and containers. Everything here
+-- exists so the shares can never exceed the bill and can never cross a tenant.
+-- =============================================================================
+select 'Landed cost bill bank' as check_name,
+  case
+    when to_regclass('public.landed_cost_bills') is null
+      or to_regclass('public.landed_cost_allocations') is null
+      then 'MISSING — the bill bank tables are not applied'
+    when to_regclass('public.v_landed_cost_bill_balance') is null
+      or to_regclass('public.v_po_landed_cost_allocations') is null
+      or to_regclass('public.v_po_landed_cost_totals') is null
+      then 'MISSING — a bill bank view is not applied'
+    when to_regprocedure('public.silo_allocate_landed_cost_bill(uuid,jsonb)') is null
+      then 'MISSING — the allocation RPC is not applied'
+    when not (select relrowsecurity from pg_class where oid = 'public.landed_cost_bills'::regclass)
+      or not (select relrowsecurity from pg_class where oid = 'public.landed_cost_allocations'::regclass)
+      then 'CRITICAL: the bill bank tables have RLS off'
+    when has_table_privilege('anon', 'public.landed_cost_bills', 'select')
+      or has_table_privilege('anon', 'public.landed_cost_allocations', 'select')
+      then 'CRITICAL: a signed-out role can read what this company paid in freight'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.landed_cost_allocations'::regclass
+                        and tgname = 'zz_landed_cost_allocation_guard' and not tgisinternal)
+      then 'CRITICAL: nothing stops a bill being allocated for more than it is worth'
+    when position('for update' in pg_get_functiondef('public.landed_cost_allocation_guard()'::regprocedure)) = 0
+      then 'BROKEN — two allocations at once can both pass the overspend check'
+    when position('company_entity_id' in pg_get_functiondef('public.landed_cost_allocation_guard()'::regprocedure)) = 0
+      then 'CRITICAL: a bill from one company could be spent on another company''s purchase order'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.payment_requests'::regclass
+                        and tgname = 'zz_landed_cost_bill_sync' and not tgisinternal)
+      then 'BROKEN — a freight payment request no longer becomes a bill'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.landed_cost_bills'::regclass
+                        and tgname = 'zz_landed_cost_bill_guard' and not tgisinternal)
+      then 'CRITICAL: costing can rewrite what a freight invoice says the company owes'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.landed_cost_allocations'::regclass
+                        and tgname = 'zz_landed_cost_sync_po_costing' and not tgisinternal)
+      then 'BROKEN — a PO''s stored freight no longer follows the bills allocated to it'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'landed_cost_allocations'
+                        and column_name = 'shipment_detached')
+      then 'BROKEN — deleting a container respreads its freight over the whole PO'
+    when to_regclass('public.landed_cost_backfill_log') is null
+      then 'MISSING — the record of what the freight correction changed'
+    when not (select relrowsecurity from pg_class where oid = 'public.landed_cost_backfill_log'::regclass)
+      or has_table_privilege('anon', 'public.landed_cost_backfill_log', 'select')
+      or has_table_privilege('authenticated', 'public.landed_cost_backfill_log', 'insert,update,delete')
+      then 'CRITICAL: the correction record is readable by anon, or writable from a browser'
+    when exists (
+      select 1 from public.po_costing pc
+      join public.po_costing_lines cl on cl.po_costing_id = pc.id
+      where coalesce(pc.alloc_method, 'proportional') = 'proportional'
+        and cl.freight_alloc is not null
+      group by pc.id, pc.freight_amount
+      having abs(sum(cl.freight_alloc) - coalesce(pc.freight_amount, 0)) > 0.02)
+      then 'BROKEN — a purchase order''s per-SKU freight shares do not add up to its freight'
+    when exists (
+      select 1 from public.po_costing pc
+      left join public.v_po_landed_cost_totals t on t.po_header_id = pc.po_header_id
+      where coalesce(pc.freight_amount, 0) is distinct from coalesce(t.freight_allocated, 0))
+      then 'BROKEN — a purchase order''s stored freight disagrees with the bills on it'
+    when not exists (select 1 from pg_index i join pg_class c on c.oid = i.indexrelid
+                      where i.indrelid = 'public.landed_cost_allocations'::regclass
+                        and c.relname = 'landed_cost_allocations_po_key')
+      or not exists (select 1 from pg_index i join pg_class c on c.oid = i.indexrelid
+                      where i.indrelid = 'public.landed_cost_allocations'::regclass
+                        and c.relname = 'landed_cost_allocations_shipment_key')
+      then 'BROKEN — the same bill can be put on the same purchase order twice'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_function_privilege(r.role, 'public.landed_cost_allocation_guard()'::regprocedure, 'execute')
+                     or has_function_privilege(r.role, 'public.landed_cost_bill_sync()'::regprocedure, 'execute'))
+      then 'BROKEN — a browser role can call a trigger function directly'
+    when has_function_privilege('anon', 'public.silo_allocate_landed_cost_bill(uuid,jsonb)'::regprocedure, 'execute')
+      then 'CRITICAL: a signed-out role can spend a freight bill'
+    when not has_function_privilege('authenticated', 'public.silo_allocate_landed_cost_bill(uuid,jsonb)'::regprocedure, 'execute')
+      then 'BROKEN — the costing page cannot allocate a bill'
+    when exists (
+      select 1 from public.landed_cost_bills b
+      join (select bill_id, sum(amount) as spent from public.landed_cost_allocations group by bill_id) a
+        on a.bill_id = b.id
+      where a.spent > b.amount + 0.005)
+      then 'BROKEN — a bill is allocated for more than it is worth'
+    when exists (
+      select 1 from public.landed_cost_allocations a
+      join public.landed_cost_bills b on b.id = a.bill_id
+      join public.po_headers h on h.id = a.po_header_id
+      where h.company_entity_id is distinct from b.company_entity_id)
+      then 'CRITICAL: a freight bill is spent on another company''s purchase order'
+    else 'ok'
+  end as status;

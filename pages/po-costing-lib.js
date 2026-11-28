@@ -7,6 +7,12 @@
   const COSTING_TAG_CLOSE = '[/SILO_COSTING]';
   const PHASE = { FOB: 'fob', FREIGHT: 'freight', FINAL: 'final' };
 
+  /** Shown, and thrown, when the bill bank could not be read for the open PO.
+   *  Without it a failed read is indistinguishable from "this PO has no bills",
+   *  and saving would record freight of zero. */
+  const BANK_UNREAD = 'Could not read the freight bills for this PO, so freight was not saved. '
+    + 'Reopen the PO and try again.';
+
   function num(v) {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
@@ -62,16 +68,134 @@
     return msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('po_costing');
   }
 
+  /** A bill's kind -> the cost bucket it lands in. Mirrors
+   *  v_po_landed_cost_allocations.cost_bucket, so the page and the database
+   *  cannot disagree about where a duty bill goes. */
+  const ALLOC_BUCKET = {
+    freight: 'freight', duty: 'duty', tariff: 'duty', brokerage: 'misc', other: 'misc',
+    misc: 'misc',
+  };
+
+  /** Split `total` across `weights` so the parts sum to `total` EXACTLY, in
+   *  cents. Proportional division leaves a remainder of a cent or two; left
+   *  alone it makes the line shares disagree with the bill, which is the one
+   *  thing the bank exists to prevent. The leftover cents go to the largest
+   *  fractional parts (ties to the heavier weight, then to the earlier line),
+   *  so the result is deterministic rather than order-of-floating-point.
+   *  A zero total weight is an even split -- that is a PO whose lines have no
+   *  cost or no quantity yet, and dropping the money would be worse. */
+  function allocateToCents(total, weights) {
+    const w = (weights || []).map(x => Math.max(0, num(x)));
+    const n = w.length;
+    if (!n) return [];
+    const cents = Math.max(0, Math.round(num(total) * 100));
+    const sum = w.reduce((a, b) => a + b, 0);
+    const raw = sum > 0 ? w.map(x => (cents * x) / sum) : w.map(() => cents / n);
+    const out = raw.map(x => Math.floor(x));
+    let rem = cents - out.reduce((a, b) => a + b, 0);
+    const order = raw
+      .map((x, i) => ({ i: i, frac: x - Math.floor(x), w: w[i] }))
+      .sort((a, b) => (b.frac - a.frac) || (b.w - a.w) || (a.i - b.i));
+    for (let k = 0; k < order.length && rem > 0; k++) { out[order[k].i] += 1; rem -= 1; }
+    return out.map(c => c / 100);
+  }
+
+  /** Which PO lines a shipment carried, and how many of each.
+   *  `incoming_shipment_lines.qty` null means "this line's whole quantity" --
+   *  that is the stored meaning and it is why a PO whose lines sit on TWO
+   *  shipments with null qty reads as twice received. Here a null simply falls
+   *  back to the PO line's own quantity for weighting; it is not a receipt. */
+  function shipmentQtyMap(shipmentLines) {
+    const map = {};
+    for (const sl of shipmentLines || []) {
+      if (!sl || !sl.shipment_id || !sl.po_line_id) continue;
+      const bucket = (map[sl.shipment_id] = map[sl.shipment_id] || {});
+      const q = sl.qty == null || sl.qty === '' ? null : num(sl.qty);
+      if (!Object.prototype.hasOwnProperty.call(bucket, sl.po_line_id)) bucket[sl.po_line_id] = q;
+      else if (q != null) bucket[sl.po_line_id] = (bucket[sl.po_line_id] || 0) + q;
+    }
+    return map;
+  }
+
+  /** Spread each landed-cost allocation over the lines it actually paid for.
+   *
+   *  An allocation naming a SHIPMENT reaches only that shipment's lines, in
+   *  that shipment's quantities. That is the whole point: a PO that ships in
+   *  two containers has two freight bills, and the first one must not land on
+   *  units still at the factory. An allocation with no shipment is the whole
+   *  PO, which is the only honest answer while a PO has no shipment rows.
+   *
+   *  An allocation whose container has been DELETED (`shipment_detached`) is
+   *  not quietly promoted to a whole-PO allocation either; it is reported the
+   *  same way, so a person says where that freight belongs now.
+   *
+   *  An allocation that reaches NO line (a shipment with no lines recorded) is
+   *  returned in `unplaced` rather than dropped or spread somewhere else -- the
+   *  page shows it, because silently moving money is how this went wrong before.
+   *  @returns {{ byLine: Object, unplaced: Array, totals: Object }}
+   */
+  function spreadAllocations(rows, allocations, shipmentLines) {
+    const byLine = {};
+    rows.forEach(r => { byLine[r.line.id] = { freight: 0, duty: 0, misc: 0 }; });
+    const totals = { freight: 0, duty: 0, misc: 0 };
+    const unplaced = [];
+    const shipMap = shipmentQtyMap(shipmentLines);
+
+    for (const a of allocations || []) {
+      if (!a) continue;
+      const amount = num(a.amount);
+      if (!(amount > 0)) continue;
+      const bucket = ALLOC_BUCKET[String(a.cost_bucket || a.kind || 'freight')] || 'misc';
+      totals[bucket] += amount;
+
+      let targets;
+      if (a.shipment_detached) {
+        // The container this named has been deleted. Reading its null shipment
+        // as "the whole PO" would spread one container's freight over units it
+        // never carried, with nobody deciding anything -- so it lands nowhere
+        // and is reported for reassignment instead.
+        targets = [];
+      } else if (a.shipment_id) {
+        const m = shipMap[a.shipment_id];
+        targets = !m ? [] : rows
+          .filter(r => Object.prototype.hasOwnProperty.call(m, r.line.id))
+          .map(r => ({ r: r, qty: m[r.line.id] == null ? r.qty : m[r.line.id] }));
+      } else {
+        targets = rows.map(r => ({ r: r, qty: r.qty }));
+      }
+      if (!targets.length) {
+        unplaced.push({
+          allocation: a, bucket: bucket,
+          reason: a.shipment_detached ? 'shipment_gone' : 'no_lines',
+        });
+        continue;
+      }
+
+      const byUnits = String(a.method || '') === 'units';
+      const weights = targets.map(t => (byUnits ? t.qty : t.qty * t.r.fobUnit));
+      const shares = allocateToCents(amount, weights);
+      targets.forEach((t, i) => { byLine[t.r.line.id][bucket] += shares[i]; });
+    }
+
+    return { byLine: byLine, unplaced: unplaced, totals: totals };
+  }
+
   /**
    * @param {Array} lines - po_lines
    * @param {Object} header - { freight, duty_pct, misc, alloc_method }
    * @param {Object} lineOverrides - map lineId -> overrides
+   * @param {Object} [context] - { allocationsLoaded, allocations, shipmentLines }.
+   *   With `allocationsLoaded` true, freight and misc come from the BANK --
+   *   allocations of real bills -- and the typed header totals are ignored.
+   *   Without it the legacy header totals are used unchanged, which is what a
+   *   page whose allocation read FAILED must fall back to: recomputing a PO's
+   *   freight as 0 because a query errored would erase a landed cost.
    */
-  function computeCosting(lines, header, lineOverrides) {
+  function computeCosting(lines, header, lineOverrides, context) {
     const overrides = lineOverrides || {};
-    const freight = num(header.freight);
+    const ctx = context || {};
+    const fromBank = ctx.allocationsLoaded === true;
     const dutyPct = num(header.duty_pct);
-    const misc = num(header.misc);
     const allocMethod = header.alloc_method || 'proportional';
 
     const rows = (lines || []).map(line => {
@@ -84,6 +208,17 @@
 
     const fobTotal = rows.reduce((s, r) => s + r.fobExt, 0);
     const totalUnits = rows.reduce((s, r) => s + r.qty, 0);
+
+    // The bank is the source of the money. `freight` and `misc` are what real
+    // bills put on this PO, never a figure anybody typed here.
+    const spread = fromBank
+      ? spreadAllocations(rows, ctx.allocations, ctx.shipmentLines)
+      : { byLine: {}, unplaced: [], totals: { freight: 0, duty: 0, misc: 0 } };
+    const freight = fromBank ? spread.totals.freight : num(header.freight);
+    const misc = fromBank ? spread.totals.misc : num(header.misc);
+
+    // Duty still has a typed percentage of FOB beside any duty/tariff bill, so
+    // a rate known before the broker's invoice arrives is not lost.
     const dutyAmount = fobTotal * (dutyPct / 100);
 
     let sumManualFreight = 0;
@@ -93,27 +228,38 @@
     const autoFreightPool = Math.max(0, freight - sumManualFreight);
 
     const computed = rows.map(r => {
+      const share = spread.byLine[r.line.id] || { freight: 0, duty: 0, misc: 0 };
+
       let freightAlloc = 0;
       if (r.o.freight_alloc != null && r.o.freight_alloc !== '') {
         freightAlloc = num(r.o.freight_alloc);
+      } else if (fromBank) {
+        freightAlloc = share.freight;
       } else if (allocMethod === 'per_unit' && totalUnits > 0) {
         freightAlloc = autoFreightPool * (r.qty / totalUnits);
       } else if (fobTotal > 0) {
         freightAlloc = autoFreightPool * (r.fobExt / fobTotal);
       }
 
+      // Duty from bills is a dollar split; the typed percentage is spread the
+      // old way on top of it.
       let dutyAlloc = 0;
       if (r.o.duty_alloc != null && r.o.duty_alloc !== '') {
         dutyAlloc = num(r.o.duty_alloc);
-      } else if (allocMethod === 'per_unit' && totalUnits > 0) {
-        dutyAlloc = dutyAmount * (r.qty / totalUnits);
-      } else if (fobTotal > 0) {
-        dutyAlloc = dutyAmount * (r.fobExt / fobTotal);
+      } else {
+        if (allocMethod === 'per_unit' && totalUnits > 0) {
+          dutyAlloc = dutyAmount * (r.qty / totalUnits);
+        } else if (fobTotal > 0) {
+          dutyAlloc = dutyAmount * (r.fobExt / fobTotal);
+        }
+        if (fromBank) dutyAlloc += share.duty;
       }
 
       let miscAlloc = 0;
       if (r.o.misc_alloc != null && r.o.misc_alloc !== '') {
         miscAlloc = num(r.o.misc_alloc);
+      } else if (fromBank) {
+        miscAlloc = share.misc;
       } else if (allocMethod === 'per_unit' && totalUnits > 0) {
         miscAlloc = misc * (r.qty / totalUnits);
       } else if (fobTotal > 0) {
@@ -146,8 +292,12 @@
       fob_total: fobTotal,
       freight,
       duty_pct: dutyPct,
-      duty_amount: dutyAmount,
+      // The duty FIGURE is the typed percentage plus whatever duty or tariff
+      // bills were allocated, so the KPI band and the lines agree.
+      duty_amount: dutyAmount + (fromBank ? spread.totals.duty : 0),
       misc,
+      from_bank: fromBank,
+      unplaced_allocations: spread.unplaced,
       landed_total: computed.reduce((s, c) => s + c.landed_ext, 0),
       lines: computed,
     };
@@ -338,6 +488,74 @@
     return { costing: pc, costingLines: pcl || [] };
   }
 
+  /** Every landed-cost bill allocated to this PO, with the shipment each one
+   *  names and the bucket its kind belongs in. Reads the view, so the bucket
+   *  mapping lives in one place. A failure THROWS: the caller must tell the
+   *  difference between "no bills on this PO" and "could not look", because
+   *  the second one saved as the first would wipe a landed cost. */
+  async function loadLandedCostAllocations(db, poId, companyId) {
+    let q = db.from('v_po_landed_cost_allocations')
+      .select('allocation_id, po_header_id, shipment_id, shipment_detached, amount, method, notes, bill_id, kind, source, vendor_name, bill_ref, bill_date, bill_amount, bill_allocated, cost_bucket, shipment_status, container_ref, ship_date')
+      .eq('po_header_id', poId)
+      .order('bill_date', { ascending: true, nullsFirst: false });
+    if (companyId) q = q.eq('company_entity_id', companyId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  }
+
+  /** The bank: every bill with what is left on it. `onlyOpen` keeps the picker
+   *  to bills that still have money to spend, which is the normal case; the
+   *  dialog asks for everything when someone wants to see what a bill already
+   *  paid for. */
+  async function loadBillBank(db, companyId, opts) {
+    const o = opts || {};
+    let q = db.from('v_landed_cost_bill_balance')
+      .select('bill_id, source, kind, vendor_name, bill_ref, bill_date, amount, allocated, remaining, allocation_count, po_names, allocation_state, notes')
+      .order('bill_date', { ascending: false, nullsFirst: false })
+      .limit(o.limit || 400);
+    if (companyId) q = q.eq('company_entity_id', companyId);
+    if (o.kind) q = q.eq('kind', o.kind);
+    const { data, error } = await q;
+    if (error) throw error;
+    const rows = data || [];
+    return o.onlyOpen ? rows.filter(r => num(r.remaining) > 0.004) : rows;
+  }
+
+  /** The PO's shipments and their lines, so an allocation naming a container
+   *  can reach that container's units and nothing else. */
+  async function loadPoShipments(db, poId, companyId) {
+    let sq = db.from('incoming_shipments')
+      .select('id, po_header_id, shipment_status, ship_date, eta, received_date, container_ref, carrier, booking_id')
+      .eq('po_header_id', poId)
+      .order('ship_date', { ascending: true, nullsFirst: false });
+    if (companyId) sq = sq.eq('company_entity_id', companyId);
+    const { data: shipments, error: sErr } = await sq;
+    if (sErr) throw sErr;
+    const ids = (shipments || []).map(s => s.id);
+    if (!ids.length) return { shipments: [], shipmentLines: [] };
+    let lq = db.from('incoming_shipment_lines')
+      .select('id, shipment_id, po_line_id, qty')
+      .in('shipment_id', ids);
+    if (companyId) lq = lq.eq('company_entity_id', companyId);
+    const { data: lines, error: lErr } = await lq;
+    if (lErr) throw lErr;
+    return { shipments: shipments || [], shipmentLines: lines || [] };
+  }
+
+  /** Just the shipments of a PO, for the allocation dialog's PO picker. The
+   *  context loader is far too heavy to run for a PO somebody only ticked. */
+  async function loadPoShipmentsForPicker(db, poId, companyId) {
+    let q = db.from('incoming_shipments')
+      .select('id, po_header_id, shipment_status, ship_date, eta, container_ref, carrier')
+      .eq('po_header_id', poId)
+      .order('ship_date', { ascending: true, nullsFirst: false });
+    if (companyId) q = q.eq('company_entity_id', companyId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  }
+
   async function loadPoCostingContext(db, poId) {
     const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
     let _qh = db.from('po_headers').select('id, po_name, internal_notes, status').eq('id', poId);
@@ -381,6 +599,35 @@
     const skus = (lines || []).map(l => l.sku_snapshot).filter(Boolean);
     const priorBySku = await fetchPriorCostsBySku(db, skus, poId);
 
+    // The bank and the shipments. `allocationsLoaded` is false until BOTH
+    // answer: a PO costed from a half-read bank would save the wrong freight.
+    let allocations = [];
+    let shipments = [];
+    let shipmentLines = [];
+    let allocationsLoaded = false;
+    let allocationError = null;
+    try {
+      const [alloc, ship] = await Promise.all([
+        loadLandedCostAllocations(db, poId, _co?.id),
+        loadPoShipments(db, poId, _co?.id),
+      ]);
+      allocations = alloc;
+      shipments = ship.shipments;
+      shipmentLines = ship.shipmentLines;
+      allocationsLoaded = true;
+    } catch (e) {
+      // Not fatal, and NOT silent: the page refuses to save freight while this
+      // is set, and keeps showing the stored figure meanwhile.
+      allocationError = e;
+      console.error('landed cost allocations:', e);
+    }
+
+    const costContext = {
+      allocationsLoaded: allocationsLoaded,
+      allocations: allocations,
+      shipmentLines: shipmentLines,
+    };
+
     return {
       header,
       lines: lines || [],
@@ -391,7 +638,13 @@
       lineOverrides,
       headerInputs,
       priorBySku,
-      result: computeCosting(lines || [], headerInputs, lineOverrides),
+      allocations,
+      shipments,
+      shipmentLines,
+      allocationsLoaded,
+      allocationError,
+      costContext,
+      result: computeCosting(lines || [], headerInputs, lineOverrides, costContext),
     };
   }
 
@@ -413,7 +666,13 @@
   async function savePoCosting(db, ctx, headerInputs, lineOverrides, opts) {
     opts = opts || {};
     const lines = ctx.lines || [];
-    const result = computeCosting(lines, headerInputs, lineOverrides);
+    // A save that touches freight while the bank could not be read would write
+    // the recomputed figure -- which, with no allocations in hand, is zero.
+    // Refuse by name rather than quietly erase a PO's landed cost.
+    if (ctx.allocationError && opts.phase !== PHASE.FOB) {
+      throw new Error(BANK_UNREAD);
+    }
+    const result = computeCosting(lines, headerInputs, lineOverrides, ctx.costContext);
     const now = new Date().toISOString();
 
     const row = {
@@ -424,9 +683,12 @@
       factory_invoice_date: opts.factoryInvoice?.date ?? ctx.costing?.factory_invoice_date ?? null,
       factory_invoice_amount: opts.factoryInvoice?.amount != null ? num(opts.factoryInvoice.amount) : ctx.costing?.factory_invoice_amount,
       fob_notes: opts.fobNotes != null ? opts.fobNotes : ctx.costing?.fob_notes,
-      freight_amount: num(headerInputs.freight),
+      // From the bank when it was read, so po_costing.freight_amount -- which
+      // PO Report and the overview tile read -- always equals the sum of the
+      // bills allocated to this PO. Nothing types this number any more.
+      freight_amount: result.freight,
       duty_pct: num(headerInputs.duty_pct),
-      misc_amount: num(headerInputs.misc),
+      misc_amount: result.misc,
       alloc_method: headerInputs.alloc_method || 'proportional',
       freight_invoice_ref: opts.freightInvoice?.ref ?? ctx.costing?.freight_invoice_ref ?? null,
       freight_carrier: opts.freightCarrier != null ? opts.freightCarrier : ctx.costing?.freight_carrier ?? null,
@@ -517,14 +779,18 @@
       persistence = 'notes';
     }
 
-    if (opts.pushFobToPoLines || opts.pushLandedToPoLines) {
+    // `po_lines.unit_cost` is what the FACTORY charges, and it is what every
+    // PO total sums (v_po_header_summary.total_estimated_cost, PO Report, PO
+    // Builder, Planning, launch readiness). Writing the LANDED unit back into
+    // it -- which this did, with the checkbox on by default -- inflated those
+    // totals by $59,620 across 134 lines on production and made the next
+    // recompute start from a freight-inclusive figure. The landed cost lives in
+    // po_costing_lines.landed_unit, and that is where readers take it from.
+    // Only the FOB unit is ever pushed back.
+    if (opts.pushFobToPoLines) {
       for (const c of result.lines) {
         const o = lineOverrides[c.line_id] || {};
-        let unit = null;
-        if (opts.pushLandedToPoLines) unit = c.landed_unit;
-        else if (opts.pushFobToPoLines) {
-          unit = o.fob_unit != null && o.fob_unit !== '' ? num(o.fob_unit) : c.fob_unit;
-        }
+        const unit = o.fob_unit != null && o.fob_unit !== '' ? num(o.fob_unit) : c.fob_unit;
         if (unit == null) continue;
         await db.from('po_lines').update({ unit_cost: unit }).eq('id', c.line_id);
       }
@@ -547,6 +813,34 @@
     );
   }
 
+  /** Recompute and re-store one PO's costing from the bank, without anybody
+   *  opening it.
+   *
+   *  Allocating one invoice across several POs changes the landed cost of
+   *  EVERY PO it touched, but only the open one was ever reloaded -- so the
+   *  others kept their stored per-line shares until somebody opened and saved
+   *  each of them. `po_costing_lines` is reportable (Ask SILO and saved
+   *  reports read it), so a stale share is a wrong answer, not just a stale
+   *  screen.
+   *
+   *  The PO-level totals are kept true by a database trigger whatever writes
+   *  the allocation; this is the per-LINE half, which has to run through the
+   *  same engine the page uses rather than a second copy of that math in SQL.
+   *  A PO with no costing row yet is skipped: it has nothing stored to correct.
+   *  @returns {Promise<boolean>} true if it was re-stored.
+   */
+  async function refreshStoredCosting(db, poId, userId) {
+    const ctx = await loadPoCostingContext(db, poId);
+    if (!ctx.costing || ctx.persistence !== 'database') return false;
+    if (ctx.allocationError) throw new Error(BANK_UNREAD);
+    await savePoCosting(db, ctx, ctx.headerInputs, ctx.lineOverrides || {}, {
+      userId: userId || null,
+      phase: ctx.costing.phase,
+      costSource: ctx.costing.cost_source,
+    });
+    return true;
+  }
+
   function phaseLabel(phase) {
     if (phase === PHASE.FREIGHT) return 'Awaiting / adding freight';
     if (phase === PHASE.FINAL) return 'Landed (final)';
@@ -562,15 +856,23 @@
     normalizeOverrides,
     overridesFromDbRows,
     computeCosting,
+    allocateToCents,
+    spreadAllocations,
+    shipmentQtyMap,
+    loadLandedCostAllocations,
+    loadPoShipmentsForPicker,
+    loadBillBank,
     computeMultiSplit,
     computeFreightSplit,
     fetchPriorCostsBySku,
     loadPoCostingContext,
     savePoCosting,
+    refreshStoredCosting,
     markPoShipped,
     phaseLabel,
     headerInputsFromCostingRow,
     num,
     isMissingTableError,
+    BANK_UNREAD,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

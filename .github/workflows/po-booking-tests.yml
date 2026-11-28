@@ -18,6 +18,11 @@ on:
       - 'supabase/migrations/*po_status_write_scope*'
       - 'v2/tests/browser/po-status-steps.test.js'
       - 'scripts/tests/shipment-booking-arrival-database.test.mjs'
+      - 'supabase/migrations/*landed_cost_bill_bank*'
+      - 'scripts/tests/landed-cost-bank-database.test.mjs'
+      - 'v2/tests/unit/landed-cost-split.test.js'
+      - 'pages/po-costing-lib.js'
+      - 'v2/po-costing.html'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/po-booking-tests.yml'
@@ -95,6 +100,32 @@ jobs:
       # dropdown would stop every PO being edited.
       - name: PO Builder reads this company's steps
         run: node v2/tests/browser/po-status-steps.test.js
+
+      # 20261128040000: a freight invoice is a bill that gets SPENT across
+      # purchase orders and containers, and the database -- not the page --
+      # refuses a split that comes to more than the bill.
+      - name: Execute landed-cost bill bank migration regressions
+        run: node scripts/tests/landed-cost-bank-database.test.mjs
+
+      - name: Each bill bank guarantee, removed one at a time, must break it
+        run: |
+          set -u
+          for m in no-guard no-shipment-check no-tenant-check no-legacy no-restore no-dup-index \
+                   no-correct no-amount-match no-bill-guard no-detach-flag no-costing-sync \
+                   no-line-recost no-receipt; do
+            echo "--- $m ---"
+            if BANK_MUTATION="$m" node scripts/tests/landed-cost-bank-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guarantee it removes is untested"
+              exit 1
+            fi
+          done
+
+      # How a bill is spread over the units it paid for: a container's freight
+      # reaches that container's lines only, a split totals the invoice to the
+      # cent, and an allocation that reaches no line is reported rather than
+      # quietly spread elsewhere.
+      - name: Landed cost split math
+        run: node v2/tests/unit/landed-cost-split.test.js
 
       # The underwriting extract reads v_po_arrival now; its own suite pins that
       # the lender-facing arrival months still measure the PO's TYPED plan, so a

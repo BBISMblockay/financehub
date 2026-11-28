@@ -20000,4 +20000,11 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261126000500: takes back the grants Supabase's default privileges handed
 -- anon and authenticated on po_status_options / po_status_changes.
 \i migrations/20261126000500_po_status_tables_revoke_defaults.sql
+-- 20261128040000: the landed-cost bill bank. A freight / duty invoice is a row
+-- sourced from its inventory_freight payment request (landed_cost_bills) and is
+-- SPENT across purchase orders and containers (landed_cost_allocations), guarded
+-- so the shares can never exceed the bill. Backfills bills from existing payment
+-- requests without moving any PO's freight number, and restores the po_lines
+-- unit costs the old "push landed cost" default overwrote.
+\i migrations/20261128040000_landed_cost_bill_bank.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
