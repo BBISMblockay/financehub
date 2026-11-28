@@ -448,7 +448,9 @@
         throw new Error('SILO approved the connection but did not record permission to '
           + (missing.includes(WRITE) ? 'open tasks' : missing.includes(OUTREACH) ? 'send approved outreach'
             : missing.includes(CODES) ? 'create affiliate codes'
-              : missing.includes(RECEIVING) ? 'draft deliveries' : 'move a purchase order\u2019s step')
+              : missing.includes(RECEIVING) ? 'draft deliveries'
+                : missing.includes(PO_STATUS) ? 'move a purchase order\u2019s step'
+                  : 'send a purchase order to its factory')
           + '. Reload this page and approve again.');
       }
     } catch (e) {
@@ -567,6 +569,7 @@
     if (el('optCodes')) el('optCodes').addEventListener('change', paintScopes);
     if (el('optReceiving')) el('optReceiving').addEventListener('change', paintScopes);
     if (el('optPoStatus')) el('optPoStatus').addEventListener('change', paintScopes);
+    if (el('optPoEmail')) el('optPoEmail').addEventListener('change', paintScopes);
     paintScopes();
 
     const sel = el('coSelect');
