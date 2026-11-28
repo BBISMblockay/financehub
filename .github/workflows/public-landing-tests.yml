@@ -21,6 +21,8 @@ on:
       - 'scripts/tests/onboarding-interest-*.test.mjs'
       - 'scripts/tests/finance-db/package*.json'
       - 'assets/landing/**'
+      - 'landing-v2.html'
+      - 'assets/landing-v2/**'
       - 'tests/**'
       # tests/affiliate-studio.browser.mjs drives the real Affiliate Studio page.
       - 'v2/affiliates/**'
