@@ -64,7 +64,10 @@ const INSTRUCTIONS = [
   'changes no purchase order, so say it is waiting for them and send the link. Where they granted po_status:write,',
   'po_status_options and purchase_orders_for_status read the steps this company allows and the POs that can move, and',
   'set_po_status moves one STRAIGHT AWAY -- there is no confirmation in SILO, so only call it for a step the person has',
-  'just asked for, and never a step that means units arrived (record that with record_shipment_receipt). Nothing',
+  'just asked for, and never a step that means units arrived (record that with record_shipment_receipt). Where they',
+  'granted po_email:send, po_emails_to_send hands over the purchase-order emails a person queued in SILO, each with the',
+  'PO as a PDF to attach, for YOU to send from the person\'s own mailbox, and mark_po_email_sent records each one you',
+  'sent and moves that PO on. Nothing',
   'else it can do changes anything: no edits, no completing or reassigning work, no money, no approvals,',
   'and SILO itself sends nothing. Asked for one of those, say what you would do and give the person the SILO link.',
   'Reading, in order of use:',
@@ -476,6 +479,49 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: 'po_emails_to_send',
+    title: 'Take the purchase-order emails waiting to go to a factory',
+    description: 'Hands you up to 10 purchase-order emails a person ALREADY QUEUED in SILO, each with the factory '
+      + 'address, the subject and body they approved, and a link to that purchase order as a PDF. SILO does not send '
+      + 'them: download each attachment, then send that email from the person\'s own mailbox (for example with a Gmail '
+      + 'tool), exactly as written, to the "to" address only -- no extra recipients, no BCC, no rewording, no '
+      + 'follow-ups -- and then call mark_po_email_sent for each one you actually sent. You cannot queue, write or '
+      + 'change an email here; when nothing is waiting, say so and point the person to the Factories page in SILO. '
+      + 'Each email handed over is one of the connection\'s writes for the day (50). The attachment link is good for '
+      + '24 hours, is that purchase order only, and stops working once the email is marked sent. Needs the '
+      + 'po_email:send permission, which the person grants separately. Pass idempotency_key and REUSE IT if you '
+      + 'retry: the same key returns the same emails with fresh links instead of taking more.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 10, default: 10, description: 'How many emails to take, 1 to 10.' },
+        idempotency_key: { type: 'string', description: 'Your own id for this claim, up to 100 characters.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'mark_po_email_sent',
+    title: 'Record a purchase-order email as sent',
+    description: 'After you sent an email from po_emails_to_send, records it in SILO as sent by the person who '
+      + 'connected you, marked as this application, and moves that purchase order to the step this company uses for '
+      + '"the factory has it" when that step allows it -- the answer says which, or why it did not move. evidence is '
+      + 'the sent message\'s id from the mail tool (or another reference a person can look up in their Sent folder). '
+      + 'Only for a message you actually sent, and only for an email this connection took. Calling it again for the '
+      + 'same email returns the first record.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        draft_id: { type: 'string', description: 'draft_id from po_emails_to_send.' },
+        evidence: { type: 'string', description: 'The sent message id, up to 500 characters.' },
+      },
+      required: ['draft_id', 'evidence'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ];
 
 /* Tools that need a scope the connection may not have been given. Only
@@ -494,6 +540,8 @@ const TOOL_SCOPE = {
   po_status_options: 'po_status:write',
   purchase_orders_for_status: 'po_status:write',
   set_po_status: 'po_status:write',
+  po_emails_to_send: 'po_email:send',
+  mark_po_email_sent: 'po_email:send',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1067,6 +1115,52 @@ export function createMcpHandler({ env, fetchImpl }) {
         body.p_source_url = url;
       }
       const r = await callRpc(authorization, 'silo_api_set_po_status', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'po_emails_to_send') {
+      const body = {};
+      if (args.limit != null) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 10) {
+          return rpcResult(id, toolErr('limit must be a whole number from 1 to 10.'));
+        }
+        body.p_limit = args.limit;
+      }
+      if (args.idempotency_key != null) {
+        const key = String(args.idempotency_key).trim();
+        if (!key || key.length > 100) {
+          return rpcResult(id, toolErr('idempotency_key must be your own id for this claim, up to 100 characters.'));
+        }
+        body.p_idempotency_key = key;
+      }
+      const r = await callRpc(authorization, 'silo_api_po_emails_to_send', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      // The database hands back a PATH for the attachment, never a host: the
+      // project's address belongs to whatever is serving this call, and a
+      // literal in a migration would be wrong the day SILO moves. Making it
+      // absolute is this handler's job, once, where `base` already is.
+      const data = r.data;
+      if (data && Array.isArray(data.claimed)) {
+        for (const row of data.claimed) {
+          const att = row && row.attachment;
+          if (att && typeof att.url_path === 'string') {
+            att.url = base + att.url_path;
+            delete att.url_path;
+          }
+        }
+      }
+      return rpcResult(id, toolOk(data));
+    }
+
+    if (name === 'mark_po_email_sent') {
+      const draft = String(args.draft_id ?? '').trim();
+      if (!UUID.test(draft)) return rpcResult(id, toolErr('draft_id must be a draft_id from po_emails_to_send.'));
+      const evidence = typeof args.evidence === 'string' ? args.evidence.trim() : '';
+      if (!evidence || evidence.length > 500) {
+        return rpcResult(id, toolErr('evidence must be the sent message\'s id, up to 500 characters.'));
+      }
+      const r = await callRpc(authorization, 'silo_api_mark_po_email_sent', { p_draft_id: draft, p_evidence: evidence });
       if (!r.ok) return refusalResponse(id, r, true);
       return rpcResult(id, toolOk(r.data));
     }

@@ -20000,4 +20000,10 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261126000500: takes back the grants Supabase's default privileges handed
 -- anon and authenticated on po_status_options / po_status_changes.
 \i migrations/20261126000500_po_status_tables_revoke_defaults.sql
+-- 20261128050000: po_email:send -- a person queues a purchase order's email to
+-- its factory in /v2/factories.html, and their OWN AI takes it, sends it from
+-- their OWN mailbox with the PO attached (po-document), and records what it
+-- sent. SILO sends nothing. Apply BEFORE deploying mcp and po-document; the
+-- scope cannot be granted until it is applied.
+\i migrations/20261128050000_po_email_send_scope.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

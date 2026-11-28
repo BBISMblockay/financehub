@@ -291,6 +291,13 @@ on:
       # A PO's step set by a connected AI (po-status-mcp-database.test.mjs).
       - 'supabase/migrations/*po_status_write_scope.sql'
       - 'scripts/tests/po-status-mcp-database.test.mjs'
+      # A PO emailed to its factory by the person's own AI
+      # (po-email-mcp-database.test.mjs), and the PO it attaches
+      # (po-document.test.mjs).
+      - 'supabase/migrations/*po_email_send_scope.sql'
+      - 'scripts/tests/po-email-mcp-database.test.mjs'
+      - 'scripts/tests/po-document.test.mjs'
+      - 'supabase/functions/po-document/**'
       # Freight bookings and the one arrival date
       # (shipment-booking-arrival-database.test.mjs; also its own workflow).
       - 'supabase/migrations/*shipment_bookings*.sql'
@@ -3145,6 +3152,30 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+      # The PO email a PERSON queues in SILO, which their OWN AI sends from
+      # their OWN mailbox. SILO sends nothing: the migration is the whole
+      # fence, so this runs it on real PostgreSQL. Proves the drafted copy is
+      # built from the PO's own factors, that the step the PO moves to is
+      # company data, that the attachment link is stored hashed and dies with
+      # the send, and that a claim costs exactly one write.
+      - name: PO email via MCP database (real PostgreSQL)
+        run: node scripts/tests/po-email-mcp-database.test.mjs
+      - name: The po_email:send guards, removed, must break it
+        run: |
+          set -u
+          for m in not-offered no-path no-scope ignore-pause raw-token no-cap no-kind no-idem any-grant no-evidence keep-token two-live any-company; do
+            if PO_EMAIL_MUTATION="$m" node scripts/tests/po-email-mcp-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+      # The purchase order itself, as a PDF: what it says, and the two ways in
+      # (a hashed single-use link, or the person's own session with RLS
+      # deciding). pdf-lib is an esm.sh import, so the renderer runs against a
+      # recording stand-in; Deno's type check covers the import.
+      - name: PO document edge function
+        run: node scripts/tests/po-document.test.mjs
 
   # The reconcile pass end to end: the real script and the real Supabase
   # client against a PostgREST stand-in, so a forgotten column, a probe that

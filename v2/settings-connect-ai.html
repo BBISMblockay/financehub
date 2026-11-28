@@ -531,6 +531,7 @@
   const CODES = K.CODES_SCOPE || 'codes:create';
   const RECEIVING = K.RECEIVING_SCOPE || 'receiving:write';
   const PO_STATUS = K.PO_STATUS_SCOPE || 'po_status:write';
+  const PO_EMAIL = K.PO_EMAIL_SCOPE || 'po_email:send';
   const canWrite = (g) => hasScope(g, K.WRITE_SCOPE) || hasScope(g, OUTREACH) || hasScope(g, CODES)
     || hasScope(g, RECEIVING) || hasScope(g, PO_STATUS);
 
@@ -932,6 +933,7 @@
     'codes:create': 'Create affiliate codes in your own Shopify store (only if you tick it when approving)',
     'receiving:write': 'Draft a delivery against a purchase order, for someone to confirm in PO Report (only if you tick it when approving)',
     'po_status:write': 'Move a purchase order to a step you allow an AI to set, applied straight away (only if you tick it when approving)',
+    'po_email:send': 'Take the purchase-order emails you queued in SILO, with the PO to attach, to send from your own mailbox, and record each one as sent (only if you tick it when approving)',
   };
 
   function renderGrantedScopes() {
@@ -939,7 +941,7 @@
        permission the approval screen leaves unticked. */
     const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE, K.OUTREACH_SCOPE || 'outreach:send',
       K.CODES_SCOPE || 'codes:create', K.RECEIVING_SCOPE || 'receiving:write',
-      K.PO_STATUS_SCOPE || 'po_status:write']);
+      K.PO_STATUS_SCOPE || 'po_status:write', K.PO_EMAIL_SCOPE || 'po_email:send']);
     const items = keys.map((key) => {
       const detail = (K.SCOPE_COPY && K.SCOPE_COPY[key]) || key;
       const label = SCOPE_LABEL[key] || key;

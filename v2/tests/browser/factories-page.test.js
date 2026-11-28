@@ -69,14 +69,40 @@ const STEPS = [
   { name: 'Closed', sort_order: 100, is_open: false, is_final: true, is_active: true },
 ];
 
+/* The queue a person fills in SILO: one PO already with a connection, one
+ * already sent. The draft itself comes from the database function, never from
+ * the page, so the fixture answers that RPC. */
+const EMAILS = [
+  { id: 'em-1', po_header_id: 'po-1', factory_id: 'fac-1', to_email: 'ana@incotexco.test',
+    subject: 'IN-900', body: 'body', status: 'claimed', queued_at: '2026-11-27T10:00:00Z',
+    claimed_by_app: 'Claude', company_entity_id: CO },
+  { id: 'em-2', po_header_id: 'po-4', factory_id: 'fac-2', to_email: 'sx@tianyun.test',
+    subject: 'SX-700', body: 'body', status: 'sent', queued_at: '2026-11-20T10:00:00Z',
+    sent_at: '2026-11-21T09:00:00Z', sent_via: 'Claude', company_entity_id: CO },
+];
+
+const DRAFT = {
+  po_header_id: 'po-2', po_name: 'IN-901', factory_id: 'fac-1', factory_name: 'Incotexco',
+  to_email: 'ana@incotexco.test',
+  subject: 'Demo Apparel Inc. IN-901 · 500 units · ship by 05 Jan 2027',
+  body: 'Hi Ana,\n\nPlease find attached purchase order IN-901.',
+  styles: 2, units: 500, attachment_filename: 'IN-901.pdf', missing: [],
+};
+
 const tables = (over = {}) => Object.assign({
   factories: FACTORIES,
   v_po_header_summary: POS,
   po_status_options: STEPS.map((s) => Object.assign({ company_entity_id: CO }, s)),
+  po_vendor_emails: EMAILS,
   profiles: [{ id: 'u1', email: 'tester@example.com', role: 'admin' }],
 }, over);
 
-const READY = { ready: () => document.querySelectorAll('#factoryTbody tr[data-row-id]').length > 0 };
+/* open()'s rpc fixtures are eval'd in the page, so each value is SOURCE, not
+ * an object: a plain object arrives as "[object Object]" and the page then
+ * fails to parse it. */
+const RPCS = { po_vendor_email_draft: `(() => (${JSON.stringify(DRAFT)}))` };
+
+const READY = { rpc: RPCS, ready: () => document.querySelectorAll('#factoryTbody tr[data-row-id]').length > 0 };
 
 const rowNames = (page) => page.$$eval('#factoryTbody tr[data-row-id] .fac-name',
   (nodes) => nodes.map((n) => (n.childNodes[0] ? n.childNodes[0].textContent : n.textContent).trim()));
@@ -225,6 +251,79 @@ const text = (page, sel) => page.$eval(sel, (n) => n.textContent.trim());
       R.eq(fbRows, ['Incotexco', 'Shaoxing Tianyun']);
       R.eq(fbSx[1], '1', 'Sent to Factory still reads as open');
       R.eq(fbInco[3], '1', 'and Draft still reads as not sent');
+    });
+    await page.close();
+
+    // ── 8. queueing a PO email ────────────────────────────────────────────
+    page = await suite.open('/v2/factories.html', tables(), READY);
+    const kpiQueued = await text(page, '#kpiQueued');
+    const kpiQueuedSub = await text(page, '#kpiQueuedSub');
+    R.test('the KPI counts what is queued and what a connection already has', () => {
+      R.eq(kpiQueued, '0', 'nothing is queued');
+      R.truthy(kpiQueuedSub.includes('1'), 'one is with the AI now');
+    });
+
+    await page.click('tr[data-row-id="fac-1"]');
+    await page.waitForFunction(() => !document.getElementById('facDrawer').hidden);
+    const poStates = await page.$$eval('#dPoWrap .fac-po', (nodes) => nodes.map((n) => {
+      const name = n.querySelector('.fac-po-name').textContent.trim().split(' ')[0];
+      const btn = n.querySelector('[data-email-po]');
+      const pill = n.querySelector('.bcn-pill--accent, .bcn-pill--pos');
+      return [name, btn ? btn.textContent.trim() : (pill ? pill.textContent.trim() : null)];
+    }));
+    R.test('each PO says where its factory email stands', () => {
+      const m = Object.fromEntries(poStates);
+      R.eq(m['IN-901'], 'Email', 'a draft PO with no email offers one');
+      R.eq(m['IN-900'], 'With your AI', 'the one a connection claimed says so');
+      R.eq(m['IN-800'], null, 'a received PO offers nothing');
+    });
+
+    await page.click('#dPoWrap [data-email-po="po-2"]');
+    await page.waitForFunction(() => document.getElementById('emailModal').open
+      && document.getElementById('emSubject').value.length > 0);
+    const composed = await page.evaluate(() => ({
+      to: document.getElementById('emTo').value,
+      subject: document.getElementById('emSubject').value,
+      body: document.getElementById('emBody').value,
+      note: document.getElementById('emNote').textContent,
+      rpcs: window.__QUERIES__.filter((q) => q._op === 'rpc').map((q) => q.table),
+    }));
+    R.test('the drafted copy comes from the database, not from the page', () => {
+      R.truthy(composed.rpcs.includes('rpc:po_vendor_email_draft'), 'it asked the draft function');
+      R.eq(composed.to, 'ana@incotexco.test');
+      R.truthy(composed.subject.includes('IN-901'), 'subject carries the PO');
+      R.truthy(composed.body.includes('IN-901'), 'body carries the PO');
+      R.truthy(composed.note.includes('IN-901.pdf'), 'and it says what gets attached');
+    });
+
+    await page.click('#btnEmailQueue');
+    await page.waitForFunction(() => window.__QUERIES__
+      .some((q) => q._op === 'insert' && q.table === 'po_vendor_emails'));
+    const queuedWrite = await page.evaluate(() => window.__QUERIES__
+      .filter((q) => q._op === 'insert' && q.table === 'po_vendor_emails').map((q) => q.rows)[0]);
+    R.test('queueing writes the copy the person saw, as queued', () => {
+      R.eq(queuedWrite.po_header_id, 'po-2');
+      R.eq(queuedWrite.status, 'queued');
+      R.eq(queuedWrite.to_email, 'ana@incotexco.test');
+      R.truthy(String(queuedWrite.body).includes('IN-901'), 'the body is the drafted one');
+      R.eq(queuedWrite.factory_id, 'fac-1');
+    });
+    await page.close();
+
+    // ── 9. before the migration lands, the page still works ───────────────
+    page = await suite.open('/v2/factories.html', tables(),
+      Object.assign({ broken: ['po_vendor_emails'] }, READY));
+    await page.click('tr[data-row-id="fac-1"]');
+    await page.waitForFunction(() => !document.getElementById('facDrawer').hidden);
+    const noQueue = await page.evaluate(() => ({
+      rows: document.querySelectorAll('#factoryTbody tr[data-row-id]').length,
+      buttons: document.querySelectorAll('[data-email-po]').length,
+      kpi: document.getElementById('kpiQueued').textContent.trim(),
+    }));
+    R.test('an unreadable email queue hides the button instead of breaking the page', () => {
+      R.eq(noQueue.rows, 2, 'the list still loads');
+      R.eq(noQueue.buttons, 0, 'no email buttons are offered');
+      R.eq(noQueue.kpi, '—');
     });
     await page.close();
 

@@ -801,7 +801,10 @@ await check('verify_v2_schema.sql\'s own check passes against this schema', asyn
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   const at = verify.indexOf("-- A purchase order's step set by a connected AI");
   assert.ok(at > 0, 'the check is in verify_v2_schema.sql');
-  const block = verify.slice(at);
+  // To the end of THIS check only: another check follows it in the file now.
+  const end = verify.indexOf('end as status;', at);
+  assert.ok(end > at, 'the check is not terminated');
+  const block = verify.slice(at, end + 'end as status;'.length);
   const r = await one(block);
   assert.equal(r.status, 'ok', `verify says: ${r.status}`);
 });

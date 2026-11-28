@@ -3999,6 +3999,51 @@ granted until it is applied.
 
 `20261126000500_po_status_tables_revoke_defaults.sql` takes back what Supabase's default privileges handed out on those two tables: the migration above granted what each role needs and never revoked the rest, so `anon` held select/insert/update/delete on `po_status_options` and `po_status_changes`, and `authenticated` held insert/update/delete on `po_status_changes`. Nothing leaked — RLS is on and every policy on both tables names `authenticated` only, with no INSERT policy at all — but `verify_v2_schema.sql` reads CRITICAL until the grants match, and a grant nobody intended is one policy mistake away from being real. Revoke explicitly from BOTH `anon` and `authenticated` on any new public table.
 
+### A purchase order emailed to its factory, by the person's own AI — 2026-11-28
+
+`20261128050000_po_email_send_scope.sql` adds the `po_email:send` scope, the
+`po_vendor_emails` queue, `po_vendor_email_draft()`, `po_vendor_send_step()`,
+`po_status_options.is_vendor_send`, and the two connection tools
+`silo_api_po_emails_to_send()` / `silo_api_mark_po_email_sent()`. Blake,
+2026-11-28: "Factories need modernized upgraded and email mcp prompt for their
+pos unsent etc ... it would attach said pos with drafted copy based on po
+factors etc".
+
+**SILO sends nothing**, exactly as with `outreach:send`. A person opens a PO on
+`/v2/factories.html`, reads the drafted copy, and queues it; the connection
+they approved takes it, sends it from THEIR OWN mailbox, and records what it
+sent. So the authority to queue one, and the authority to take one, are both
+`silo_api_may_set_po_status()` — the same rule that governs moving that PO's
+step — and `po_vendor_emails`' policies name it directly. A partial unique
+index (`po_vendor_emails_one_live_per_po`) means a PO can have only one queued
+or claimed email at a time, so nothing is sent twice.
+
+The copy comes from the database, not from either surface: the page and the MCP
+tool both read `po_vendor_email_draft()`, which composes the subject and body
+from the PO's own factors (dates, styles, units, the new-product flag, its
+notes, its top lines, the other POs still open with that factory, the factory's
+terms, the company's purchasing contact) and returns `missing[]` rather than
+inventing anything. Wording a company wants to change lives in
+`company_settings.po_email_greeting` / `po_email_signoff`; nothing is
+hardcoded per company.
+
+The attachment is the first SERVER-SIDE purchase order SILO has had — until now
+the PO was only a browser print window. `silo_api_po_emails_to_send()` mints a
+32-byte token, stores only its sha256, and returns a path to the `po-document`
+edge function (`verify_jwt` off, because this caller has no Supabase JWT). That
+link opens exactly one PO, dies after 24 hours, and is retired the moment the
+email is marked sent. `po-document` also serves a person's own session, and
+then reads the PO with THAT token so RLS decides.
+
+Recording a send needs evidence (the sent message's id), accepts it only from
+the connection that claimed it, replays on a second call, and moves the PO to
+`po_vendor_send_step()` — the step flagged `is_vendor_send`, else the first
+open, `ai_settable`, non-`needs_receipt` step by `sort_order`. No status NAME
+appears in any of this. A claim costs one write against the connection's daily
+cap (`kind = 'po_email_claim'`, which is why the migration re-states
+`silo_api_writes_kind_check` in full). Apply before deploying `mcp` and
+`po-document`; the scope cannot be granted until it is applied.
+
 ### Affiliate creator codes — 2026-11-17
 
 `20261117200000_affiliate_creator_codes.sql` names a new affiliate's first code after

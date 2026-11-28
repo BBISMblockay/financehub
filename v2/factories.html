@@ -259,6 +259,11 @@
         <div class="bcn-kpi-delta" id="kpiPreSendSub">&nbsp;</div>
       </div>
       <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Queued to email</div>
+        <div id="kpiQueued" class="bcn-kpi-value bcn-num">—</div>
+        <div class="bcn-kpi-delta" id="kpiQueuedSub">&nbsp;</div>
+      </div>
+      <div class="bcn-kpi">
         <div class="bcn-kpi-label">No email on file</div>
         <div id="kpiNoEmail" class="bcn-kpi-value bcn-num">—</div>
         <div class="bcn-kpi-delta" id="kpiNoEmailSub">&nbsp;</div>
@@ -416,6 +421,33 @@
   <div class="fac-drawer-foot" id="dFoot"></div>
 </aside>
 
+<dialog class="fac-dialog" id="emailModal">
+  <div class="fac-dialog-head">
+    <div class="fac-dialog-title" id="emName">Email this purchase order</div>
+    <button type="button" class="bcn-btn bcn-btn--ghost" data-close="emailModal">Close</button>
+  </div>
+  <div class="fac-dialog-body">
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="emTo">To</label>
+      <input class="bcn-field" id="emTo" type="email" placeholder="factory contact email" />
+    </div>
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="emSubject">Subject</label>
+      <input class="bcn-field" id="emSubject" />
+    </div>
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="emBody">Message</label>
+      <textarea class="bcn-field" id="emBody" rows="16" style="font-family:var(--bcn-mono);font-size:11.5px;line-height:1.5"></textarea>
+    </div>
+    <div class="fac-note fac-span-2" id="emNote"></div>
+  </div>
+  <div class="fac-dialog-foot">
+    <button type="button" class="bcn-btn bcn-btn--danger bcn-btn--mono" id="btnEmailRemove" hidden>Remove from queue</button>
+    <button type="button" class="bcn-btn bcn-btn--ghost" data-close="emailModal">Cancel</button>
+    <button type="button" class="bcn-btn bcn-btn--primary" id="btnEmailQueue">Queue email</button>
+  </div>
+</dialog>
+
 <dialog class="fac-dialog" id="factoryModal">
   <div class="fac-dialog-head">
     <div class="fac-dialog-title">New factory</div>
@@ -509,8 +541,11 @@
     pos: [],
     byFactory: new Map(),
     statusKinds: new Map(),
+    emails: [],
+    emailByPo: new Map(),
     selectedId: null,
     editing: false,
+    composing: null,       // { poId, poName, factoryId, existing }
   };
 
   const el = {};
@@ -520,6 +555,7 @@
    'headerSub','facDrawer','btnDrawerClose','dName','dMeta','dOpenPos','dOpenUnits','dLead','dReceived','dDetails',
    'dForm','dPoWrap','dFoot','newFactoryName','newShortCode','newContactName','newContactEmail','newPhone',
    'newPaymentTerms','newShippingTerms','newAddress','newCountry','newNotes','eFactoryName','eShortCode',
+   'kpiQueued','kpiQueuedSub','emailModal','emName','emTo','emSubject','emBody','emNote','btnEmailQueue','btnEmailRemove',
    'eContactName','eContactEmail','ePhone','ePaymentTerms','eShippingTerms','eAddress','eCountry','eNotes']
     .forEach(id => { el[id] = document.getElementById(id); });
 
@@ -593,6 +629,23 @@
     state.pos = data || [];
   }
 
+  /* The PO emails a person queued. Fail-soft: before the migration lands
+     this table does not exist, and a Factories page that will not load
+     because of it would be a worse outcome than one without the button. */
+  async function loadEmails() {
+    state.emails = [];
+    let q = sb.from('po_vendor_emails')
+      .select('id, po_header_id, factory_id, to_email, subject, body, status, queued_at, claimed_at, claimed_by_app, sent_at, sent_via')
+      .in('status', ['queued', 'claimed', 'sent'])
+      .order('queued_at', { ascending: false })
+      .limit(500);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { state.emailsUnavailable = true; return; }
+    state.emailsUnavailable = false;
+    state.emails = data || [];
+  }
+
   function rollUp() {
     const map = new Map();
     const blank = () => ({
@@ -622,6 +675,19 @@
     });
     map.forEach(m => { m.pos.sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || ''))); });
     state.byFactory = map;
+
+    // One email per PO on the row: a live one (queued or claimed) wins over a
+    // send that already happened, because that is the one a person can act on.
+    const byPo = new Map();
+    const rank = e => (e.status === 'queued' ? 3 : e.status === 'claimed' ? 2 : 1);
+    state.emails.forEach(e => {
+      const prev = byPo.get(e.po_header_id);
+      if (!prev || rank(e) > rank(prev)
+          || (rank(e) === rank(prev) && String(e.queued_at || '') > String(prev.queued_at || ''))) {
+        byPo.set(e.po_header_id, e);
+      }
+    });
+    state.emailByPo = byPo;
   }
 
   function metrics(id) { return state.byFactory.get(id) || { total: 0, open: 0, openUnits: 0, preSend: 0, preSendUnits: 0, received: 0, leadSum: 0, leadN: 0, rated: 0, onTime: 0, lastOrder: null, pos: [] }; }
@@ -706,6 +772,13 @@
     el.kpiPreSendSub.textContent = preSend
       ? `${nf(preSendUnits)} units · ${nf(preSendFactories)} factories`
       : 'nothing waiting';
+    const queued = state.emails.filter(e => e.status === 'queued').length;
+    const claimed = state.emails.filter(e => e.status === 'claimed').length;
+    el.kpiQueued.textContent = state.emailsUnavailable ? '—' : nf(queued);
+    el.kpiQueuedSub.textContent = state.emailsUnavailable
+      ? 'not set up yet'
+      : (claimed ? `${nf(claimed)} with your AI now` : (queued ? 'waiting for your AI' : 'nothing waiting'));
+
     el.kpiNoEmail.textContent = nf(noEmail);
     el.kpiNoEmail.className = `bcn-kpi-value bcn-num${noEmailOrdered ? ' fac-alert' : ''}`;
     el.kpiNoEmailSub.textContent = noEmailOrdered
@@ -820,8 +893,9 @@
               <div class="fac-po-name">${escapeHtml(po.po_name || 'Unnamed PO')} <span class="${pill}">${escapeHtml(po.status || '—')}</span></div>
               <div class="fac-po-dates">${escapeHtml(dates || 'no dates')}</div>
             </div>
-            <div style="display:flex;gap:6px;align-items:center">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <span class="bcn-mono" style="font-size:11.5px">${nf(po.total_units)} u</span>
+              ${emailControl(po, kind)}
               <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="po-builder.html?po_id=${encodeURIComponent(po.id)}">Open</a>
             </div>
           </div>`;
@@ -835,6 +909,102 @@
       : `${canDelete ? '<button type="button" class="bcn-btn bcn-btn--danger bcn-btn--mono" data-act="delete">Delete</button>' : ''}
          <button type="button" class="bcn-btn bcn-btn--ghost" data-act="archive">${row.is_active === false ? 'Restore' : 'Archive'}</button>
          <button type="button" class="bcn-btn bcn-btn--dark" data-act="edit">Edit details</button>`;
+  }
+
+  /* What the PO row offers about its factory email. A PO that has gone past
+     the factory (final) is history, so it gets no button; everything else
+     either shows where its email is or offers to draft one. */
+  function emailControl(po, kind) {
+    if (state.emailsUnavailable) return '';
+    const e = state.emailByPo.get(po.id);
+    if (e && e.status === 'queued') {
+      return `<button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-email-po="${escapeHtml(po.id)}">Queued</button>`;
+    }
+    if (e && e.status === 'claimed') {
+      return `<span class="bcn-pill bcn-pill--accent" title="${escapeHtml(e.claimed_by_app || 'a connected application')} has it">With your AI</span>`;
+    }
+    if (e && e.status === 'sent') {
+      return `<span class="bcn-pill bcn-pill--pos" title="Sent ${escapeHtml(String(e.sent_at || '').slice(0, 10))}${e.sent_via ? ' via ' + escapeHtml(e.sent_via) : ''}">Emailed</span>`;
+    }
+    if (kind === 'final') return '';
+    return `<button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-email-po="${escapeHtml(po.id)}">Email</button>`;
+  }
+
+  /* Compose. The copy comes from the database (po_vendor_email_draft), not
+     from this page: the same text the MCP tool hands over is the text the
+     person reads and edits here, and there is one place it is written. */
+  async function openCompose(poId) {
+    const row = selected();
+    const po = (row ? metrics(row.id).pos : []).find(p => p.id === poId);
+    const existing = state.emailByPo.get(poId);
+    const live = existing && (existing.status === 'queued') ? existing : null;
+
+    el.emName.textContent = `Email ${po?.po_name || 'purchase order'}`;
+    el.emNote.textContent = 'Reading the purchase order…';
+    el.emTo.value = ''; el.emSubject.value = ''; el.emBody.value = '';
+    el.btnEmailRemove.hidden = !live;
+    el.btnEmailQueue.textContent = live ? 'Save changes' : 'Queue email';
+    state.composing = { poId, poName: po?.po_name || '', factoryId: row?.id || null, existing: live };
+    el.emailModal.showModal();
+
+    if (live) {
+      el.emTo.value = live.to_email || '';
+      el.emSubject.value = live.subject || '';
+      el.emBody.value = live.body || '';
+      el.emNote.textContent = 'Queued. Your AI takes it with po_emails_to_send and sends it from your own mailbox.';
+      return;
+    }
+
+    const { data, error } = await sb.rpc('po_vendor_email_draft', { p_po_header_id: poId });
+    if (error) { el.emNote.textContent = error.message || 'Could not draft this email.'; return; }
+    el.emTo.value = data?.to_email || '';
+    el.emSubject.value = data?.subject || '';
+    el.emBody.value = data?.body || '';
+    const missing = Array.isArray(data?.missing) ? data.missing : [];
+    el.emNote.textContent = missing.length
+      ? `Drafted from this PO. Still missing: ${missing.join(', ')}. Fill it in here or on the factory.`
+      : `Drafted from this PO. ${data?.attachment_filename || 'The PO'} is attached when your AI sends it.`;
+  }
+
+  async function queueEmail() {
+    const c = state.composing;
+    if (!c) return;
+    const to = clean(el.emTo.value);
+    const subject = clean(el.emSubject.value);
+    const body = String(el.emBody.value || '').trim();
+    if (!to || !to.includes('@')) throw new Error('A factory email address is needed before this can be queued.');
+    if (!subject) throw new Error('A subject is needed.');
+    if (!body) throw new Error('The message is empty.');
+
+    if (c.existing) {
+      const { error } = await sb.from('po_vendor_emails')
+        .update({ to_email: to, subject, body }).eq('id', c.existing.id);
+      if (error) throw error;
+    } else {
+      const base = { po_header_id: c.poId, factory_id: c.factoryId, to_email: to, subject, body, status: 'queued' };
+      const payload = cfg.withCompany ? cfg.withCompany(base) : (_co?.id ? { ...base, company_entity_id: _co.id } : base);
+      const { error } = await sb.from('po_vendor_emails').insert(payload);
+      if (error) throw error;
+    }
+    el.emailModal.close();
+    await loadEmails();
+    rollUp();
+    renderDrawer();
+    render();
+    setStatus(c.existing ? 'Email updated.' : 'Email queued. Your AI can take it now.', 'pos', 3000);
+  }
+
+  async function removeQueuedEmail() {
+    const c = state.composing;
+    if (!c?.existing) return;
+    const { error } = await sb.from('po_vendor_emails').delete().eq('id', c.existing.id);
+    if (error) throw error;
+    el.emailModal.close();
+    await loadEmails();
+    rollUp();
+    renderDrawer();
+    render();
+    setStatus('Taken out of the queue.', 'pos', 2500);
   }
 
   async function saveEdits() {
@@ -965,7 +1135,7 @@
 
   async function reload() {
     await loadStatusOptions();
-    await Promise.all([loadFactories(), loadPos()]);
+    await Promise.all([loadFactories(), loadPos(), loadEmails()]);
     rollUp();
     populateCountryFilter();
     applyFilters();
@@ -984,6 +1154,8 @@
   el.btnCreateFactory.addEventListener('click', () => createFactory().catch(e => setStatus(e.message || 'Create failed', 'neg')));
   el.btnClearFilters.addEventListener('click', clearFilters);
   el.btnDrawerClose.addEventListener('click', closeDrawer);
+  el.btnEmailQueue.addEventListener('click', () => queueEmail().catch(e => setStatus(e.message || 'Could not queue that email', 'neg', 6000)));
+  el.btnEmailRemove.addEventListener('click', () => removeQueuedEmail().catch(e => setStatus(e.message || 'Could not remove it', 'neg', 6000)));
   el.searchInput.addEventListener('input', applyFilters);
   [el.activityFilter, el.countryFilter, el.gapFilter, el.sortSelect].forEach(n => n.addEventListener('change', applyFilters));
 
@@ -1006,6 +1178,11 @@
       else if (what === 'save') saveEdits().catch(e => setStatus(e.message || 'Save failed', 'neg'));
       else if (what === 'archive') toggleArchive().catch(e => setStatus(e.message || 'Archive failed', 'neg'));
       else if (what === 'delete') deleteSelected().catch(e => setStatus(e.message || 'Delete failed', 'neg'));
+      return;
+    }
+    const mail = ev.target.closest('[data-email-po]');
+    if (mail) {
+      openCompose(mail.getAttribute('data-email-po')).catch(e => setStatus(e.message || 'Could not open that email', 'neg'));
       return;
     }
     const tr = ev.target.closest('tr[data-row-id]');
