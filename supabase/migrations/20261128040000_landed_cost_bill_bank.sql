@@ -101,12 +101,26 @@ create table if not exists public.landed_cost_allocations (
   created_by uuid references auth.users(id)
 );
 
+-- The container this allocation named has since been deleted. `shipment_id` is
+-- ON DELETE SET NULL, and a null shipment otherwise means "the whole PO" -- so
+-- without this flag, deleting one of a PO's two containers would silently
+-- respread that container's freight over BOTH containers' units, miscosting
+-- inventory with nobody deciding anything. Flagged rows are reported for
+-- reassignment and spread over no lines at all until somebody says where they
+-- belong. Set by the guard trigger, never by a writer.
+alter table public.landed_cost_allocations
+  add column if not exists shipment_detached boolean not null default false;
+
 -- One allocation per bill per target. Two indexes, because NULL shipment_id
 -- would otherwise let the same bill be put on the same PO repeatedly -- which
 -- is the exact bug this table exists to stop.
+-- Detached rows are excluded from both: a container deleted while its freight
+-- was allocated turns that row into an orphan awaiting reassignment, and two
+-- orphans off one bill on one PO must not collide -- a unique violation there
+-- would refuse the shipment deletion itself, with an error about an index.
 create unique index if not exists landed_cost_allocations_po_key
   on public.landed_cost_allocations (bill_id, po_header_id)
-  where shipment_id is null;
+  where shipment_id is null and not shipment_detached;
 create unique index if not exists landed_cost_allocations_shipment_key
   on public.landed_cost_allocations (bill_id, po_header_id, shipment_id)
   where shipment_id is not null;
@@ -149,6 +163,21 @@ begin
       using errcode = 'check_violation';
   end if;
   new.company_entity_id := v_bill.company_entity_id;
+
+  -- A container deleted out from under an allocation. `on delete set null`
+  -- fires as an UPDATE here, and a null shipment means "the whole PO", so
+  -- without this the freight of one container would quietly spread over every
+  -- container's units. Flag it instead; the page reports it for reassignment
+  -- and lands it on no line until somebody decides. An UPDATE is the only way
+  -- shipment_id goes from set to null -- the allocation RPC re-states a split
+  -- by delete and insert, so a deliberate whole-PO allocation is an INSERT.
+  if tg_op = 'INSERT' then
+    new.shipment_detached := false;
+  elsif old.shipment_id is not null and new.shipment_id is null then
+    new.shipment_detached := true;
+  elsif new.shipment_id is distinct from old.shipment_id then
+    new.shipment_detached := false;
+  end if;
 
   -- A shipment named here must be a shipment OF THIS PO. Allocating a bill to
   -- another PO's container would spread freight over units it never carried.
@@ -193,6 +222,66 @@ create trigger landed_cost_bills_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- The second guard: AP owns an AP-sourced bill, and spent money is not deleted
+-- ---------------------------------------------------------------------------
+-- The write policy below is po_costing_can_write(), which is right for
+-- ALLOCATING -- but it also grants update and delete on the bills themselves.
+-- Without this, somebody costing a PO could raise an AP-sourced bill's amount
+-- and allocate the difference, so the bank no longer says what the company
+-- agreed to pay; or delete the bill, cascading away every PO's share of it.
+-- The mirror trigger signals itself with a transaction-local setting, so AP
+-- remains the only writer of those fields.
+create or replace function public.landed_cost_bill_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sync   boolean := coalesce(current_setting('silo.landed_cost_sync', true), '') = 'on';
+  v_spent  numeric(14, 2);
+begin
+  if tg_op = 'DELETE' then
+    select coalesce(sum(amount), 0) into v_spent
+      from public.landed_cost_allocations where bill_id = old.id;
+    if v_spent > 0 then
+      raise exception
+        'landed_cost_bills: % of this bill is allocated to a purchase order; take the allocations off it first',
+        to_char(v_spent, 'FM999999990.00')
+        using errcode = 'check_violation';
+    end if;
+    if old.source = 'payment_request' and not v_sync then
+      raise exception 'landed_cost_bills: a bill from a payment request is removed by retyping the request, not from costing'
+        using errcode = 'check_violation';
+    end if;
+    return old;
+  end if;
+
+  if old.source = 'payment_request' and not v_sync then
+    -- Reclassifying what the bill IS (freight / duty / tariff) and annotating
+    -- it stay a costing decision. What the company owes, and to whom, is AP's.
+    if new.amount is distinct from old.amount
+       or new.payment_request_id is distinct from old.payment_request_id
+       or new.company_entity_id is distinct from old.company_entity_id
+       or new.source is distinct from old.source
+       or coalesce(new.vendor_name, '') is distinct from coalesce(old.vendor_name, '')
+       or coalesce(new.bill_ref, '') is distinct from coalesce(old.bill_ref, '')
+       or new.bill_date is distinct from old.bill_date then
+      raise exception 'landed_cost_bills: this bill comes from a payment request; change the request, not the bill'
+        using errcode = 'check_violation';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists zz_landed_cost_bill_guard on public.landed_cost_bills;
+create trigger zz_landed_cost_bill_guard
+  before update or delete on public.landed_cost_bills
+  for each row execute function public.landed_cost_bill_guard();
+
+-- ---------------------------------------------------------------------------
 -- Mirror of AP: a freight payment request IS a bill in the bank
 -- ---------------------------------------------------------------------------
 
@@ -203,6 +292,10 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Tells landed_cost_bill_guard() that AP, not a costing user, is writing.
+  -- Transaction-local, so it cannot leak into the next statement.
+  perform set_config('silo.landed_cost_sync', 'on', true);
+
   if tg_op = 'UPDATE' and old.request_type = 'inventory_freight'
      and new.request_type is distinct from 'inventory_freight' then
     -- Retyped away from freight. Drop the mirrored bill only while nothing has
@@ -253,6 +346,65 @@ create trigger zz_landed_cost_bill_sync
                             vendor_name_manual, internal_po_number, due_date, date_completed
   on public.payment_requests
   for each row execute function public.landed_cost_bill_sync();
+
+-- ---------------------------------------------------------------------------
+-- The stored per-PO totals follow the bills
+-- ---------------------------------------------------------------------------
+-- po_costing.freight_amount / misc_amount / duty_amount / landed_total are a
+-- CACHE of what the bills put on a PO, and they are reportable: Ask SILO and
+-- saved reports read po_costing and v_po_costing_summary directly. Allocating
+-- one invoice across four POs only ever reloaded the PO that was open, so the
+-- other three kept their old totals until somebody opened and saved each one.
+-- This makes the cache follow every allocation change, for every PO the change
+-- touched, whoever wrote it.
+--
+-- PO-level only, deliberately. These four are plain sums plus the typed duty
+-- percentage, so there is no split math here. The per-LINE shares in
+-- po_costing_lines are recomputed by the page's own engine (which weighs
+-- shipment quantities and rounds by largest remainder); duplicating that in
+-- SQL would be a second definition of the same math, free to drift from the
+-- first. A PO with no po_costing row is left alone -- it has no cache to keep.
+create or replace function public.landed_cost_sync_po_costing()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pos uuid[];
+begin
+  v_pos := array_remove(array[
+    case when tg_op <> 'INSERT' then old.po_header_id end,
+    case when tg_op <> 'DELETE' then new.po_header_id end], null);
+
+  update public.po_costing pc
+     set freight_amount = t.freight_allocated,
+         misc_amount    = t.misc_allocated,
+         duty_amount    = round(coalesce(pc.fob_total, 0) * coalesce(pc.duty_pct, 0) / 100.0, 2)
+                          + t.duty_allocated,
+         landed_total   = coalesce(pc.fob_total, 0) + t.freight_allocated + t.misc_allocated
+                          + round(coalesce(pc.fob_total, 0) * coalesce(pc.duty_pct, 0) / 100.0, 2)
+                          + t.duty_allocated,
+         updated_at     = now()
+    from (
+      select p.po_header_id,
+             coalesce(sum(a.amount) filter (where b.kind = 'freight'), 0) as freight_allocated,
+             coalesce(sum(a.amount) filter (where b.kind in ('duty', 'tariff')), 0) as duty_allocated,
+             coalesce(sum(a.amount) filter (where b.kind in ('brokerage', 'other')), 0) as misc_allocated
+        from unnest(v_pos) as p(po_header_id)
+        left join public.landed_cost_allocations a on a.po_header_id = p.po_header_id
+        left join public.landed_cost_bills b on b.id = a.bill_id
+       group by p.po_header_id) t
+   where t.po_header_id = pc.po_header_id;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists zz_landed_cost_sync_po_costing on public.landed_cost_allocations;
+create trigger zz_landed_cost_sync_po_costing
+  after insert or update or delete on public.landed_cost_allocations
+  for each row execute function public.landed_cost_sync_po_costing();
 
 -- ---------------------------------------------------------------------------
 -- Views
@@ -325,7 +477,14 @@ select
   s.shipment_status,
   s.container_ref,
   s.ship_date,
-  al.created_at
+  al.created_at,
+  -- Appended, not inserted: `create or replace view` cannot rename a column,
+  -- so a new one goes on the end or the replace is refused.
+  -- The container this allocation named has been deleted. The page spreads
+  -- such a row over NO line and reports it for reassignment, rather than
+  -- reading the null shipment as "the whole PO" and respreading the freight
+  -- over units that container never carried.
+  al.shipment_detached
 from public.landed_cost_allocations al
 join public.landed_cost_bills b on b.id = al.bill_id
 left join public.incoming_shipments s on s.id = al.shipment_id;
@@ -475,6 +634,10 @@ revoke execute on function public.landed_cost_allocation_guard() from public;
 revoke execute on function public.landed_cost_allocation_guard() from anon, authenticated;
 revoke execute on function public.landed_cost_bill_sync() from public;
 revoke execute on function public.landed_cost_bill_sync() from anon, authenticated;
+revoke execute on function public.landed_cost_bill_guard() from public;
+revoke execute on function public.landed_cost_bill_guard() from anon, authenticated;
+revoke execute on function public.landed_cost_sync_po_costing() from public;
+revoke execute on function public.landed_cost_sync_po_costing() from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Backfill. Numbers do not move.
@@ -498,76 +661,7 @@ where pr.request_type = 'inventory_freight'
   and pr.company_entity_id is not null
 on conflict (payment_request_id) where payment_request_id is not null do nothing;
 
--- 2. Each PO's EXISTING freight becomes an allocation, against the paid bill
---    when the reference matches and the bill still has room, otherwise against
---    a `legacy` bill of exactly that amount. Either way the PO's freight is
---    unchanged; what changes is that the money now has a name.
-do $backfill$
-declare
-  r record;
-  v_bill uuid;
-  v_room numeric(14, 2);
-begin
-  for r in
-    select pc.po_header_id, pc.company_entity_id, pc.freight_amount,
-           nullif(btrim(coalesce(pc.freight_invoice_ref, '')), '') as ref,
-           nullif(btrim(coalesce(pc.freight_carrier, '')), '') as carrier,
-           ph.po_name, pc.updated_at
-      from public.po_costing pc
-      join public.po_headers ph on ph.id = pc.po_header_id
-     where coalesce(pc.freight_amount, 0) > 0
-       and pc.company_entity_id is not null
-       -- Re-runnable: skip a PO that already carries an allocation.
-       and not exists (
-         select 1 from public.landed_cost_allocations a where a.po_header_id = pc.po_header_id)
-     order by pc.updated_at
-  loop
-    v_bill := null;
-
-    if r.ref is not null then
-      select b.id,
-             b.amount - coalesce((select sum(a.amount) from public.landed_cost_allocations a
-                                   where a.bill_id = b.id), 0)
-        into v_bill, v_room
-        from public.landed_cost_bills b
-       where b.company_entity_id = r.company_entity_id
-         and b.source = 'payment_request'
-         and lower(btrim(coalesce(b.bill_ref, ''))) = lower(r.ref)
-       order by b.created_at
-       limit 1;
-
-      -- The paid bill exists but has no room left: this PO is one of the
-      -- duplicates. It keeps its number, on a legacy bill, where the
-      -- reconciliation can see both halves.
-      if v_bill is not null and coalesce(v_room, 0) + 0.005 < r.freight_amount then
-        v_bill := null;
-      end if;
-    end if;
-
-    if v_bill is null then
-      insert into public.landed_cost_bills (
-        company_entity_id, source, kind, vendor_name, bill_ref, bill_date, amount, notes
-      ) values (
-        r.company_entity_id, 'legacy', 'freight', r.carrier, r.ref, r.updated_at::date,
-        r.freight_amount,
-        'Carried over from the freight typed on ' || r.po_name ||
-        '. Match it to the paid invoice, or mark it as not inventory.'
-      )
-      returning id into v_bill;
-    end if;
-
-    insert into public.landed_cost_allocations (
-      company_entity_id, bill_id, po_header_id, shipment_id, amount, method, notes
-    ) values (
-      r.company_entity_id, v_bill, r.po_header_id, null, r.freight_amount, 'manual',
-      'Carried over from the freight total typed on this PO.'
-    );
-  end loop;
-end
-$backfill$;
-
-
--- 3. Restore the 134 PO lines whose factory cost was overwritten with their
+-- 2. Restore the 134 PO lines whose factory cost was overwritten with their
 --    landed cost by the old "Push landed to PO lines" default. The true FOB is
 --    still in po_costing_lines.fob_unit, which that push never touched, and the
 --    condition matches ONLY a line that currently equals its landed unit while
@@ -582,6 +676,205 @@ update public.po_lines p
    and p.unit_cost is not null
    and abs(p.unit_cost - l.landed_unit) < 0.005
    and abs(l.landed_unit - l.fob_unit) > 0.005;
+
+-- 3. Every PO's EXISTING freight becomes an allocation of a REAL bill, and a
+--    forwarder invoice typed onto several POs is CORRECTED, not preserved.
+--
+--    Blake, 2026-11-28: "if cogs math is wrong by 59k need it to auto correct
+--    not create some new queue to work". So this does not carry a duplicate
+--    forward as a legacy stub for somebody to reconcile. Where one paid
+--    invoice is recognisable behind several POs' typed freight, the invoice is
+--    allocated ONCE across those POs, by factory value, to the cent.
+--
+--    An invoice is matched to a group of POs two ways, both exact, never
+--    fuzzy:
+--      (a) by reference -- po_costing.freight_invoice_ref equals the payment
+--          request's invoice_number, ignoring case and spacing; or
+--      (b) by amount, where every PO in the group carries the IDENTICAL typed
+--          freight and that figure equals the paid invoice exactly. Typing one
+--          invoice in full onto each PO is the mistake this is correcting, so
+--          N copies of one amount is the signature of it. A single PO whose
+--          typed freight merely happens to equal some invoice is NOT matched
+--          this way -- it needs the reference.
+--    A paid invoice is used by at most one group, and only while nothing has
+--    been allocated from it yet.
+--
+--    What cannot be recognised keeps the number it has, on a `legacy` bill,
+--    and is reported as unmatched rather than guessed at. On production at
+--    2026-11-28 that is exactly one purchase order.
+do $backfill$
+declare
+  g        record;
+  po       record;
+  v_bill   uuid;
+  v_total  numeric(14, 2);
+  v_fob    numeric(14, 2);
+  v_minfob numeric(14, 2);
+  v_left   numeric(14, 2);
+  v_share  numeric(14, 2);
+  v_n      int;
+  v_i      int;
+begin
+  -- Grouped by bill: allocate each matched bill ONCE across its
+  -- POs, weighted by factory value (fob_unit where costing knows it, the PO
+  -- line's restored unit cost otherwise), largest remainder to the cent.
+  for g in
+    with todo as (
+      select pc.po_header_id, pc.company_entity_id, pc.freight_amount,
+             lower(btrim(coalesce(pc.freight_invoice_ref, ''))) as refk
+        from public.po_costing pc
+       where coalesce(pc.freight_amount, 0) > 0
+         and pc.company_entity_id is not null
+         and not exists (
+           select 1 from public.landed_cost_allocations a where a.po_header_id = pc.po_header_id)
+    ),
+    free_bills as (
+      select b.* from public.landed_cost_bills b
+       where b.source = 'payment_request'
+         and not exists (select 1 from public.landed_cost_allocations a where a.bill_id = b.id)
+    ),
+    by_ref as (
+      select b.id as bill_id, t.po_header_id, 1 as pref
+        from free_bills b
+        join todo t
+          on t.company_entity_id = b.company_entity_id
+         and t.refk <> ''
+         and t.refk = lower(btrim(coalesce(b.bill_ref, '')))
+    ),
+    by_amount as (
+      select b.id as bill_id, t.po_header_id, 2 as pref
+        from free_bills b
+        join todo t
+          on t.company_entity_id = b.company_entity_id
+         and t.refk = ''
+         and t.freight_amount = b.amount
+       where not exists (select 1 from by_ref r where r.bill_id = b.id)
+         and (select count(*) from todo t2
+               where t2.company_entity_id = b.company_entity_id
+                 and t2.refk = '' and t2.freight_amount = b.amount) > 1
+    ),
+    picked as (
+      select distinct on (po_header_id) bill_id, po_header_id
+        from (select * from by_ref union all select * from by_amount) u
+       order by po_header_id, pref, bill_id
+    )
+    select p.bill_id, array_agg(p.po_header_id order by p.po_header_id) as po_ids
+      from picked p group by p.bill_id
+  loop
+    select amount into v_total from public.landed_cost_bills where id = g.bill_id;
+    v_left := v_total;
+    v_n := array_length(g.po_ids, 1);
+    v_i := 0;
+
+    -- Weighted by factory value, but ONLY while every purchase order in the
+    -- group has one. A PO with no lines costed yet would otherwise weigh zero
+    -- and be handed no freight at all, which is a data gap being read as a
+    -- fact. Where any member is missing its value, the invoice splits evenly.
+    select coalesce(sum(w.v), 0), coalesce(min(w.v), 0) into v_fob, v_minfob
+      from (
+        select h.id,
+               coalesce((select sum(pl.qty * coalesce(cl.fob_unit, pl.unit_cost))
+                           from public.po_lines pl
+                           left join public.po_costing_lines cl on cl.po_line_id = pl.id
+                          where pl.po_header_id = h.id), 0) as v
+          from public.po_headers h
+         where h.id = any (g.po_ids)) w;
+    if v_minfob <= 0 then
+      v_fob := 0;
+    end if;
+
+    for po in
+      select h.id, h.company_entity_id,
+             coalesce((select sum(pl.qty * coalesce(cl.fob_unit, pl.unit_cost))
+                         from public.po_lines pl
+                         left join public.po_costing_lines cl on cl.po_line_id = pl.id
+                        where pl.po_header_id = h.id), 0) as fob
+        from public.po_headers h
+       where h.id = any (g.po_ids)
+       order by h.id
+    loop
+      v_i := v_i + 1;
+      if v_i = v_n then
+        -- The last PO takes what is left, so the shares always total the
+        -- invoice exactly however the rounding fell.
+        v_share := v_left;
+      elsif v_fob > 0 then
+        v_share := round(v_total * po.fob / v_fob, 2);
+      else
+        v_share := round(v_total / v_n, 2);
+      end if;
+      v_left := v_left - v_share;
+
+      if v_share > 0 then
+        insert into public.landed_cost_allocations (
+          company_entity_id, bill_id, po_header_id, shipment_id, amount, method, notes
+        ) values (
+          po.company_entity_id, g.bill_id, po.id, null, v_share, 'value',
+          case when v_n > 1
+            then 'Corrected on 2026-11-28: this invoice had been entered in full on ' ||
+                 v_n || ' purchase orders. Split by factory value.'
+            else 'Carried over from the freight typed on this purchase order.' end
+        );
+      end if;
+    end loop;
+  end loop;
+
+  -- Whatever is still unexplained keeps exactly the number it has today, on a
+  -- `legacy` bill that says so. Nothing here is a guess.
+  for po in
+    select pc.po_header_id, pc.company_entity_id, pc.freight_amount,
+           nullif(btrim(coalesce(pc.freight_invoice_ref, '')), '') as ref,
+           nullif(btrim(coalesce(pc.freight_carrier, '')), '') as carrier,
+           ph.po_name, pc.updated_at
+      from public.po_costing pc
+      join public.po_headers ph on ph.id = pc.po_header_id
+     where coalesce(pc.freight_amount, 0) > 0
+       and pc.company_entity_id is not null
+       and not exists (
+         select 1 from public.landed_cost_allocations a where a.po_header_id = pc.po_header_id)
+     order by pc.updated_at
+  loop
+    insert into public.landed_cost_bills (
+      company_entity_id, source, kind, vendor_name, bill_ref, bill_date, amount, notes
+    ) values (
+      po.company_entity_id, 'legacy', 'freight', po.carrier, po.ref, po.updated_at::date,
+      po.freight_amount,
+      'Carried over from the freight typed on ' || po.po_name ||
+      '. No paid freight invoice matches it, by reference or by amount.'
+    )
+    returning id into v_bill;
+
+    insert into public.landed_cost_allocations (
+      company_entity_id, bill_id, po_header_id, shipment_id, amount, method, notes
+    ) values (
+      po.company_entity_id, v_bill, po.po_header_id, null, po.freight_amount, 'manual',
+      'Carried over from the freight total typed on this purchase order.'
+    );
+  end loop;
+end
+$backfill$;
+
+-- 4. The stored per-PO totals now follow the bills, so po_costing.freight_amount
+--    agrees with what is allocated to it. The per-LINE split is recomputed by
+--    the page's own engine, which is the one definition of that math.
+update public.po_costing pc
+   set freight_amount = t.freight_allocated,
+       misc_amount    = t.misc_allocated,
+       duty_amount    = round(coalesce(pc.fob_total, 0) * coalesce(pc.duty_pct, 0) / 100.0, 2)
+                        + t.duty_allocated,
+       landed_total   = coalesce(pc.fob_total, 0) + t.freight_allocated + t.misc_allocated
+                        + round(coalesce(pc.fob_total, 0) * coalesce(pc.duty_pct, 0) / 100.0, 2)
+                        + t.duty_allocated,
+       updated_at     = now()
+  from (
+    select a.po_header_id,
+           coalesce(sum(a.amount) filter (where b.kind = 'freight'), 0) as freight_allocated,
+           coalesce(sum(a.amount) filter (where b.kind in ('duty', 'tariff')), 0) as duty_allocated,
+           coalesce(sum(a.amount) filter (where b.kind in ('brokerage', 'other')), 0) as misc_allocated
+      from public.landed_cost_allocations a
+      join public.landed_cost_bills b on b.id = a.bill_id
+     group by a.po_header_id) t
+ where t.po_header_id = pc.po_header_id;
 
 select public.attach_stamp_company_entity_id_triggers();
 select public.refresh_chat_schema_catalog();

@@ -185,7 +185,10 @@ to the cent by largest remainder, so they always total the invoice.
 
 ### Backfill
 
-**No number moves.** Every `inventory_freight` request becomes a bill. Each existing
+**Numbers move, on purpose.** Blake, 2026-11-28: *"if cogs math is wrong by 59k need it to auto
+correct not create some new queue to work"*. The first version of this backfill preserved every
+typed figure and surfaced the duplicates as `legacy` bills for somebody to reconcile; that is the
+queue he refused. Every `inventory_freight` request becomes a bill. Each existing
 `po_costing.freight_amount` is then allocated to the matching paid bill if that bill has room, and
 otherwise to a `legacy` bill created for exactly that amount — so a PO keeps the freight it had, and
 a duplicate shows up as a `legacy` bill sitting beside the paid one rather than being silently

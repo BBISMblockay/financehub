@@ -104,6 +104,10 @@
 
     /* ── The bill bank, inside the dialog ────────────────── */
     .cs-bill-list { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; max-height:320px; overflow-y:auto; }
+    .cs-newbill { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+    .cs-newbill > .bcn-field-group:first-child { grid-column: 1 / -1; }
+    @media (max-width: 560px) { .cs-newbill { grid-template-columns: 1fr; } }
+
     .cs-bill-row, .cs-target-row {
       display:flex; align-items:center; gap:10px; width:100%;
       padding:8px 10px; border:1px solid var(--bcn-line,#e2e8f0); border-radius:8px;
@@ -765,9 +769,11 @@
         <div class="lcb-row">
           <span class="lcb-row-main">
             <span class="lcb-row-name">${esc([r.vendor_name, r.bill_ref].filter(Boolean).join(' · ') || 'Freight bill')}</span>
-            <span class="lcb-row-meta">${esc(r.shipment_id
-              ? [r.container_ref || 'container', r.shipment_status].filter(Boolean).join(' · ')
-              : 'whole PO')}${r.source === 'legacy' ? ' · carried over, not matched to a paid invoice' : ''}</span>
+            <span class="lcb-row-meta">${esc(r.shipment_detached
+              ? 'its container was deleted — needs reassigning'
+              : r.shipment_id
+                ? [r.container_ref || 'container', r.shipment_status].filter(Boolean).join(' · ')
+                : 'whole PO')}${r.source === 'legacy' ? ' · carried over, not matched to a paid invoice' : ''}</span>
           </span>
           <span class="lcb-row-nums">
             <span class="bcn-mono">${money(r.amount)}</span>
@@ -778,7 +784,11 @@
 
       const unplaced = (ctx?.result?.unplaced_allocations) || [];
       if (unplaced.length && share) {
-        share.textContent = `${unplaced.length} allocation${unplaced.length === 1 ? '' : 's'} name a container with no lines recorded, so ${unplaced.length === 1 ? 'it has' : 'they have'} nowhere to land. Record what that shipment carried, or move the allocation to the whole PO.`;
+        const gone = unplaced.filter(u => u.reason === 'shipment_gone').length;
+        const n = unplaced.length;
+        share.textContent = gone === n
+          ? `${n} bill${n === 1 ? '' : 's'} on this PO named a container that has since been deleted, so ${n === 1 ? 'it lands' : 'they land'} on no line. Allocate ${n === 1 ? 'it' : 'them'} again to say which units ${n === 1 ? 'it' : 'they'} paid for.`
+          : `${n} allocation${n === 1 ? '' : 's'} have nowhere to land — a container with no lines recorded, or one that has been deleted. Record what that shipment carried, or allocate the bill again.`;
         share.dataset.state = 'error';
         share.hidden = false;
       }
@@ -953,6 +963,7 @@
       targets: new Map(),  // key -> { poId, poName, shipmentId, shipmentLabel, units, value, amount }
       method: 'value',     // value | units | manual
       poRowsExtra: [],     // POs offered beyond the open one
+      paidForBefore: [],   // POs this bill paid for when the dialog opened
       busy: false,
     };
 
@@ -965,6 +976,7 @@
       wiz.search = '';
       wiz.targets = new Map();
       wiz.method = 'value';
+      wiz.paidForBefore = [];
       wiz.busy = false;
       document.getElementById('csOverlay').hidden = false;
       document.body.style.overflow = 'hidden';
@@ -989,7 +1001,9 @@
 
     function wizGoTo(n) {
       wiz.step = n;
-      wizUpdateStepDots(n);
+      // Step 0 is the by-hand bill form, which sits before the picker: the dots
+      // stay on "the bill", because that is still what is being chosen.
+      wizUpdateStepDots(n || 1);
       renderWizStep();
     }
 
@@ -1007,7 +1021,8 @@
       const body = document.getElementById('csBody');
       const foot = document.getElementById('csFoot');
       if (!body || !foot) return;
-      if (wiz.step === 1) wizStepBill(body, foot);
+      if (wiz.step === 0) wizStepNewBill(body, foot);
+      else if (wiz.step === 1) wizStepBill(body, foot);
       else if (wiz.step === 2) wizStepTargets(body, foot);
       else if (wiz.step === 3) wizStepSplit(body, foot);
       else wizStepReview(body, foot);
@@ -1060,12 +1075,14 @@
                   : money(b.remaining) + ' left'}</span>
               </span>
             </button>`).join('')
-            : '<p class="cost-hint">No freight bills yet. They appear here as soon as a freight payment request is raised in Request Manager.</p>'}
+            : '<p class="cost-hint">No freight bills yet. They appear here as soon as a freight payment request is raised in Request Manager — or enter this one by hand below.</p>'}
         </div>`;
       foot.innerHTML = `
         <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csCancel">CANCEL</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csByHand">ENTER A BILL BY HAND</button>
         <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="csNext" ${wiz.bill ? '' : 'disabled'}>NEXT</button>`;
       document.getElementById('csCancel').onclick = closeWiz;
+      document.getElementById('csByHand').onclick = () => wizGoTo(0);
       document.getElementById('csNext').onclick = () => { if (wiz.bill) { seedTargets(); wizGoTo(2); } };
       const search = document.getElementById('csBillSearch');
       search.addEventListener('input', () => { wiz.search = search.value; const at = search.selectionStart; renderWizStep();
@@ -1076,6 +1093,85 @@
           renderWizStep();
         };
       });
+    }
+
+    // ── Step 0: a bill nobody has raised in Request Manager yet ──────
+    // Freight does not wait for AP. Without this the person is at a dead end:
+    // no field to type a total into and no bill to allocate, which is exactly
+    // the moment they used to type a number onto the PO. It is still a BILL --
+    // it has an amount and a balance, so it cannot be spent twice -- and it is
+    // marked `manual`, so AP can see it was not matched to a paid invoice.
+    function wizStepNewBill(body, foot) {
+      body.innerHTML = `
+        <p class="cost-hint">For an invoice that is not in Request Manager yet. It becomes a bill with a balance, like any other, so it can still only be spent once. Raise the payment request as usual; this is the cost, not the payment.</p>
+        <div class="cs-newbill">
+          <div class="bcn-field-group"><label class="bcn-label">Carrier / forwarder</label>
+            <input id="nbVendor" class="bcn-field bcn-field--mono" type="text" placeholder="e.g. Air Tiger Express" autocomplete="off" />
+          </div>
+          <div class="bcn-field-group"><label class="bcn-label">Invoice / BL ref</label>
+            <input id="nbRef" class="bcn-field bcn-field--mono" type="text" placeholder="Invoice number" autocomplete="off" />
+          </div>
+          <div class="bcn-field-group"><label class="bcn-label">Amount</label>
+            <input id="nbAmount" class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <div class="bcn-field-group"><label class="bcn-label">Date</label>
+            <input id="nbDate" class="bcn-field bcn-field--mono" type="date" value="${esc(new Date().toISOString().slice(0, 10))}" />
+          </div>
+          <div class="bcn-field-group"><label class="bcn-label">What it is</label>
+            <select id="nbKind" class="bcn-field bcn-field--mono">
+              <option value="freight">Freight</option>
+              <option value="duty">Duty</option>
+              <option value="tariff">Tariff</option>
+              <option value="brokerage">Brokerage</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="bcn-status" id="nbStatus" hidden></div>`;
+      foot.innerHTML = `
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csBack">BACK</button>
+        <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="nbSave">ADD THE BILL</button>`;
+      document.getElementById('csBack').onclick = () => wizGoTo(1);
+      document.getElementById('nbSave').onclick = saveNewBill;
+    }
+
+    async function saveNewBill() {
+      const note = document.getElementById('nbStatus');
+      const btn = document.getElementById('nbSave');
+      const say = (msg, state) => {
+        if (!note) return;
+        note.hidden = false;
+        note.className = 'bcn-status bcn-status--' + (state || 'info');
+        note.textContent = msg;
+      };
+      const amount = Lib.num(document.getElementById('nbAmount').value);
+      if (!(amount > 0)) { say('Enter what the invoice is for.', 'error'); return; }
+      if (!_co?.id) { say('No active company, so the bill cannot be filed. Reload the page.', 'error'); return; }
+
+      btn.disabled = true;
+      say('Adding the bill…');
+      try {
+        const { data, error } = await db.from('landed_cost_bills').insert({
+          company_entity_id: _co.id,
+          source: 'manual',
+          kind: document.getElementById('nbKind').value || 'freight',
+          vendor_name: document.getElementById('nbVendor').value.trim() || null,
+          bill_ref: document.getElementById('nbRef').value.trim() || null,
+          bill_date: document.getElementById('nbDate').value || null,
+          amount: Number(amount.toFixed(2)),
+          notes: 'Entered in Landed Cost, not matched to a payment request.',
+        }).select('id').single();
+        if (error) throw error;
+        await loadBank();
+        wiz.bill = (wiz.bank || []).find(b => b.bill_id === data.id) || null;
+        if (!wiz.bill) throw new Error('The bill was added but could not be read back.');
+        seedTargets();
+        wizGoTo(2);
+      } catch (err) {
+        console.error('new bill:', err);
+        btn.disabled = false;
+        say('Could not add the bill: ' + (err.message || err), 'error');
+      }
     }
 
     // ── Step 2: what it paid for ─────────────────────────────────────
@@ -1104,6 +1200,9 @@
         const { data, error } = await q;
         if (error) throw error;
         const poIds = [...new Set((data || []).map(r => r.po_header_id))];
+        // Kept so Apply can recost the POs this bill is taken OFF as well as
+        // the ones it lands on -- Apply re-states the whole bill.
+        wiz.paidForBefore = poIds;
         const names = {};
         if (poIds.length) {
           const { data: hs } = await db.from('po_headers').select('id, po_name').in('id', poIds);
@@ -1403,11 +1502,30 @@
         return;
       }
 
+      // Every PO this bill now touches, and every PO it has just been taken
+      // OFF, has a different landed cost -- not only the one on screen. The
+      // database keeps each PO's totals true by trigger; the per-LINE shares
+      // are recomputed here, through the same engine, for each of them.
+      const touched = [...new Set([
+        ...rows.map(r => r.po_header_id),
+        ...(wiz.paidForBefore || []),
+      ])].filter(id => id && id !== ctx.header.id);
+      const stale = [];
+      for (const poId of touched) {
+        try { await Lib.refreshStoredCosting(db, poId, authUser?.id); }
+        catch (err) { console.error('refresh costing', poId, err); stale.push(poId); }
+      }
+
       closeWiz();
       // The PO reloads from the database rather than from what this dialog
       // believed, so the page shows what was actually recorded.
       await openPo(ctx.header.id);
-      els.status.textContent = `Allocated ${money(splitTotal())} of ${billLabel(wiz.bill)} across ${rows.length} line${rows.length === 1 ? '' : 's'}.`;
+      const spread = `Allocated ${money(splitTotal())} of ${billLabel(wiz.bill)} across ${rows.length} line${rows.length === 1 ? '' : 's'}.`;
+      if (stale.length) {
+        els.status.textContent = spread + ` ${stale.length} other purchase order${stale.length === 1 ? '' : 's'} on this bill could not be recosted just now — open ${stale.length === 1 ? 'it' : 'them'} and save to bring the line costs up to date.`;
+      } else {
+        els.status.textContent = spread;
+      }
     }
 
     async function boot() {

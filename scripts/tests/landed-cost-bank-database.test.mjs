@@ -28,6 +28,11 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 //   BANK_MUTATION=no-legacy         the backfill drops a PO that cannot match a bill
 //   BANK_MUTATION=no-restore        the overwritten factory costs are left alone
 //   BANK_MUTATION=no-dup-index      the same bill may go on the same PO twice
+//   BANK_MUTATION=no-correct        a duplicated invoice is carried forward, not split
+//   BANK_MUTATION=no-amount-match   an invoice with no reference is never recognised
+//   BANK_MUTATION=no-bill-guard     costing may rewrite or delete an AP-sourced bill
+//   BANK_MUTATION=no-detach-flag    a deleted container's freight respreads silently
+//   BANK_MUTATION=no-costing-sync   the stored PO totals stop following the bills
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
@@ -51,13 +56,39 @@ if (mutation === 'no-tenant-check') {
   mutate('  if v_po_co is null or v_po_co is distinct from v_bill.company_entity_id then', '  if false then');
 }
 if (mutation === 'no-legacy') {
-  // The duplicate keeps no bill at all, so its PO silently loses its freight.
-  mutate(`    if v_bill is null then
-      insert into public.landed_cost_bills (`, `    if v_bill is null then
-      continue;
-    end if;
-    if false then
-      insert into public.landed_cost_bills (`);
+  // What nothing explains is dropped, so a PO silently loses its freight.
+  mutate(`    insert into public.landed_cost_bills (
+      company_entity_id, source, kind, vendor_name, bill_ref, bill_date, amount, notes
+    ) values (
+      po.company_entity_id, 'legacy',`, `    continue;
+    insert into public.landed_cost_bills (
+      company_entity_id, source, kind, vendor_name, bill_ref, bill_date, amount, notes
+    ) values (
+      po.company_entity_id, 'legacy',`);
+}
+if (mutation === 'no-correct') {
+  // Back to carrying each PO's typed figure forward unchanged -- which is
+  // exactly the queue of duplicates Blake refused.
+  mutate('    select p.bill_id, array_agg(p.po_header_id order by p.po_header_id) as po_ids\n      from picked p group by p.bill_id',
+         '    select p.bill_id, array_agg(p.po_header_id) as po_ids\n      from picked p where false group by p.bill_id');
+}
+if (mutation === 'no-amount-match') {
+  mutate("         and t.freight_amount = b.amount\n       where not exists (select 1 from by_ref r where r.bill_id = b.id)",
+         "         and false\n       where not exists (select 1 from by_ref r where r.bill_id = b.id)");
+}
+if (mutation === 'no-bill-guard') {
+  mutate(`create trigger zz_landed_cost_bill_guard
+  before update or delete on public.landed_cost_bills`,
+         `create trigger zz_landed_cost_bill_guard
+  before insert on public.landed_cost_bills`);
+}
+if (mutation === 'no-detach-flag') {
+  mutate('    new.shipment_detached := true;', '    new.shipment_detached := false;');
+}
+if (mutation === 'no-costing-sync') {
+  mutate(`create trigger zz_landed_cost_sync_po_costing
+  after insert or update or delete on public.landed_cost_allocations
+  for each row execute function public.landed_cost_sync_po_costing();`, '');
 }
 if (mutation === 'no-restore') {
   mutate('   and abs(p.unit_cost - l.landed_unit) < 0.005', '   and false');
@@ -159,7 +190,9 @@ await db.exec(`
 // ── The production cases, by name ──────────────────────────────────────────
 // MasterCap-84/87/88/89: one $5,531 invoice, typed as $999.75 on each (short).
 // MasterCap-78-S/82:     one $3,839.99 invoice, typed IN FULL on both.
-// MasterCap-79/80:       a $7,887.50 invoice with no reference typed at all.
+// MasterCap-79/80:       a $7,887.50 invoice typed IN FULL on both, with no
+//                        reference -- recognised by its amount instead.
+// KCMTAR-34:             freight with no reference and no invoice to match.
 const PO = {
   m84: 'c0000000-0000-4000-8000-000000000084',
   m87: 'c0000000-0000-4000-8000-000000000087',
@@ -169,6 +202,7 @@ const PO = {
   m82: 'c0000000-0000-4000-8000-000000000082',
   m79: 'c0000000-0000-4000-8000-000000000079',
   m80: 'c0000000-0000-4000-8000-000000000080',
+  kcm: 'c0000000-0000-4000-8000-000000000034',
   other: 'd0000000-0000-4000-8000-00000000000b',
 };
 
@@ -178,6 +212,7 @@ await db.exec(`
     ('${PO.m88}','MasterCap-88','${CO_A}'), ('${PO.m89}','MasterCap-89','${CO_A}'),
     ('${PO.m78}','MasterCap-78-S','${CO_A}'), ('${PO.m82}','MasterCap-82','${CO_A}'),
     ('${PO.m79}','MasterCap-79','${CO_A}'), ('${PO.m80}','MasterCap-80','${CO_A}'),
+    ('${PO.kcm}','KCMTAR-34','${CO_A}'),
     ('${PO.other}','OtherCo-1','${CO_B}');
 
   insert into public.po_lines(id, po_header_id, sku_snapshot, unit_cost, qty, company_entity_id) values
@@ -199,6 +234,7 @@ await db.exec(`
   insert into public.payment_requests(request_type, invoice_number, vendor_name, amount_due, internal_po_number, company_entity_id) values
     ('inventory_freight','ARJFK261001106','Air Tiger', 5531.00, 'MasterCap-84, MasterCap-87', '${CO_A}'),
     ('inventory_freight','ARJFK260801268','Air Tiger', 3839.99, 'MasterCap-78-S, MasterCap-82', '${CO_A}'),
+    ('inventory_freight','ARJFK260900741','Air Tiger', 7887.50, null, '${CO_A}'),
     ('invoice_vendor_payment','NOT-FREIGHT','Someone', 100.00, null, '${CO_A}');
 
   insert into public.po_costing(po_header_id, freight_amount, freight_invoice_ref, freight_carrier, company_entity_id, updated_at) values
@@ -209,7 +245,8 @@ await db.exec(`
     ('${PO.m78}',3839.99, 'ARJFK260801268','Air Tiger','${CO_A}', now() - interval '2 min'),
     ('${PO.m82}',3839.99, 'ARJFK260801268','Air Tiger','${CO_A}', now() - interval '1 min'),
     ('${PO.m79}',7887.50, '', null,'${CO_A}', now()),
-    ('${PO.m80}',7887.50, '', null,'${CO_A}', now() + interval '1 min');
+    ('${PO.m80}',7887.50, '', null,'${CO_A}', now() + interval '1 min'),
+    ('${PO.kcm}',3894.95, '', null,'${CO_A}', now() + interval '2 min');
 
   -- MasterCap-87's lines carry the landed cost in unit_cost, which is what the
   -- old "Push landed to PO lines" default did on production (134 lines).
@@ -237,56 +274,94 @@ await db.exec(migration);
 await test('a freight payment request is a bill; other request types are not', async () => {
   const bills = await all(`select bill_ref, amount, source from public.landed_cost_bills
                             where source = 'payment_request' order by bill_ref`);
-  assert.equal(bills.length, 2, 'two freight invoices, and only those');
-  assert.deepEqual(bills.map((b) => b.bill_ref), ['ARJFK260801268', 'ARJFK261001106']);
-  assert.equal(n(bills[1].amount), 5531);
+  assert.equal(bills.length, 3, 'three freight invoices, and only those');
+  assert.deepEqual(bills.map((b) => b.bill_ref),
+    ['ARJFK260801268', 'ARJFK260900741', 'ARJFK261001106']);
+  assert.equal(n(bills[2].amount), 5531);
 });
 
-await test('the backfill moves no number: every PO keeps the freight it had', async () => {
-  const after = await all(`
-    select pc.po_header_id, pc.freight_amount typed, coalesce(t.freight_allocated, 0) allocated
-      from public.po_costing pc
-      left join public.v_po_landed_cost_totals t on t.po_header_id = pc.po_header_id
-     where pc.freight_amount > 0`);
-  assert.equal(after.length, Object.keys(FREIGHT_BEFORE).length);
-  for (const row of after) {
-    assert.equal(n(row.typed), FREIGHT_BEFORE[row.po_header_id], 'the typed figure is untouched');
-    assert.equal(n(row.allocated), FREIGHT_BEFORE[row.po_header_id],
-      `${row.po_header_id}: allocation must reproduce the freight it had`);
+await test('every dollar of freight paid is allocated exactly once', async () => {
+  // The whole point. Not "nothing moves" -- the typed numbers were WRONG, and
+  // Blake asked for them corrected rather than queued: "if cogs math is wrong
+  // by 59k need it to auto correct not create some new queue to work".
+  const rows = await all(`
+    select b.bill_ref, b.source, b.amount, v.allocated, v.allocation_state
+      from public.v_landed_cost_bill_balance v
+      join public.landed_cost_bills b on b.id = v.bill_id
+     where b.source = 'payment_request' order by b.bill_ref`);
+  assert.equal(rows.length, 3, 'three paid freight invoices');
+  for (const r of rows) {
+    assert.equal(n(r.allocated), n(r.amount),
+      `${r.bill_ref}: an invoice is spent for exactly what was paid`);
+    assert.equal(r.allocation_state, 'allocated');
   }
 });
 
-await test('the duplicate is visible as a legacy bill beside the paid one', async () => {
-  // $3,839.99 was paid once and typed on two POs. The first fits the paid bill;
-  // the second has to go somewhere a person can see it.
+await test('an invoice typed in full on two POs is split, not kept twice', async () => {
+  // $3,839.99 paid once, typed on BOTH MasterCap-78-S and MasterCap-82:
+  // $7,679.98 of COGS against $3,839.99 of real money.
   const rows = await all(`
-    select b.source, b.amount, v.allocated, v.remaining, v.po_names
-      from public.v_landed_cost_bill_balance v
-      join public.landed_cost_bills b on b.id = v.bill_id
-     where coalesce(b.bill_ref,'') = 'ARJFK260801268' order by b.source`);
-  assert.equal(rows.length, 2, 'the paid bill and a legacy stub');
-  assert.equal(rows[0].source, 'legacy');
-  assert.equal(rows[1].source, 'payment_request');
-  assert.equal(n(rows[1].allocated), 3839.99, 'the paid bill is fully spent');
+    select ph.po_name, a.amount, a.notes from public.landed_cost_allocations a
+      join public.landed_cost_bills b on b.id = a.bill_id
+      join public.po_headers ph on ph.id = a.po_header_id
+     where b.bill_ref = 'ARJFK260801268' order by ph.po_name`);
+  assert.deepEqual(rows.map((r) => r.po_name), ['MasterCap-78-S', 'MasterCap-82']);
+  assert.equal(rows.reduce((t, r) => t + n(r.amount), 0), 3839.99, 'they total the invoice');
+  assert.match(rows[0].notes, /entered in full on 2 purchase orders/);
+
+  const stored = await all(`select freight_amount from public.po_costing
+                             where po_header_id in ('${PO.m78}','${PO.m82}')`);
+  assert.deepEqual(stored.map((r) => n(r.freight_amount)).sort((x, y) => x - y), [1919.99, 1920.00],
+    'the stored total follows the allocation, so reports do not read the old figure');
 });
 
-await test('an invoice typed with no reference becomes one legacy bill per PO', async () => {
+await test('an invoice with NO reference is recognised by its amount', async () => {
+  // MasterCap-79 and -80 each carry $7,887.50 with the reference field blank.
+  // One paid invoice is exactly $7,887.50. N identical copies of one amount is
+  // the signature of this mistake, so it is matched and split.
   const rows = await all(`
-    select v.allocated, v.po_names from public.v_landed_cost_bill_balance v
-      join public.landed_cost_bills b on b.id = v.bill_id
-     where b.source = 'legacy' and b.amount = 7887.50 order by v.po_names`);
-  assert.equal(rows.length, 2);
-  assert.deepEqual(rows.map((r) => r.po_names), ['MasterCap-79', 'MasterCap-80']);
+    select ph.po_name, a.amount from public.landed_cost_allocations a
+      join public.landed_cost_bills b on b.id = a.bill_id
+      join public.po_headers ph on ph.id = a.po_header_id
+     where b.bill_ref = 'ARJFK260900741' order by ph.po_name`);
+  assert.deepEqual(rows.map((r) => r.po_name), ['MasterCap-79', 'MasterCap-80']);
+  assert.deepEqual(rows.map((r) => n(r.amount)), [3943.75, 3943.75],
+    'neither PO has a costed line, so it splits evenly rather than weighing one at zero');
 });
 
-await test('the shortfall on a real invoice is visible as money left over', async () => {
-  // $5,531 paid, $999.75 x 4 = $3,999 typed. $1,532 of freight was nowhere.
-  const row = await one(`select amount, allocated, remaining, allocation_state
-                           from public.v_landed_cost_bill_balance
-                          where bill_ref = 'ARJFK261001106' and source = 'payment_request'`);
-  assert.equal(n(row.allocated), 3999);
-  assert.equal(n(row.remaining), 1532);
-  assert.equal(row.allocation_state, 'partial');
+await test('a single PO whose amount happens to match is NOT matched by amount', async () => {
+  // Only the reference may claim an invoice for one PO. Otherwise any PO whose
+  // freight coincided with some invoice would be silently reattributed.
+  const kcm = await one(`
+    select b.source, b.amount, a.amount as allocated, b.notes
+      from public.landed_cost_allocations a
+      join public.landed_cost_bills b on b.id = a.bill_id
+     where a.po_header_id = '${PO.kcm}'`);
+  assert.equal(kcm.source, 'legacy', 'nothing explains it, so it keeps its own bill');
+  assert.equal(n(kcm.allocated), 3894.95, 'and keeps its number exactly');
+  assert.match(kcm.notes, /No paid freight invoice matches it/);
+});
+
+await test('the under-recorded invoice is made whole', async () => {
+  // $5,531 paid, $999.75 typed on each of four POs = $3,999. $1,532 of freight
+  // was in nobody's COGS at all.
+  const rows = await all(`
+    select ph.po_name, a.amount from public.landed_cost_allocations a
+      join public.landed_cost_bills b on b.id = a.bill_id
+      join public.po_headers ph on ph.id = a.po_header_id
+     where b.bill_ref = 'ARJFK261001106' order by ph.po_name`);
+  assert.equal(rows.reduce((t, r) => t + n(r.amount), 0), 5531);
+  // Only MasterCap-87 has costed lines, so the even split applies.
+  assert.equal(rows.length, 4, 'all four POs that typed it');
+});
+
+await test('nothing is left unallocated anywhere', async () => {
+  const stray = await all(`
+    select pc.po_header_id from public.po_costing pc
+     where coalesce(pc.freight_amount, 0) > 0
+       and not exists (select 1 from public.landed_cost_allocations a
+                        where a.po_header_id = pc.po_header_id)`);
+  assert.deepEqual(stray, [], 'every PO with freight has a bill behind it');
 });
 
 await test('the overwritten factory costs are restored, and only those', async () => {
@@ -299,27 +374,31 @@ await test('the overwritten factory costs are restored, and only those', async (
 
 await test('a bill cannot be spent for more than it holds', async () => {
   await asUser(ALICE);
-  const bill = await one(`select id from public.landed_cost_bills
-                           where bill_ref = 'ARJFK261001106' and source = 'payment_request'`);
+  // A bill of its own, because the backfill now spends every paid invoice in
+  // full -- there is deliberately no room left on any of them.
+  const bill = await one(
+    `insert into public.landed_cost_bills(company_entity_id, source, kind, bill_ref, amount)
+       values ($1, 'manual', 'freight', 'TEST-ROOM', 2000.00) returning id`, [CO_A]);
   const err = await refused(
     `insert into public.landed_cost_allocations(company_entity_id, bill_id, po_header_id, amount)
-       values ($1, $2, $3, 2000)`, [CO_A, bill.id, PO.m79]);
+       values ($1, $2, $3, 2000.01)`, [CO_A, bill.id, PO.m79]);
   assert.ok(err && /overspend/.test(err), `expected a refusal, got ${err}`);
 
-  // Exactly what is left is fine, and then nothing more is.
+  // Exactly what it holds is fine, and then nothing more is.
   await db.query(
     `insert into public.landed_cost_allocations(company_entity_id, bill_id, po_header_id, amount)
-       values ($1, $2, $3, 1532.00)`, [CO_A, bill.id, PO.m79]);
+       values ($1, $2, $3, 2000.00)`, [CO_A, bill.id, PO.m79]);
   const err2 = await refused(
     `insert into public.landed_cost_allocations(company_entity_id, bill_id, po_header_id, amount)
        values ($1, $2, $3, 0.01)`, [CO_A, bill.id, PO.m80]);
   assert.ok(err2 && /overspend/.test(err2), `expected a refusal at one cent over, got ${err2}`);
-  await db.query(`delete from public.landed_cost_allocations where po_header_id = $1 and amount = 1532.00`, [PO.m79]);
+  await db.query(`delete from public.landed_cost_allocations where bill_id = $1`, [bill.id]);
+  await db.query(`delete from public.landed_cost_bills where id = $1`, [bill.id]);
 });
 
 await test("an allocation cannot name another PO's container", async () => {
   await asUser(ALICE);
-  const bill = await one(`select id from public.landed_cost_bills where source='legacy' and amount = 7887.50 limit 1`);
+  const bill = await one(`select id from public.landed_cost_bills where source='legacy' and amount = 3894.95 limit 1`);
   const err = await refused(
     `insert into public.landed_cost_allocations(company_entity_id, bill_id, po_header_id, shipment_id, amount)
        values ($1, $2, $3, '22220000-0000-4000-8000-000000000001', 1)`, [CO_A, bill.id, PO.m88]);
@@ -328,7 +407,7 @@ await test("an allocation cannot name another PO's container", async () => {
 
 await test("a bill cannot be spent on another company's PO", async () => {
   await asUser(ALICE);
-  const bill = await one(`select id from public.landed_cost_bills where source='legacy' and amount = 7887.50 limit 1`);
+  const bill = await one(`select id from public.landed_cost_bills where source='legacy' and amount = 3894.95 limit 1`);
   const err = await refused(
     `insert into public.landed_cost_allocations(company_entity_id, bill_id, po_header_id, amount)
        values ($1, $2, $3, 1)`, [CO_A, bill.id, PO.other]);
@@ -488,6 +567,79 @@ await test('neither anon nor a plain select reaches the guard functions', async 
             or exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0))`);
   assert.deepEqual(open.map((r) => r.proname), [],
     'PUBLIC still holds EXECUTE, so every role does');
+});
+
+await test('an AP-sourced bill cannot be edited or deleted from costing', async () => {
+  await asUser(ALICE);
+  const bill = await one(`select id from public.landed_cost_bills
+                           where bill_ref = 'ARJFK260801268' and source = 'payment_request'`);
+  const err = await refused(`update public.landed_cost_bills set amount = 9999 where id = $1`, [bill.id]);
+  assert.ok(err && /change the request, not the bill/.test(err),
+    `raising an AP bill's amount must be refused, got ${err}`);
+
+  const err2 = await refused(`delete from public.landed_cost_bills where id = $1`, [bill.id]);
+  assert.ok(err2 && /allocated to a purchase order/.test(err2),
+    `deleting a spent bill must be refused, got ${err2}`);
+
+  // Reclassifying what the bill IS, and annotating it, stay costing decisions.
+  await db.query(`update public.landed_cost_bills set kind = 'brokerage', notes = 'checked'
+                   where id = $1`, [bill.id]);
+  const after = await one(`select kind, amount from public.landed_cost_bills where id = $1`, [bill.id]);
+  assert.equal(after.kind, 'brokerage');
+  assert.equal(n(after.amount), 3839.99, 'and the amount is still what AP says');
+  await db.query(`update public.landed_cost_bills set kind = 'freight' where id = $1`, [bill.id]);
+});
+
+await test('deleting a container flags its freight instead of respreading it', async () => {
+  // shipment_id is ON DELETE SET NULL and a null shipment means "the whole PO".
+  // Left alone, deleting one of two containers would spread that container's
+  // freight over BOTH containers' units with nobody deciding anything.
+  await asUser(ALICE);
+  const bill = await one(
+    `insert into public.landed_cost_bills(company_entity_id, source, kind, bill_ref, amount)
+       values ($1, 'manual', 'freight', 'TEST-BOX', 500.00) returning id`, [CO_A]);
+  await db.query(
+    `insert into public.landed_cost_allocations(company_entity_id, bill_id, po_header_id, shipment_id, amount)
+       values ($1, $2, $3, '22220000-0000-4000-8000-000000000002', 500.00)`, [CO_A, bill.id, PO.m87]);
+
+  await db.query(`delete from public.incoming_shipments where id = '22220000-0000-4000-8000-000000000002'`);
+
+  const row = await one(`select shipment_id, shipment_detached, amount
+                           from public.landed_cost_allocations where bill_id = $1`, [bill.id]);
+  assert.equal(row.shipment_id, null);
+  assert.equal(row.shipment_detached, true, 'flagged for reassignment, not silently whole-PO');
+  assert.equal(n(row.amount), 500, 'and the money is still on this PO');
+
+  const view = await one(`select shipment_detached from public.v_po_landed_cost_allocations
+                           where bill_id = $1`, [bill.id]);
+  assert.equal(view.shipment_detached, true, 'the page can see it');
+});
+
+await test('the stored PO totals follow an allocation on ANY PO, not just the open one', async () => {
+  // The cache po_costing.freight_amount is reportable: Ask SILO and saved
+  // reports read it. Allocating one invoice across four POs used to refresh
+  // only the PO somebody had open.
+  await asUser(ALICE);
+  const before = n((await one(
+    `select freight_amount from public.po_costing where po_header_id = $1`, [PO.m84])).freight_amount);
+  const bill = await one(`select id from public.landed_cost_bills
+                           where bill_ref = 'ARJFK261001106' and source = 'payment_request'`);
+
+  await db.query(`select * from public.silo_allocate_landed_cost_bill($1, $2::jsonb)`,
+    [bill.id, JSON.stringify([{ po_header_id: PO.m84, amount: 5531 }])]);
+
+  const m84 = n((await one(
+    `select freight_amount from public.po_costing where po_header_id = $1`, [PO.m84])).freight_amount);
+  assert.equal(m84, 5531, 'the PO that gained the whole bill');
+  assert.notEqual(m84, before);
+
+  // And the POs it was taken off, which nobody had open, agree with the bank.
+  const drift = await all(`
+    select pc.po_header_id, pc.freight_amount, coalesce(t.freight_allocated, 0) as allocated
+      from public.po_costing pc
+      left join public.v_po_landed_cost_totals t on t.po_header_id = pc.po_header_id
+     where pc.freight_amount is distinct from coalesce(t.freight_allocated, 0)`);
+  assert.deepEqual(drift, [], 'no PO is left holding a stale freight total');
 });
 
 console.log(`\n${checks} checks passed`);

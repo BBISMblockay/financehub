@@ -125,6 +125,10 @@
    *  units still at the factory. An allocation with no shipment is the whole
    *  PO, which is the only honest answer while a PO has no shipment rows.
    *
+   *  An allocation whose container has been DELETED (`shipment_detached`) is
+   *  not quietly promoted to a whole-PO allocation either; it is reported the
+   *  same way, so a person says where that freight belongs now.
+   *
    *  An allocation that reaches NO line (a shipment with no lines recorded) is
    *  returned in `unplaced` rather than dropped or spread somewhere else -- the
    *  page shows it, because silently moving money is how this went wrong before.
@@ -145,7 +149,13 @@
       totals[bucket] += amount;
 
       let targets;
-      if (a.shipment_id) {
+      if (a.shipment_detached) {
+        // The container this named has been deleted. Reading its null shipment
+        // as "the whole PO" would spread one container's freight over units it
+        // never carried, with nobody deciding anything -- so it lands nowhere
+        // and is reported for reassignment instead.
+        targets = [];
+      } else if (a.shipment_id) {
         const m = shipMap[a.shipment_id];
         targets = !m ? [] : rows
           .filter(r => Object.prototype.hasOwnProperty.call(m, r.line.id))
@@ -153,7 +163,13 @@
       } else {
         targets = rows.map(r => ({ r: r, qty: r.qty }));
       }
-      if (!targets.length) { unplaced.push({ allocation: a, bucket: bucket, reason: 'no_lines' }); continue; }
+      if (!targets.length) {
+        unplaced.push({
+          allocation: a, bucket: bucket,
+          reason: a.shipment_detached ? 'shipment_gone' : 'no_lines',
+        });
+        continue;
+      }
 
       const byUnits = String(a.method || '') === 'units';
       const weights = targets.map(t => (byUnits ? t.qty : t.qty * t.r.fobUnit));
@@ -479,7 +495,7 @@
    *  the second one saved as the first would wipe a landed cost. */
   async function loadLandedCostAllocations(db, poId, companyId) {
     let q = db.from('v_po_landed_cost_allocations')
-      .select('allocation_id, po_header_id, shipment_id, amount, method, notes, bill_id, kind, source, vendor_name, bill_ref, bill_date, bill_amount, cost_bucket, shipment_status, container_ref, ship_date')
+      .select('allocation_id, po_header_id, shipment_id, shipment_detached, amount, method, notes, bill_id, kind, source, vendor_name, bill_ref, bill_date, bill_amount, cost_bucket, shipment_status, container_ref, ship_date')
       .eq('po_header_id', poId)
       .order('bill_date', { ascending: true, nullsFirst: false });
     if (companyId) q = q.eq('company_entity_id', companyId);
@@ -797,6 +813,34 @@
     );
   }
 
+  /** Recompute and re-store one PO's costing from the bank, without anybody
+   *  opening it.
+   *
+   *  Allocating one invoice across several POs changes the landed cost of
+   *  EVERY PO it touched, but only the open one was ever reloaded -- so the
+   *  others kept their stored per-line shares until somebody opened and saved
+   *  each of them. `po_costing_lines` is reportable (Ask SILO and saved
+   *  reports read it), so a stale share is a wrong answer, not just a stale
+   *  screen.
+   *
+   *  The PO-level totals are kept true by a database trigger whatever writes
+   *  the allocation; this is the per-LINE half, which has to run through the
+   *  same engine the page uses rather than a second copy of that math in SQL.
+   *  A PO with no costing row yet is skipped: it has nothing stored to correct.
+   *  @returns {Promise<boolean>} true if it was re-stored.
+   */
+  async function refreshStoredCosting(db, poId, userId) {
+    const ctx = await loadPoCostingContext(db, poId);
+    if (!ctx.costing || ctx.persistence !== 'database') return false;
+    if (ctx.allocationError) throw new Error(BANK_UNREAD);
+    await savePoCosting(db, ctx, ctx.headerInputs, ctx.lineOverrides || {}, {
+      userId: userId || null,
+      phase: ctx.costing.phase,
+      costSource: ctx.costing.cost_source,
+    });
+    return true;
+  }
+
   function phaseLabel(phase) {
     if (phase === PHASE.FREIGHT) return 'Awaiting / adding freight';
     if (phase === PHASE.FINAL) return 'Landed (final)';
@@ -823,6 +867,7 @@
     fetchPriorCostsBySku,
     loadPoCostingContext,
     savePoCosting,
+    refreshStoredCosting,
     markPoShipped,
     phaseLabel,
     headerInputsFromCostingRow,

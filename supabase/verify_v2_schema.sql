@@ -11257,6 +11257,23 @@ select 'Landed cost bill bank' as check_name,
                       where tgrelid = 'public.payment_requests'::regclass
                         and tgname = 'zz_landed_cost_bill_sync' and not tgisinternal)
       then 'BROKEN — a freight payment request no longer becomes a bill'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.landed_cost_bills'::regclass
+                        and tgname = 'zz_landed_cost_bill_guard' and not tgisinternal)
+      then 'CRITICAL: costing can rewrite what a freight invoice says the company owes'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.landed_cost_allocations'::regclass
+                        and tgname = 'zz_landed_cost_sync_po_costing' and not tgisinternal)
+      then 'BROKEN — a PO''s stored freight no longer follows the bills allocated to it'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'landed_cost_allocations'
+                        and column_name = 'shipment_detached')
+      then 'BROKEN — deleting a container respreads its freight over the whole PO'
+    when exists (
+      select 1 from public.po_costing pc
+      left join public.v_po_landed_cost_totals t on t.po_header_id = pc.po_header_id
+      where coalesce(pc.freight_amount, 0) is distinct from coalesce(t.freight_allocated, 0))
+      then 'BROKEN — a purchase order''s stored freight disagrees with the bills on it'
     when not exists (select 1 from pg_index i join pg_class c on c.oid = i.indexrelid
                       where i.indrelid = 'public.landed_cost_allocations'::regclass
                         and c.relname = 'landed_cost_allocations_po_key')
