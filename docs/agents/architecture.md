@@ -28,7 +28,12 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 
 ```
 /
-├── index.html                 ← Site root: auth-hash router (invite/recovery links) → /v2/finance.html
+├── index.html                 ← Site root, TWO pages in one, chosen before first paint by host:
+│                               get-silo.com signed out → the public marketing landing;
+│                               every other host, and any auth hash anywhere → the auth
+│                               router (invite/recovery links) → /v2/finance.html
+├── landing-v2.html            ← Stub redirect to / (was the landing for a few hours, 2026-11-28)
+├── assets/landing-v2/         ← The landing page's screenshots (WebP) and brand logos
 ├── v2/                        ← All CURRENT pages live here — build new tools here
 │   ├── beacon.css             ← Design system tokens + components (DO NOT EDIT casually)
 │   ├── silo-brand.css         ← Page layout, card harmonization

@@ -14,10 +14,15 @@ test('home and shared config retain their explicit baselines', () => {
   const unchanged = {
     // Public product/company overview intentionally expanded for developer verification.
     // Deliberately changed 2026-10-30: site icon link, so get-silo.com and the MCP connector show SILO's mark.
+    // Deliberately changed 2026-11-28: get-silo.com's home page became the Marketing /
+    // Affiliate Studio landing (PR #1423 shipped it at /landing-v2.html; Blake: "okay promote it").
+    // The auth router half -- the first-paint data-mode decision, #router and its module -- is
+    // carried over unchanged; only the landing half was replaced, and /landing-v2.html is now a
+    // stub redirect to /.
     // Deliberately changed 2026-11-13: get-silo.com index uses the early-access landing (like
     // redo-welcome/demo) and the public intake form instead of the invitation-only onboarding link.
     // Auth router (#router, data-mode script, signed-in redirect) is unchanged in purpose.
-    'index.html': '4614d4a8c8a4eecfb310f1f0db444743f65d99cc918fc3a7ff49478a3577c36e',
+    'index.html': '83b0b5873dacdaeecb93044c93971081e0c9873da9be66d321ce7a60474ebf6b',
     // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
     // Deliberately changed 2026-11-13: COMPANY_CACHE_VERSION, so a tab holding a company
     // cached before entities.meta started driving the sidebar re-reads it once.
@@ -294,7 +299,11 @@ test('redo-welcome is its own page with its own stylesheet; demo.html is untouch
   assert.doesNotMatch(welcome, /early-access\.css/);
   assert.match(html, /assets\/landing\/early-access\.css/);
   const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(indexHtml, /assets\/landing\/early-access\.css/);
+  // The home page carries its own styles since the 2026-11-28 redesign and no
+  // longer loads early-access.css; demo.html and redo-welcome.html still do,
+  // which is why that stylesheet stays. It shares only the CONTROLLER.
+  assert.doesNotMatch(indexHtml, /assets\/landing\/early-access\.css/);
+  assert.match(indexHtml, /assets\/landing\/early-access\.js/);
   assert.match(indexHtml, /id="lpInterestForm"/);
   assert.doesNotMatch(html, /redo-welcome\.css|Redo Marketing Performance/);
   assert.match(welcome, /lp-hub-core/);
@@ -344,23 +353,28 @@ test('optional data-ack-success overrides the default acknowledgement copy', asy
   assert.match(f.elements.lpFormStatus.textContent, /Check your inbox for your signup link/);
 });
 
-// The new landing page at /landing-v2.html reuses this same controller, so it
-// has to carry the contract the controller reads: the landing data-mode (the
+// The home page reuses this same controller, so it has to carry the contract
+// the controller reads: the landing data-mode (the
 // script returns early without it), the five element ids it looks up by name,
 // the success copy it shows, and both script tags in the order that leaves
 // window.__SILO_CONFIG__ defined before the controller runs. A page that is
 // missing any of these fails silently -- the button never enables and nothing
 // is logged -- which is exactly what this suite exists to catch.
-test('landing-v2 carries the contract the shared early-access controller reads', () => {
-  const page = readFileSync(new URL('../landing-v2.html', import.meta.url), 'utf8');
-  assert.match(page, /data-mode["']?\s*,\s*["']landing["']/);
+test('the home page carries the contract the shared early-access controller reads', () => {
+  const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  // The home page decides its mode by host before first paint, so the landing
+  // half only runs for a signed-out visitor on the public domain.
+  assert.match(page, /get-silo\\\.com\$/);
+  assert.match(page, /setAttribute\('data-mode', publicHost && !authHash \? 'landing' : 'router'\)/);
   for (const id of ['lpInterestForm', 'lpJoinButton', 'lpFormStatus', 'lpName', 'lpCompanyName', 'lpEmail', 'lpWebsite']) {
     assert.match(page, new RegExp(`id="${id}"`), id);
   }
   assert.match(page, /data-ack-success="[^"]+"/);
   assert.match(page, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
-  // No auth router: this page is for signed-out visitors only.
-  assert.doesNotMatch(page, /id="router"|getSession|createClient|http-equiv="refresh"/);
+  // The auth router shares this page; the landing half must not be shown to a
+  // visitor the router is handling, and vice versa.
+  assert.match(page, /html:not\(\[data-mode="landing"\]\) #landing \{ display: none; \}/);
+  assert.match(page, /html\[data-mode="landing"\] #router \{ display: none; \}/);
   // Its screenshots live in their own directory; nothing may point back at a
   // scratch path or at the mockup banner.
   assert.doesNotMatch(page, /src="media\/|class="note"/);
