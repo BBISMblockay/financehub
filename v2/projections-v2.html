@@ -357,14 +357,23 @@
       },
       _exec() { return Promise.resolve({ data: api._rows(), error: null }); },
       then(res, rej) { return api._exec().then(res, rej); },
-      async upsert(rows, opts) {
+      upsert(rows, opts) {
+        const written = [];
         for (const p of rows) {
           const i = PROJ.findIndex((x) => x.projection_date === p.projection_date && String(x.location_id) === String(p.location_id));
-          // ignoreDuplicates mirrors ON CONFLICT DO NOTHING, so the demo shows
-          // the same "left as they are" behaviour the database gives.
-          if (i >= 0) { if (!opts?.ignoreDuplicates) PROJ[i] = { ...PROJ[i], ...p }; } else PROJ.push({ ...p, id: pid++ });
+          // ignoreDuplicates mirrors ON CONFLICT DO NOTHING: the day is left as
+          // it is AND it is not returned, which is how the page knows what it
+          // actually wrote. The demo behaves the same way.
+          if (i >= 0) {
+            if (opts?.ignoreDuplicates) continue;
+            PROJ[i] = { ...PROJ[i], ...p };
+          } else {
+            PROJ.push({ ...p, id: pid++ });
+          }
+          written.push(p);
         }
-        return { data: rows, error: null };
+        const res = Promise.resolve({ data: written, error: null });
+        return { select: () => res, then: (ok, no) => res.then(ok, no) };
       },
       delete() {
         const del = { eq(k, v) { del._f.push([k, v]); return del; }, _f: [],
@@ -816,7 +825,7 @@
     const value = Math.round(n * 100) / 100;
     if (before != null && Math.abs(before - value) < 0.005) return;
     inp.classList.add('pv-in--saving');
-    const ok = await writeDays([{ date, location_id: locId, value }]);
+    const { ok } = await writeDays([{ date, location_id: locId, value }]);
     inp.classList.remove('pv-in--saving');
     if (ok) {
       state.plan.set(key, value); markSaved(inp); render();
@@ -853,22 +862,21 @@
     // a day another planner filled while this sheet was open keeps THEIR
     // number: "only the days with no plan" cannot overwrite anything, however
     // stale this page's idea of the plan has become.
-    const { error } = await db.from('revenue_projections')
-      .upsert(payload, { onConflict: 'projection_date,location_id', ignoreDuplicates: ifAbsent });
-    if (error) { setStatus('Save failed: ' + error.message, 'neg'); return false; }
-    return true;
-  }
-
-  /* After an insert-if-absent write, the stored plan is the authority on what
-   * actually landed: a day that now holds a different number was planned by
-   * someone else while this sheet was open, and it was left alone. */
-  function daysLeftAlone(rows) {
-    let n = 0;
-    for (const r of rows) {
-      const stored = state.plan.get(L.actualKey(r.location_id, r.date));
-      if (stored == null || Math.round(stored) !== Math.round(r.value)) n++;
-    }
-    return n;
+    const { data, error } = await db.from('revenue_projections')
+      .upsert(payload, { onConflict: 'projection_date,location_id', ignoreDuplicates: ifAbsent })
+      .select('projection_date, location_id, projected_sales');
+    if (error) { setStatus('Save failed: ' + error.message, 'neg'); return { ok: false, written: [] }; }
+    // What came back is what the DATABASE wrote: under ON CONFLICT DO NOTHING
+    // a day someone else had already filled is simply not returned, even when
+    // their number happens to equal ours. Everything downstream — what Undo may
+    // put back, and the count and total the page reports — reads this and not
+    // the rows we proposed.
+    const written = (data || []).map((r) => ({
+      date: String(r.projection_date).slice(0, 10),
+      location_id: r.location_id,
+      value: Number(r.projected_sales) || 0,
+    }));
+    return { ok: true, written };
   }
 
   async function deleteDay(locId, date) {
@@ -913,22 +921,24 @@
     el('fill-apply').disabled = true;
     setStatus(`Filling ${r.writes.length} days…`, 'info');
     const emptyOnly = el('fill-scope').value !== 'all';
-    const undoRows = r.writes.map((w) => ({
-      date: w.date, location_id: w.location_id, wrote: w.value,
-      value: state.plan.has(L.actualKey(w.location_id, w.date)) ? state.plan.get(L.actualKey(w.location_id, w.date)) : null,
-    }));
-    const ok = await writeDays(r.writes, 'history_fill', { ifAbsent: emptyOnly });
+    const was = new Map(r.writes.map((w) => [L.actualKey(w.location_id, w.date),
+      state.plan.has(L.actualKey(w.location_id, w.date)) ? state.plan.get(L.actualKey(w.location_id, w.date)) : null]));
+    const { ok, written } = await writeDays(r.writes, 'history_fill', { ifAbsent: emptyOnly });
     el('fill-apply').disabled = false;
     if (!ok) return;
-    state.undo = undoRows;
-    el('pv-undo').hidden = false;
+    state.undo = written.map((w) => ({
+      date: w.date, location_id: w.location_id, wrote: w.value,
+      value: was.get(L.actualKey(w.location_id, w.date)) ?? null,
+    }));
+    el('pv-undo').hidden = written.length === 0;
     el('pv-fill-drawer').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    const held = emptyOnly ? daysLeftAlone(r.writes) : 0;
-    setStatus(`Filled ${r.writes.length - held} days · ${money(r.total)}.`
+    const held = r.writes.length - written.length;
+    const total = written.reduce((a, w) => a + w.value, 0);
+    setStatus(`Filled ${written.length} day${written.length === 1 ? '' : 's'} · ${money(total)}.`
       + (held ? ` ${held} day${held === 1 ? '' : 's'} had been planned by someone else and were left as they are.` : '')
-      + ' Undo is available.', 'pos', 4600);
+      + (written.length ? ' Undo is available.' : ''), 'pos', 4600);
   }
 
   /* Undo puts back only the days that STILL hold the number this operation
@@ -947,7 +957,7 @@
     const restore = mine.filter((r) => r.value != null);
     const remove = mine.filter((r) => r.value == null);
     let ok = true;
-    if (restore.length) ok = await writeDays(restore.map((r) => ({ ...r })), 'manual') && ok;
+    if (restore.length) ok = (await writeDays(restore.map((r) => ({ ...r })), 'manual')).ok && ok;
     for (const r of remove) ok = await deleteDay(r.location_id, r.date) && ok;
     state.undo = null; el('pv-undo').hidden = true;
     await loadPlan(L.monthRange(state.month));
@@ -1022,21 +1032,23 @@
     if (!state.draft?.length) return;
     el('ai-accept').disabled = true;
     const emptyOnly = el('ai-scope').value !== 'all';
-    const undoRows = state.draft.map((r) => ({
-      date: r.date, location_id: r.location_id, value: r.was, wrote: r.value,
-    }));
     const rows = state.draft;
-    const ok = await writeDays(rows, 'ai_draft', { ifAbsent: emptyOnly });
+    const was = new Map(rows.map((r) => [L.actualKey(r.location_id, r.date), r.was ?? null]));
+    const { ok, written } = await writeDays(rows, 'ai_draft', { ifAbsent: emptyOnly });
     el('ai-accept').disabled = false;
     if (!ok) return;
-    state.undo = undoRows; el('pv-undo').hidden = false;
+    state.undo = written.map((w) => ({
+      date: w.date, location_id: w.location_id, wrote: w.value,
+      value: was.get(L.actualKey(w.location_id, w.date)) ?? null,
+    }));
+    el('pv-undo').hidden = written.length === 0;
     state.draft = null; el('ai-result').hidden = true; el('pv-ai-drawer').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    const held = emptyOnly ? daysLeftAlone(rows) : 0;
-    setStatus(`Saved ${rows.length - held} days from the draft.`
+    const held = rows.length - written.length;
+    setStatus(`Saved ${written.length} day${written.length === 1 ? '' : 's'} from the draft.`
       + (held ? ` ${held} day${held === 1 ? '' : 's'} had been planned by someone else and were left as they are.` : '')
-      + ' Undo is available.', 'pos', 4600);
+      + (written.length ? ' Undo is available.' : ''), 'pos', 4600);
   }
 })();
 </script>
