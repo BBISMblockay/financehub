@@ -83,7 +83,12 @@ export function createHandler(deps: Dependencies) {
       const claim = await claimRes.json();
       if (claim?.claimed !== true) return json({ ok: true, skipped: String(claim?.reason || 'not_claimed') });
 
-      const origin = (deps.siteUrl || 'https://silo-baseballism.com').replace(/\/$/, '');
+      // The public signup starts on get-silo.com and has to finish there:
+      // a visitor who typed their email on the marketing site should not be
+      // handed a link to a domain they have never seen. This deliberately
+      // does NOT read SILO_SITE_URL, which is the internal app origin used by
+      // staff email (invites, notifications) and may point elsewhere.
+      const origin = (deps.siteUrl || 'https://get-silo.com').replace(/\/$/, '');
       const link = `${origin}/v2/company-onboarding.html?invite=${encodeURIComponent(String(claim.token))}`;
 
       let sent = false;

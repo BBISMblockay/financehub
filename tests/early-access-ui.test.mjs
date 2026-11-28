@@ -343,3 +343,25 @@ test('optional data-ack-success overrides the default acknowledgement copy', asy
   await f.submit();
   assert.match(f.elements.lpFormStatus.textContent, /Check your inbox for your signup link/);
 });
+
+// The new landing page at /landing-v2.html reuses this same controller, so it
+// has to carry the contract the controller reads: the landing data-mode (the
+// script returns early without it), the five element ids it looks up by name,
+// the success copy it shows, and both script tags in the order that leaves
+// window.__SILO_CONFIG__ defined before the controller runs. A page that is
+// missing any of these fails silently -- the button never enables and nothing
+// is logged -- which is exactly what this suite exists to catch.
+test('landing-v2 carries the contract the shared early-access controller reads', () => {
+  const page = readFileSync(new URL('../landing-v2.html', import.meta.url), 'utf8');
+  assert.match(page, /data-mode["']?\s*,\s*["']landing["']/);
+  for (const id of ['lpInterestForm', 'lpJoinButton', 'lpFormStatus', 'lpName', 'lpCompanyName', 'lpEmail', 'lpWebsite']) {
+    assert.match(page, new RegExp(`id="${id}"`), id);
+  }
+  assert.match(page, /data-ack-success="[^"]+"/);
+  assert.match(page, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
+  // No auth router: this page is for signed-out visitors only.
+  assert.doesNotMatch(page, /id="router"|getSession|createClient|http-equiv="refresh"/);
+  // Its screenshots live in their own directory; nothing may point back at a
+  // scratch path or at the mockup banner.
+  assert.doesNotMatch(page, /src="media\/|class="note"/);
+});
