@@ -89,8 +89,24 @@ const DRAFT = {
   styles: 2, units: 500, attachment_filename: 'IN-901.pdf', missing: [],
 };
 
+/* po_headers is what the delete guard counts, and it is deliberately NOT the
+ * same set as v_po_header_summary above: fac-3 has one old PO that the page's
+ * capped read never returned. That is the shape of the bug -- in a company
+ * past the cap, a factory used only on older POs looks untouched. */
+/* Two factories only sections 10-12 need: one whose real country the page's
+   convenience list does not name, and one with no purchase order anywhere.
+   Kept out of FACTORIES so they do not move the KPI counts above. */
+const EXTRA_FACTORIES = FACTORIES.concat([
+  factory({ id: 'fac-5', factory_name: 'Kowloon Knit', country: 'Hong Kong',
+            contact_name: 'Wai', payment_terms: 'Net 30' }),
+]);
+
+const PO_HEADERS = POS.map((p) => ({ id: p.id, factory_id: p.factory_id, company_entity_id: CO }))
+  .concat([{ id: 'po-ancient', factory_id: 'fac-3', company_entity_id: CO }]);
+
 const tables = (over = {}) => Object.assign({
   factories: FACTORIES,
+  po_headers: PO_HEADERS,
   v_po_header_summary: POS,
   po_status_options: STEPS.map((s) => Object.assign({ company_entity_id: CO }, s)),
   po_vendor_emails: EMAILS,
@@ -324,6 +340,74 @@ const text = (page, sel) => page.$eval(sel, (n) => n.textContent.trim());
       R.eq(noQueue.rows, 2, 'the list still loads');
       R.eq(noQueue.buttons, 0, 'no email buttons are offered');
       R.eq(noQueue.kpi, '—');
+    });
+    await page.close();
+
+    // ── 10. a country the page's list does not name is not erased ─────────
+    // Found by automated review: the select held only KNOWN_COUNTRIES, so a
+    // stored value outside it fell back to "—" and the next save of ANY field
+    // wrote country: null over a country nobody had touched.
+    page = await suite.open('/v2/factories.html', tables({ factories: EXTRA_FACTORIES }), READY);
+    await page.selectOption('#activityFilter', 'all');
+    await page.waitForFunction(() => !!document.querySelector('tr[data-row-id="fac-5"]'));
+    await page.click('tr[data-row-id="fac-5"]');
+    await page.waitForFunction(() => !document.getElementById('facDrawer').hidden);
+    await page.click('#dFoot [data-act="edit"]');
+    await page.waitForFunction(() => !document.getElementById('dForm').hidden);
+    const countrySel = await page.$eval('#eCountry', (n) => ({
+      value: n.value,
+      has: [...n.options].some((o) => o.value === 'Hong Kong'),
+    }));
+    await page.fill('#eContactEmail', 'wai@kowloon.test');
+    await page.click('#dFoot [data-act="save"]');
+    await page.waitForFunction(() => document.getElementById('dForm').hidden);
+    const kkWrite = await page.evaluate(() => window.__QUERIES__
+      .filter((q) => q._op === 'update' && q.table === 'factories').map((q) => q.patch).pop());
+    R.test('an out-of-list country stays selected, and saving another field leaves it alone', () => {
+      R.truthy(countrySel.has, 'the stored country is an option');
+      R.eq(countrySel.value, 'Hong Kong', 'and it is the selected one');
+      R.eq(Object.keys(kkWrite), ['contact_email']);
+    });
+    await page.close();
+
+    // ── 11. Delete is offered only on the database's word ─────────────────
+    page = await suite.open('/v2/factories.html', tables({ factories: EXTRA_FACTORIES }), READY);
+    await page.selectOption('#activityFilter', 'all');
+    await page.waitForFunction(() => !!document.querySelector('tr[data-row-id="fac-3"]'));
+
+    // fac-3 looks never-ordered to the page, but po_headers has an old PO.
+    await page.click('tr[data-row-id="fac-3"]');
+    await page.waitForFunction(() => window.__QUERIES__
+      .some((q) => q.table === 'po_headers' && q.head === true));
+    const guardQuery = await page.evaluate(() => window.__QUERIES__
+      .filter((q) => q.table === 'po_headers' && q.head === true).map((q) => q.filters).pop());
+    const oldPoActs = await page.$$eval('#dFoot [data-act]', (ns) => ns.map((n) => n.getAttribute('data-act')));
+
+    // fac-5 has no PO anywhere, so Delete appears once the count answers.
+    await page.click('tr[data-row-id="fac-5"]');
+    await page.waitForFunction(() => [...document.querySelectorAll('#dFoot [data-act]')]
+      .some((n) => n.getAttribute('data-act') === 'delete'), { timeout: 4000 });
+    const freeActs = await page.$$eval('#dFoot [data-act]', (ns) => ns.map((n) => n.getAttribute('data-act')));
+
+    R.test('Delete follows an exact count, not the page\'s capped read', () => {
+      R.truthy(JSON.stringify(guardQuery).includes('fac-3'), 'the count is asked per factory');
+      R.eq(oldPoActs.includes('delete'), false,
+        'a factory with only older POs must not be offered a delete the FK refuses');
+      R.truthy(freeActs.includes('delete'), 'a factory with no POs at all still is');
+    });
+    await page.close();
+
+    // ── 12. if that count cannot be read, Delete is not offered ───────────
+    page = await suite.open('/v2/factories.html', tables({ factories: EXTRA_FACTORIES }), Object.assign({ broken: ['po_headers'] }, READY));
+    await page.selectOption('#activityFilter', 'all');
+    await page.waitForFunction(() => !!document.querySelector('tr[data-row-id="fac-5"]'));
+    await page.click('tr[data-row-id="fac-5"]');
+    await page.waitForFunction(() => !document.getElementById('facDrawer').hidden);
+    await new Promise((r) => setTimeout(r, 400));
+    const brokenActs = await page.$$eval('#dFoot [data-act]', (ns) => ns.map((n) => n.getAttribute('data-act')));
+    R.test('an unreadable count means no Delete, because that is the safe way to be wrong', () => {
+      R.eq(brokenActs.includes('delete'), false);
+      R.truthy(brokenActs.includes('archive'), 'archive is still there');
     });
     await page.close();
 

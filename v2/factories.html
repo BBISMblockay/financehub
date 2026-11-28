@@ -544,6 +544,9 @@
     emails: [],
     emailByPo: new Map(),
     selectedId: null,
+    // factory id -> true (no POs at all, so Delete is safe), false, or null
+    // while the database is being asked. See confirmDeletable().
+    deletable: new Map(),
     editing: false,
     composing: null,       // { poId, poName, factoryId, existing }
   };
@@ -559,11 +562,22 @@
    'eContactName','eContactEmail','ePhone','ePaymentTerms','eShippingTerms','eAddress','eCountry','eNotes']
     .forEach(id => { el[id] = document.getElementById(id); });
 
+  /* KNOWN_COUNTRIES is a convenience, not the set of countries that exist.
+     Any country already stored on one of this company's factories is an
+     option too, and so is the one on the factory being edited -- otherwise
+     the select silently falls back to "—" and the next save, of an email or
+     terms, writes country: null over a country nobody touched. */
+  function countryList(current) {
+    const seen = new Map();
+    const add = (v) => { const c = clean(v); if (c && !seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c); };
+    KNOWN_COUNTRIES.forEach(add);
+    (state.factories || []).forEach(f => add(f.country));
+    add(current);
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }
   const countryOptions = (selected) => ['<option value="">—</option>']
-    .concat(KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}"${c === selected ? ' selected' : ''}>${escapeHtml(c)}</option>`))
+    .concat(countryList(selected).map(c => `<option value="${escapeHtml(c)}"${c === selected ? ' selected' : ''}>${escapeHtml(c)}</option>`))
     .join('');
-  el.newCountry.innerHTML = countryOptions('');
-  el.eCountry.innerHTML = countryOptions('');
 
   function setStatus(msg, type = 'info', ms = 0) {
     el.status.className = `bcn-status bcn-status--${type}`;
@@ -840,6 +854,23 @@
     render();
   }
 
+  /* Does this factory have ANY purchase order? Asked of the database rather
+     than inferred from the page's capped read. A failure answers "has POs",
+     because not offering Delete is the safe way to be wrong. */
+  async function confirmDeletable(factoryId) {
+    state.deletable.set(factoryId, null);          // asked, not yet answered
+    let none = false;
+    try {
+      const { count, error } = await sb
+        .from('po_headers')
+        .select('id', { count: 'exact', head: true })
+        .eq('factory_id', factoryId);
+      none = !error && Number(count || 0) === 0;
+    } catch (_) { none = false; }
+    state.deletable.set(factoryId, none);
+    if (state.selectedId === factoryId) renderDrawer();
+  }
+
   function renderDrawer() {
     const row = selected();
     if (!row) { closeDrawer(); return; }
@@ -902,7 +933,14 @@
         }).join('')}</div>${m.pos.length > shown.length ? `<div class="fac-note" style="margin-top:6px">${nf(m.pos.length - shown.length)} older POs not shown.</div>` : ''}`
       : '<div class="fac-note">No purchase orders have been written against this factory.</div>';
 
-    const canDelete = m.total === 0;
+    /* Delete is offered ONLY once the database has said this factory has no
+       purchase orders at all. The roll-up above is built from a capped read
+       (loadPos), so in a company past that cap a factory used only on older
+       POs would look untouched -- and Delete would be offered for a row the
+       FK refuses (on delete restrict). The count below is exact and costs one
+       head request; until it answers, Delete is simply not there. */
+    const canDelete = m.total === 0 && state.deletable.get(row.id) === true;
+    if (m.total === 0 && !state.deletable.has(row.id)) confirmDeletable(row.id);
     el.dFoot.innerHTML = state.editing
       ? `<button type="button" class="bcn-btn bcn-btn--ghost" data-act="cancel-edit">Cancel</button>
          <button type="button" class="bcn-btn bcn-btn--primary" data-act="save">Save changes</button>`
@@ -1134,6 +1172,7 @@
   }
 
   async function reload() {
+    state.deletable.clear();     // a PO may have been written since
     await loadStatusOptions();
     await Promise.all([loadFactories(), loadPos(), loadEmails()]);
     rollUp();
@@ -1148,6 +1187,8 @@
   el.btnExport.addEventListener('click', exportCsv);
   el.btnNewFactory.addEventListener('click', () => {
     clearNewFactory();
+    // Built on open, so it carries every country this company already uses.
+    el.newCountry.innerHTML = countryOptions('');
     el.factoryModal.showModal();
     setTimeout(() => el.newFactoryName.focus(), 50);
   });
