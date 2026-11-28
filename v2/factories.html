@@ -13,8 +13,11 @@
   <style>
     [hidden] { display: none !important; }
 
-    /* Filters sit above the table, not in a 280px sidebar: two fields do
-       not need a column of their own, and the table wants the width. */
+    /* One dense list, read-only, with everything about a factory in a right
+       drawer. The page used to be a 145-row grid of editable inputs sorted by
+       name: a stray keystroke was a write, and nothing on the row said whether
+       the factory was one you order from. Rows are now read-only and ranked by
+       activity; the drawer edits. */
     .fac-layout {
       display: flex;
       flex-direction: column;
@@ -24,7 +27,7 @@
     }
     .fac-filters .bcn-card-body {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 10px 12px;
       align-items: end;
     }
@@ -32,13 +35,13 @@
 
     .fac-table-wrap {
       overflow: auto;
-      max-height: min(72vh, 720px);
+      max-height: min(72vh, 760px);
       border: 1px solid var(--bcn-border);
       border-radius: var(--bcn-radius);
     }
     .fac-table {
       width: 100%;
-      min-width: 1040px;
+      min-width: 980px;
       border-collapse: collapse;
       font-size: 12px;
     }
@@ -48,7 +51,7 @@
       z-index: 2;
       background: var(--bcn-surface-2, var(--bcn-sunken));
       border-bottom: 1px solid var(--bcn-border);
-      padding: 8px 6px;
+      padding: 8px 8px;
       font-family: var(--bcn-mono);
       font-size: 10px;
       text-transform: uppercase;
@@ -57,33 +60,130 @@
       text-align: left;
       white-space: nowrap;
     }
+    .fac-table thead th.fac-r { text-align: right; }
     .fac-table tbody td {
       border-bottom: 1px solid var(--bcn-border);
-      padding: 4px 5px;
+      padding: 7px 8px;
       vertical-align: middle;
     }
+    .fac-table tbody tr { cursor: pointer; }
     .fac-table tbody tr:hover { background: var(--bcn-sunken); }
-    .fac-cell {
-      width: 100%;
-      min-width: 0;
-      min-height: 28px;
-      padding: 4px 6px;
-      font-size: 12px;
+    .fac-table tbody tr.fac-sel { background: var(--bcn-accent-soft); }
+    .fac-name { font-weight: 700; }
+    .fac-sub {
+      font-family: var(--bcn-mono);
+      font-size: 10.5px;
+      color: var(--bcn-ink-3);
+      margin-top: 1px;
     }
-    .fac-actions { display: flex; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+    .fac-num {
+      font-family: var(--bcn-mono);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }
     .fac-card-foot {
       font-size: 11.5px;
       color: var(--bcn-ink-3);
       padding: 10px 14px;
       border-top: 1px solid var(--bcn-border);
     }
-    .fac-kpi-mini {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 12px;
+    .fac-empty {
+      position: sticky;
+      left: 0;
+      padding: 32px;
+      text-align: center;
+      color: var(--bcn-ink-3);
     }
-    .fac-kpi-mini .bcn-kpi { padding: 10px 12px; }
+
+    /* Drawer */
+    .fac-drawer {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: min(520px, 100%);
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      background: var(--bcn-surface);
+      border-left: 1px solid var(--bcn-border);
+      box-shadow: -8px 0 24px rgba(10, 14, 20, 0.14);
+    }
+    .fac-drawer-head {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .fac-drawer-title { font-size: 16px; font-weight: 800; letter-spacing: -0.02em; }
+    .fac-drawer-body { overflow-y: auto; padding: 0 16px 18px; flex: 1 1 auto; min-height: 0; }
+    .fac-drawer-foot {
+      padding: 10px 16px;
+      border-top: 1px solid var(--bcn-border);
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .fac-mini {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+      gap: 1px;
+      background: var(--bcn-border);
+      border: 1px solid var(--bcn-border);
+      border-radius: var(--bcn-radius);
+      margin: 14px 0;
+    }
+    .fac-mini > div { background: var(--bcn-surface); padding: 8px 10px; }
+    .fac-mini-k {
+      font-family: var(--bcn-mono);
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--bcn-ink-3);
+    }
+    .fac-mini-v {
+      font-family: var(--bcn-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .fac-secline {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--bcn-ink-3);
+      margin: 16px 0 6px;
+    }
+    .fac-kv { display: grid; grid-template-columns: 124px 1fr; gap: 5px 10px; font-size: 12.5px; margin: 0; }
+    .fac-kv dt { color: var(--bcn-ink-3); }
+    .fac-kv dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .fac-kv dd.fac-gap { color: var(--bcn-neg); }
+    .fac-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .fac-form .fac-span-2 { grid-column: 1 / -1; }
+    .fac-po-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      background: var(--bcn-border);
+      border: 1px solid var(--bcn-border);
+      border-radius: var(--bcn-radius);
+    }
+    .fac-po {
+      background: var(--bcn-surface);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      padding: 7px 10px;
+    }
+    .fac-po-name { font-family: var(--bcn-mono); font-weight: 600; font-size: 12px; }
+    .fac-po-dates { font-size: 11px; color: var(--bcn-ink-3); }
+    .fac-note { font-size: 11.5px; color: var(--bcn-ink-3); }
+    .fac-alert { color: var(--bcn-neg); }
 
     dialog.fac-dialog {
       border: 1px solid var(--bcn-border);
@@ -110,9 +210,6 @@
       max-height: 70vh;
       overflow-y: auto;
     }
-    @media (max-width: 560px) {
-      .fac-dialog-body { grid-template-columns: 1fr; }
-    }
     .fac-dialog-foot {
       padding: 12px 16px;
       border-top: 1px solid var(--bcn-border);
@@ -122,6 +219,11 @@
       flex-wrap: wrap;
     }
     .fac-span-2 { grid-column: 1 / -1; }
+    @media (max-width: 560px) {
+      .fac-dialog-body { grid-template-columns: 1fr; }
+      .fac-form { grid-template-columns: 1fr; }
+      .fac-kv { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body class="silo-brand">
@@ -131,7 +233,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0">
         <h1 class="bcn-header-title">Factories</h1>
-        <p class="bcn-header-sub">The vendors POs are written against.</p>
+        <p class="bcn-header-sub" id="headerSub">The vendors POs are written against.</p>
       </div>
       <div class="bcn-header-actions">
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh">Refresh</button>
@@ -141,9 +243,26 @@
     </header>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Factories</div><div id="kpiFactories" class="bcn-kpi-value bcn-num">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">With email</div><div id="kpiEmail" class="bcn-kpi-value bcn-num">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Filtered</div><div id="factoryCount" class="bcn-kpi-value bcn-num">—</div></div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Ordered from</div>
+        <div id="kpiOrdered" class="bcn-kpi-value bcn-num">—</div>
+        <div class="bcn-kpi-delta" id="kpiOrderedSub">&nbsp;</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Open POs</div>
+        <div id="kpiOpenPos" class="bcn-kpi-value bcn-num">—</div>
+        <div class="bcn-kpi-delta" id="kpiOpenUnits">&nbsp;</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Not yet sent</div>
+        <div id="kpiPreSend" class="bcn-kpi-value bcn-num">—</div>
+        <div class="bcn-kpi-delta" id="kpiPreSendSub">&nbsp;</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">No email on file</div>
+        <div id="kpiNoEmail" class="bcn-kpi-value bcn-num">—</div>
+        <div class="bcn-kpi-delta" id="kpiNoEmailSub">&nbsp;</div>
+      </div>
     </div>
 
     <div class="bcn-status" id="status" hidden></div>
@@ -153,15 +272,42 @@
         <div class="bcn-card-body">
           <div class="bcn-field-group">
             <label class="bcn-label" for="searchInput">Search</label>
-            <input class="bcn-field" id="searchInput" type="search" placeholder="Name, code, contact…" autocomplete="off" />
+            <input class="bcn-field" id="searchInput" type="search" placeholder="Name, code, contact, country…" autocomplete="off" />
           </div>
           <div class="bcn-field-group">
-            <label class="bcn-label" for="completenessFilter">Completeness</label>
-            <select class="bcn-field" id="completenessFilter">
-              <option value="">All rows</option>
-              <option value="missing_code">Missing short code</option>
-              <option value="missing_contact">Missing contact</option>
-              <option value="missing_email">Missing email</option>
+            <label class="bcn-label" for="activityFilter">Activity</label>
+            <select class="bcn-field" id="activityFilter">
+              <option value="ordered">Ordered from</option>
+              <option value="open">Has open POs</option>
+              <option value="recent">Ordered last 90 days</option>
+              <option value="never">Never ordered</option>
+              <option value="all">All active</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="countryFilter">Country</label>
+            <select class="bcn-field" id="countryFilter"><option value="">Any country</option></select>
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="gapFilter">Missing</label>
+            <select class="bcn-field" id="gapFilter">
+              <option value="">Nothing in particular</option>
+              <option value="email">No contact email</option>
+              <option value="contact">No contact name</option>
+              <option value="terms">No payment terms</option>
+              <option value="code">No short code</option>
+            </select>
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="sortSelect">Sort</label>
+            <select class="bcn-field" id="sortSelect">
+              <option value="open_units">Open units</option>
+              <option value="open_pos">Open POs</option>
+              <option value="pre_send">Not yet sent</option>
+              <option value="last_order">Last order</option>
+              <option value="lead">Lead time</option>
+              <option value="name">Name</option>
             </select>
           </div>
           <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearFilters">Clear filters</button>
@@ -170,9 +316,9 @@
 
       <section class="bcn-card">
         <div class="bcn-card-header">
-          <span>Factory master</span>
+          <span>Factories</span>
           <div class="bcn-card-header-actions">
-            <button type="button" class="bcn-btn bcn-btn--dark" id="btnSaveAllChanged" disabled>Save changed rows</button>
+            <span class="bcn-pill" id="factoryCount">—</span>
           </div>
         </div>
         <div class="bcn-card-body" style="padding:0">
@@ -180,15 +326,15 @@
             <table class="fac-table bcn-table">
               <thead>
                 <tr>
-                  <th style="width:72px">Status</th>
-                  <th style="width:220px">Factory name</th>
-                  <th style="width:110px">Short code</th>
-                  <th style="width:150px">Contact</th>
-                  <th style="width:200px">Email</th>
-                  <th style="width:120px">Phone</th>
-                  <th style="width:140px">Country</th>
-                  <th style="width:180px">Notes</th>
-                  <th style="width:130px;text-align:right">Actions</th>
+                  <th style="width:230px">Factory</th>
+                  <th class="fac-r" style="width:80px">Open POs</th>
+                  <th class="fac-r" style="width:100px">Open units</th>
+                  <th class="fac-r" style="width:92px">Not sent</th>
+                  <th class="fac-r" style="width:88px">Lead time</th>
+                  <th class="fac-r" style="width:92px">On time</th>
+                  <th style="width:100px">Last order</th>
+                  <th style="width:190px">Contact email</th>
+                  <th style="width:80px"></th>
                 </tr>
               </thead>
               <tbody id="factoryTbody"></tbody>
@@ -201,6 +347,74 @@
 
   </main>
 </div>
+
+<aside class="fac-drawer" id="facDrawer" hidden aria-label="Factory detail">
+  <div class="fac-drawer-head">
+    <div style="min-width:0">
+      <div class="fac-drawer-title" id="dName">Factory</div>
+      <div class="fac-sub" id="dMeta">&nbsp;</div>
+    </div>
+    <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDrawerClose">Close</button>
+  </div>
+  <div class="fac-drawer-body">
+    <div class="fac-mini">
+      <div><div class="fac-mini-k">Open POs</div><div class="fac-mini-v" id="dOpenPos">—</div></div>
+      <div><div class="fac-mini-k">Open units</div><div class="fac-mini-v" id="dOpenUnits">—</div></div>
+      <div><div class="fac-mini-k">Lead time</div><div class="fac-mini-v" id="dLead">—</div></div>
+      <div><div class="fac-mini-k">Received</div><div class="fac-mini-v" id="dReceived">—</div></div>
+    </div>
+
+    <div class="fac-secline">Contact &amp; terms</div>
+    <dl class="fac-kv" id="dDetails"></dl>
+
+    <div class="fac-form" id="dForm" hidden>
+      <div class="bcn-field-group fac-span-2">
+        <label class="bcn-label" for="eFactoryName">Factory name</label>
+        <input class="bcn-field" id="eFactoryName" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="eShortCode">Short code</label>
+        <input class="bcn-field" id="eShortCode" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="eCountry">Country</label>
+        <select class="bcn-field" id="eCountry"></select>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="eContactName">Contact name</label>
+        <input class="bcn-field" id="eContactName" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="eContactEmail">Contact email</label>
+        <input class="bcn-field" id="eContactEmail" type="email" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="ePhone">Phone</label>
+        <input class="bcn-field" id="ePhone" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="ePaymentTerms">Payment terms</label>
+        <input class="bcn-field" id="ePaymentTerms" placeholder="e.g. 30% deposit, 70% on shipment" />
+      </div>
+      <div class="bcn-field-group fac-span-2">
+        <label class="bcn-label" for="eShippingTerms">Shipping terms</label>
+        <input class="bcn-field" id="eShippingTerms" placeholder="e.g. FOB Shanghai" />
+      </div>
+      <div class="bcn-field-group fac-span-2">
+        <label class="bcn-label" for="eAddress">Address</label>
+        <input class="bcn-field" id="eAddress" />
+      </div>
+      <div class="bcn-field-group fac-span-2">
+        <label class="bcn-label" for="eNotes">Notes</label>
+        <input class="bcn-field" id="eNotes" />
+      </div>
+    </div>
+
+    <div class="fac-secline">Purchase orders</div>
+    <div id="dPoWrap"></div>
+  </div>
+  <div class="fac-drawer-foot" id="dFoot"></div>
+</aside>
 
 <dialog class="fac-dialog" id="factoryModal">
   <div class="fac-dialog-head">
@@ -217,20 +431,32 @@
       <input class="bcn-field" id="newShortCode" placeholder="Optional" />
     </div>
     <div class="bcn-field-group">
+      <label class="bcn-label" for="newCountry">Country</label>
+      <select class="bcn-field" id="newCountry"></select>
+    </div>
+    <div class="bcn-field-group">
       <label class="bcn-label" for="newContactName">Contact name</label>
       <input class="bcn-field" id="newContactName" placeholder="Optional" />
     </div>
     <div class="bcn-field-group">
       <label class="bcn-label" for="newContactEmail">Contact email</label>
-      <input class="bcn-field" id="newContactEmail" type="email" placeholder="Optional" />
+      <input class="bcn-field" id="newContactEmail" type="email" placeholder="Needed to email POs" />
     </div>
     <div class="bcn-field-group">
-      <label class="bcn-label" for="newContactPhone">Contact phone</label>
-      <input class="bcn-field" id="newContactPhone" placeholder="Optional" />
+      <label class="bcn-label" for="newPhone">Phone</label>
+      <input class="bcn-field" id="newPhone" placeholder="Optional" />
     </div>
     <div class="bcn-field-group">
-      <label class="bcn-label" for="newCountry">Country</label>
-      <select class="bcn-field" id="newCountry"><option value="">—</option></select>
+      <label class="bcn-label" for="newPaymentTerms">Payment terms</label>
+      <input class="bcn-field" id="newPaymentTerms" placeholder="Optional" />
+    </div>
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="newShippingTerms">Shipping terms</label>
+      <input class="bcn-field" id="newShippingTerms" placeholder="Optional" />
+    </div>
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="newAddress">Address</label>
+      <input class="bcn-field" id="newAddress" placeholder="Optional" />
     </div>
     <div class="bcn-field-group fac-span-2">
       <label class="bcn-label" for="newNotes">Notes</label>
@@ -265,36 +491,43 @@
   let _co = null;
 
   const KNOWN_COUNTRIES = ['Bangladesh','Brazil','Cambodia','Canada','China','Colombia','Dominican Republic','Egypt','El Salvador','France','Germany','Guatemala','Haiti','Honduras','India','Indonesia','Italy','Japan','Jordan','Malaysia','Mexico','Morocco','Myanmar','Nicaragua','Pakistan','Peru','Philippines','Portugal','South Korea','Spain','Sri Lanka','Taiwan','Thailand','Tunisia','Turkey','United Kingdom','United States','Vietnam'];
-  const OPTIONAL_COLUMNS = ['contact_phone', 'notes', 'country'];
-  const BASE_COLUMNS = ['id', 'factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS];
-  const state = { factories: [], filtered: [], changed: new Set(), supportedColumns: new Set(BASE_COLUMNS), missingOptionalColumns: new Set() };
 
-  const el = {
-    btnRefresh: document.getElementById('btnRefresh'),
-    btnExport: document.getElementById('btnExport'),
-    btnNewFactory: document.getElementById('btnNewFactory'),
-    btnSaveAllChanged: document.getElementById('btnSaveAllChanged'),
-    btnClearFilters: document.getElementById('btnClearFilters'),
-    btnCreateFactory: document.getElementById('btnCreateFactory'),
-    searchInput: document.getElementById('searchInput'),
-    completenessFilter: document.getElementById('completenessFilter'),
-    factoryCount: document.getElementById('factoryCount'),
-    kpiFactories: document.getElementById('kpiFactories'),
-    kpiEmail: document.getElementById('kpiEmail'),
-    loadStatus: document.getElementById('loadStatus'),
-    factoryTbody: document.getElementById('factoryTbody'),
-    factoryModal: document.getElementById('factoryModal'),
-    status: document.getElementById('status'),
-    newFactoryName: document.getElementById('newFactoryName'),
-    newShortCode: document.getElementById('newShortCode'),
-    newContactName: document.getElementById('newContactName'),
-    newContactEmail: document.getElementById('newContactEmail'),
-    newContactPhone: document.getElementById('newContactPhone'),
-    newCountry: document.getElementById('newCountry'),
-    newNotes: document.getElementById('newNotes'),
+  const EDITABLE = ['factory_name','short_code','contact_name','contact_email','phone','payment_terms','shipping_terms','address','country','notes'];
+  const SELECT_COLUMNS = ['id','factory_name','short_code','contact_name','contact_email','phone','payment_terms','shipping_terms','address','country','notes','is_active'].join(', ');
+
+  /* A PO's stage is COMPANY DATA (po_status_options), never a list in here:
+     is_final ends the PO, is_open means it is live with the factory, and
+     anything else is a stage before it goes out (a draft, an approval). The
+     fallback below is only for a company that has not configured its steps —
+     it mirrors the defaults 20261125234500 seeds. */
+  const FALLBACK_FINAL = ['Received', 'Closed', 'Cancelled'];
+  const FALLBACK_PRE_SEND = ['Draft'];
+
+  const state = {
+    factories: [],
+    filtered: [],
+    pos: [],
+    byFactory: new Map(),
+    statusKinds: new Map(),
+    selectedId: null,
+    editing: false,
   };
 
-  el.newCountry.innerHTML += KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  const el = {};
+  ['btnRefresh','btnExport','btnNewFactory','btnClearFilters','btnCreateFactory','searchInput','activityFilter',
+   'countryFilter','gapFilter','sortSelect','factoryCount','kpiOrdered','kpiOrderedSub','kpiOpenPos','kpiOpenUnits',
+   'kpiPreSend','kpiPreSendSub','kpiNoEmail','kpiNoEmailSub','loadStatus','factoryTbody','factoryModal','status',
+   'headerSub','facDrawer','btnDrawerClose','dName','dMeta','dOpenPos','dOpenUnits','dLead','dReceived','dDetails',
+   'dForm','dPoWrap','dFoot','newFactoryName','newShortCode','newContactName','newContactEmail','newPhone',
+   'newPaymentTerms','newShippingTerms','newAddress','newCountry','newNotes','eFactoryName','eShortCode',
+   'eContactName','eContactEmail','ePhone','ePaymentTerms','eShippingTerms','eAddress','eCountry','eNotes']
+    .forEach(id => { el[id] = document.getElementById(id); });
+
+  const countryOptions = (selected) => ['<option value="">—</option>']
+    .concat(KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}"${c === selected ? ' selected' : ''}>${escapeHtml(c)}</option>`))
+    .join('');
+  el.newCountry.innerHTML = countryOptions('');
+  el.eCountry.innerHTML = countryOptions('');
 
   function setStatus(msg, type = 'info', ms = 0) {
     el.status.className = `bcn-status bcn-status--${type}`;
@@ -302,144 +535,362 @@
     el.status.hidden = false;
     if (ms) setTimeout(() => { el.status.hidden = true; }, ms);
   }
-
   function setLoadStatus(text) { el.loadStatus.textContent = text; }
 
   function escapeHtml(str) {
     return String(str ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
   }
   function clean(value) { const v = String(value ?? '').trim(); return v || null; }
-
-  function getEditableColumns() {
-    return ['factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS].filter(col => state.supportedColumns.has(col));
+  function nf(n) { return Number(n || 0).toLocaleString(); }
+  function dash(v) { return clean(v) || '—'; }
+  function daysBetween(fromIso, toIso) {
+    if (!fromIso || !toIso) return null;
+    const a = Date.parse(`${fromIso}T00:00:00Z`), b = Date.parse(`${toIso}T00:00:00Z`);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    return Math.round((b - a) / 86400000);
   }
-  function buildSelectColumns() {
-    return BASE_COLUMNS.filter(col => state.supportedColumns.has(col)).join(', ');
+
+  function statusKind(status) {
+    const name = clean(status) || '';
+    const known = state.statusKinds.get(name.toLowerCase());
+    if (known) return known;
+    if (FALLBACK_FINAL.some(s => s.toLowerCase() === name.toLowerCase())) return 'final';
+    if (FALLBACK_PRE_SEND.some(s => s.toLowerCase() === name.toLowerCase())) return 'pre_send';
+    return name ? 'open' : 'pre_send';
   }
 
-  async function detectOptionalColumns() {
-    for (const col of OPTIONAL_COLUMNS) {
-      const { error } = await sb.from('factories').select(`id, ${col}`).limit(1);
-      if (error) { state.supportedColumns.delete(col); state.missingOptionalColumns.add(col); }
-      else { state.supportedColumns.add(col); }
-    }
+  async function loadStatusOptions() {
+    state.statusKinds = new Map();
+    let q = sb.from('po_status_options').select('name, is_open, is_final, is_active');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error || !data) return;   // fail soft: the fallback above still classifies
+    data.forEach(row => {
+      const name = clean(row.name);
+      if (!name) return;
+      state.statusKinds.set(name.toLowerCase(), row.is_final ? 'final' : (row.is_open ? 'open' : 'pre_send'));
+    });
   }
 
   async function loadFactories() {
     setLoadStatus('Loading…');
-    state.changed.clear();
-    el.btnSaveAllChanged.disabled = true;
-    await detectOptionalColumns();
-    let q = sb.from('factories').select(buildSelectColumns()).order('factory_name', { ascending: true });
+    let q = sb.from('factories').select(SELECT_COLUMNS).order('factory_name', { ascending: true });
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
     if (error) throw error;
     state.factories = data || [];
-    applyFilters();
-    let msg = `Loaded ${state.factories.length.toLocaleString()} factories.`;
-    if (state.missingOptionalColumns.size) {
-      msg += ` Optional columns missing: ${[...state.missingOptionalColumns].join(', ')}.`;
-    }
-    setLoadStatus(msg);
+  }
+
+  /* v_po_header_summary is security_invoker, so its rows are already scoped to
+     the caller's active company — it exposes no company column to filter on. */
+  async function loadPos() {
+    const { data, error } = await sb
+      .from('v_po_header_summary')
+      .select('id, po_name, factory_id, status, order_date, req_ship_date, expected_arrival_date, total_units, effective_arrival_date, arrival_variance_days')
+      .order('order_date', { ascending: false, nullsFirst: false })
+      .limit(5000);
+    if (error) throw error;
+    state.pos = data || [];
+  }
+
+  function rollUp() {
+    const map = new Map();
+    const blank = () => ({
+      total: 0, open: 0, openUnits: 0, preSend: 0, preSendUnits: 0,
+      received: 0, leadSum: 0, leadN: 0, rated: 0, onTime: 0, lastOrder: null, pos: [],
+    });
+    state.pos.forEach(po => {
+      if (!po.factory_id) return;
+      if (!map.has(po.factory_id)) map.set(po.factory_id, blank());
+      const m = map.get(po.factory_id);
+      const kind = statusKind(po.status);
+      const units = Number(po.total_units || 0);
+      m.total += 1;
+      m.pos.push(po);
+      if (kind === 'open') { m.open += 1; m.openUnits += units; }
+      if (kind === 'pre_send') { m.preSend += 1; m.preSendUnits += units; }
+      if (po.effective_arrival_date) {
+        m.received += 1;
+        const lead = daysBetween(po.order_date, po.effective_arrival_date);
+        if (lead != null && lead >= 0) { m.leadSum += lead; m.leadN += 1; }
+      }
+      if (po.arrival_variance_days != null) {
+        m.rated += 1;
+        if (Number(po.arrival_variance_days) <= 0) m.onTime += 1;
+      }
+      if (po.order_date && (!m.lastOrder || po.order_date > m.lastOrder)) m.lastOrder = po.order_date;
+    });
+    map.forEach(m => { m.pos.sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || ''))); });
+    state.byFactory = map;
+  }
+
+  function metrics(id) { return state.byFactory.get(id) || { total: 0, open: 0, openUnits: 0, preSend: 0, preSendUnits: 0, received: 0, leadSum: 0, leadN: 0, rated: 0, onTime: 0, lastOrder: null, pos: [] }; }
+  function avgLead(m) { return m.leadN ? Math.round(m.leadSum / m.leadN) : null; }
+
+  function populateCountryFilter() {
+    const seen = [...new Set(state.factories.map(f => clean(f.country)).filter(Boolean))].sort();
+    const current = el.countryFilter.value;
+    el.countryFilter.innerHTML = ['<option value="">Any country</option>']
+      .concat(seen.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)).join('');
+    if (seen.includes(current)) el.countryFilter.value = current;
   }
 
   function applyFilters() {
     const q = el.searchInput.value.trim().toLowerCase();
-    const mode = el.completenessFilter.value;
+    const activity = el.activityFilter.value;
+    const country = el.countryFilter.value;
+    const gap = el.gapFilter.value;
+    const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+
     state.filtered = state.factories.filter(row => {
-      const hay = [row.factory_name, row.short_code, row.contact_name, row.contact_email, row.contact_phone, row.notes].join(' ').toLowerCase();
-      if (q && !hay.includes(q)) return false;
-      if (mode === 'missing_code' && clean(row.short_code)) return false;
-      if (mode === 'missing_contact' && clean(row.contact_name)) return false;
-      if (mode === 'missing_email' && clean(row.contact_email)) return false;
+      const archived = row.is_active === false;
+      if (activity === 'archived') { if (!archived) return false; }
+      else if (archived) return false;
+
+      const m = metrics(row.id);
+      if (activity === 'ordered' && !m.total) return false;
+      if (activity === 'open' && !m.open) return false;
+      if (activity === 'recent' && !(m.lastOrder && m.lastOrder >= cutoff)) return false;
+      if (activity === 'never' && m.total) return false;
+
+      if (country && clean(row.country) !== country) return false;
+
+      if (gap === 'email' && clean(row.contact_email)) return false;
+      if (gap === 'contact' && clean(row.contact_name)) return false;
+      if (gap === 'terms' && clean(row.payment_terms)) return false;
+      if (gap === 'code' && clean(row.short_code)) return false;
+
+      if (q) {
+        const hay = [row.factory_name, row.short_code, row.contact_name, row.contact_email, row.phone,
+                     row.country, row.payment_terms, row.shipping_terms, row.address, row.notes]
+          .join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
+    });
+
+    const sort = el.sortSelect.value;
+    const name = row => String(row.factory_name || '').toLowerCase();
+    state.filtered.sort((a, b) => {
+      const ma = metrics(a.id), mb = metrics(b.id);
+      switch (sort) {
+        case 'open_pos': return (mb.open - ma.open) || name(a).localeCompare(name(b));
+        case 'pre_send': return (mb.preSend - ma.preSend) || name(a).localeCompare(name(b));
+        case 'last_order': return String(mb.lastOrder || '').localeCompare(String(ma.lastOrder || '')) || name(a).localeCompare(name(b));
+        case 'lead': return ((avgLead(mb) ?? -1) - (avgLead(ma) ?? -1)) || name(a).localeCompare(name(b));
+        case 'name': return name(a).localeCompare(name(b));
+        default: return (mb.openUnits - ma.openUnits) || (mb.open - ma.open) || name(a).localeCompare(name(b));
+      }
     });
     render();
   }
 
-  function countrySelect(value, supported) {
-    const opts = ['<option value="">—</option>', ...KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}" ${value === c ? 'selected' : ''}>${escapeHtml(c)}</option>`)].join('');
-    return `<select class="bcn-field fac-cell" data-field="country" ${supported ? '' : 'disabled'}>${supported ? opts : '<option>Column missing</option>'}</select>`;
+  function renderKpis() {
+    const active = state.factories.filter(f => f.is_active !== false);
+    const ordered = active.filter(f => metrics(f.id).total > 0);
+    let openPos = 0, openUnits = 0, preSend = 0, preSendUnits = 0, preSendFactories = 0;
+    active.forEach(f => {
+      const m = metrics(f.id);
+      openPos += m.open; openUnits += m.openUnits;
+      preSend += m.preSend; preSendUnits += m.preSendUnits;
+      if (m.preSend) preSendFactories += 1;
+    });
+    const noEmail = active.filter(f => !clean(f.contact_email)).length;
+    const noEmailOrdered = ordered.filter(f => !clean(f.contact_email)).length;
+
+    el.kpiOrdered.textContent = nf(ordered.length);
+    el.kpiOrderedSub.textContent = `${nf(active.length - ordered.length)} never ordered`;
+    el.kpiOpenPos.textContent = nf(openPos);
+    el.kpiOpenUnits.textContent = `${nf(openUnits)} units`;
+    el.kpiPreSend.textContent = nf(preSend);
+    el.kpiPreSendSub.textContent = preSend
+      ? `${nf(preSendUnits)} units · ${nf(preSendFactories)} factories`
+      : 'nothing waiting';
+    el.kpiNoEmail.textContent = nf(noEmail);
+    el.kpiNoEmail.className = `bcn-kpi-value bcn-num${noEmailOrdered ? ' fac-alert' : ''}`;
+    el.kpiNoEmailSub.textContent = noEmailOrdered
+      ? `${nf(noEmailOrdered)} you order from`
+      : 'all covered';
+
+    const archived = state.factories.length - active.length;
+    el.headerSub.textContent = `${nf(active.length)} on file · ${nf(ordered.length)} you have ordered from`
+      + (archived ? ` · ${nf(archived)} archived` : '');
   }
 
   function render() {
-    el.factoryCount.textContent = state.filtered.length.toLocaleString();
-    el.kpiFactories.textContent = state.factories.length.toLocaleString();
-    el.kpiEmail.textContent = state.factories.filter(row => clean(row.contact_email)).length.toLocaleString();
+    renderKpis();
+    el.factoryCount.textContent = `${nf(state.filtered.length)} shown`;
     if (!state.filtered.length) {
-      el.factoryTbody.innerHTML = '<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--bcn-ink-3)">No factories match the current filters.</td></tr>';
+      el.factoryTbody.innerHTML = '<tr><td colspan="9"><div class="fac-empty">No factories match these filters.</div></td></tr>';
+      setLoadStatus(`${nf(state.factories.length)} factories loaded · ${nf(state.pos.length)} POs read.`);
       return;
     }
     el.factoryTbody.innerHTML = state.filtered.map(row => {
-      const dirty = state.changed.has(row.id);
-      const pillClass = dirty ? 'bcn-pill bcn-pill--warn' : 'bcn-pill';
-      const pillLabel = dirty ? 'Changed' : 'Saved';
-      return `<tr data-row-id="${escapeHtml(row.id)}">
-        <td><span class="${pillClass}">${pillLabel}</span></td>
-        <td><input class="bcn-field fac-cell" data-field="factory_name" value="${escapeHtml(row.factory_name || '')}" /></td>
-        <td><input class="bcn-field fac-cell" data-field="short_code" value="${escapeHtml(row.short_code || '')}" /></td>
-        <td><input class="bcn-field fac-cell" data-field="contact_name" value="${escapeHtml(row.contact_name || '')}" /></td>
-        <td><input class="bcn-field fac-cell" data-field="contact_email" value="${escapeHtml(row.contact_email || '')}" /></td>
-        <td><input class="bcn-field fac-cell" data-field="contact_phone" value="${escapeHtml(row.contact_phone || '')}" ${state.supportedColumns.has('contact_phone') ? '' : 'disabled placeholder="Column missing"'} /></td>
-        <td>${countrySelect(row.country, state.supportedColumns.has('country'))}</td>
-        <td><input class="bcn-field fac-cell" data-field="notes" value="${escapeHtml(row.notes || '')}" ${state.supportedColumns.has('notes') ? '' : 'disabled placeholder="Column missing"'} /></td>
-        <td><div class="fac-actions">
-          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-save-row="${escapeHtml(row.id)}">Save</button>
-          <button type="button" class="bcn-btn bcn-btn--danger bcn-btn--mono" data-delete-row="${escapeHtml(row.id)}">Del</button>
-        </div></td>
+      const m = metrics(row.id);
+      const lead = avgLead(m);
+      const email = clean(row.contact_email);
+      const archived = row.is_active === false;
+      const onTime = m.rated ? `<span class="bcn-pill ${m.onTime === 0 ? 'bcn-pill--neg' : (m.onTime === m.rated ? 'bcn-pill--pos' : '')}">${m.onTime} of ${m.rated}</span>` : '—';
+      return `<tr data-row-id="${escapeHtml(row.id)}"${state.selectedId === row.id ? ' class="fac-sel"' : ''}>
+        <td>
+          <div class="fac-name">${escapeHtml(row.factory_name || '—')}${archived ? ' <span class="bcn-pill">Archived</span>' : ''}</div>
+          <div class="fac-sub">${escapeHtml(clean(row.short_code) || 'no code')} · ${escapeHtml(clean(row.country) || 'country not set')}</div>
+        </td>
+        <td class="fac-num">${m.open || '—'}</td>
+        <td class="fac-num">${m.openUnits ? nf(m.openUnits) : '—'}</td>
+        <td class="fac-num">${m.preSend ? `<span class="bcn-pill bcn-pill--accent">${m.preSend}</span>` : '—'}</td>
+        <td class="fac-num">${lead != null ? `${lead}d` : '—'}</td>
+        <td class="fac-num">${onTime}</td>
+        <td class="fac-num">${escapeHtml(m.lastOrder || '—')}</td>
+        <td>${email ? escapeHtml(email) : '<span class="bcn-pill bcn-pill--neg">Add email</span>'}</td>
+        <td style="text-align:right"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-open-row="${escapeHtml(row.id)}">Open</button></td>
       </tr>`;
     }).join('');
+    setLoadStatus(`${nf(state.factories.length)} factories loaded · ${nf(state.pos.length)} POs read.`);
   }
 
-  function markChanged(rowId) {
-    state.changed.add(rowId);
-    el.btnSaveAllChanged.disabled = !state.changed.size;
-    const factory = state.factories.find(row => String(row.id) === String(rowId));
-    const tr = document.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
-    if (factory && tr) {
-      getEditableColumns().forEach(col => {
-        const input = tr.querySelector(`[data-field="${col}"]`);
-        if (input) factory[col] = input.value;
-      });
-    }
+  /* ---- drawer ---------------------------------------------------------- */
+
+  function selected() { return state.factories.find(f => f.id === state.selectedId) || null; }
+
+  function openDrawer(id) {
+    state.selectedId = id;
+    state.editing = false;
+    renderDrawer();
+    el.facDrawer.hidden = false;
+    render();
+  }
+  function closeDrawer() {
+    el.facDrawer.hidden = true;
+    state.selectedId = null;
+    state.editing = false;
     render();
   }
 
-  function getRowPayload(rowId) {
-    const tr = document.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
-    if (!tr) throw new Error('Row not found');
-    const payload = {};
-    getEditableColumns().forEach(col => {
-      const input = tr.querySelector(`[data-field="${col}"]`);
-      if (input && !input.disabled) payload[col] = clean(input.value);
-    });
+  function renderDrawer() {
+    const row = selected();
+    if (!row) { closeDrawer(); return; }
+    const m = metrics(row.id);
+    const lead = avgLead(m);
+
+    el.dName.textContent = row.factory_name || '—';
+    el.dMeta.textContent = [clean(row.short_code) ? `code ${row.short_code}` : 'no short code',
+                            clean(row.country) || 'country not set',
+                            row.is_active === false ? 'archived' : null].filter(Boolean).join(' · ');
+    el.dOpenPos.textContent = m.open || '—';
+    el.dOpenUnits.textContent = m.openUnits ? nf(m.openUnits) : '—';
+    el.dLead.textContent = lead != null ? `${lead}d` : '—';
+    el.dReceived.textContent = m.received || '—';
+
+    const gap = v => clean(v) ? `<dd>${escapeHtml(v)}</dd>` : '<dd class="fac-gap">Not on file</dd>';
+    el.dDetails.innerHTML = `
+      <dt>Contact</dt>${gap(row.contact_name)}
+      <dt>Email</dt>${clean(row.contact_email) ? `<dd>${escapeHtml(row.contact_email)}</dd>` : '<dd class="fac-gap">Not on file — needed to email POs</dd>'}
+      <dt>Phone</dt>${gap(row.phone)}
+      <dt>Payment terms</dt>${gap(row.payment_terms)}
+      <dt>Shipping terms</dt>${gap(row.shipping_terms)}
+      <dt>Address</dt>${gap(row.address)}
+      <dt>Notes</dt>${gap(row.notes)}`;
+    el.dDetails.hidden = state.editing;
+    el.dForm.hidden = !state.editing;
+
+    if (state.editing) {
+      el.eFactoryName.value = row.factory_name || '';
+      el.eShortCode.value = row.short_code || '';
+      el.eContactName.value = row.contact_name || '';
+      el.eContactEmail.value = row.contact_email || '';
+      el.ePhone.value = row.phone || '';
+      el.ePaymentTerms.value = row.payment_terms || '';
+      el.eShippingTerms.value = row.shipping_terms || '';
+      el.eAddress.value = row.address || '';
+      el.eNotes.value = row.notes || '';
+      el.eCountry.innerHTML = countryOptions(clean(row.country) || '');
+    }
+
+    const shown = m.pos.slice(0, 12);
+    el.dPoWrap.innerHTML = shown.length
+      ? `<div class="fac-po-list">${shown.map(po => {
+          const kind = statusKind(po.status);
+          const pill = kind === 'pre_send' ? 'bcn-pill bcn-pill--accent' : (kind === 'final' ? 'bcn-pill' : 'bcn-pill bcn-pill--dark');
+          const dates = [po.order_date ? `ordered ${po.order_date}` : null,
+                         po.effective_arrival_date ? `arrived ${po.effective_arrival_date}`
+                           : (po.expected_arrival_date ? `due ${po.expected_arrival_date}` : null)].filter(Boolean).join(' · ');
+          return `<div class="fac-po">
+            <div style="min-width:0">
+              <div class="fac-po-name">${escapeHtml(po.po_name || 'Unnamed PO')} <span class="${pill}">${escapeHtml(po.status || '—')}</span></div>
+              <div class="fac-po-dates">${escapeHtml(dates || 'no dates')}</div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span class="bcn-mono" style="font-size:11.5px">${nf(po.total_units)} u</span>
+              <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="po-builder.html?po_id=${encodeURIComponent(po.id)}">Open</a>
+            </div>
+          </div>`;
+        }).join('')}</div>${m.pos.length > shown.length ? `<div class="fac-note" style="margin-top:6px">${nf(m.pos.length - shown.length)} older POs not shown.</div>` : ''}`
+      : '<div class="fac-note">No purchase orders have been written against this factory.</div>';
+
+    const canDelete = m.total === 0;
+    el.dFoot.innerHTML = state.editing
+      ? `<button type="button" class="bcn-btn bcn-btn--ghost" data-act="cancel-edit">Cancel</button>
+         <button type="button" class="bcn-btn bcn-btn--primary" data-act="save">Save changes</button>`
+      : `${canDelete ? '<button type="button" class="bcn-btn bcn-btn--danger bcn-btn--mono" data-act="delete">Delete</button>' : ''}
+         <button type="button" class="bcn-btn bcn-btn--ghost" data-act="archive">${row.is_active === false ? 'Restore' : 'Archive'}</button>
+         <button type="button" class="bcn-btn bcn-btn--dark" data-act="edit">Edit details</button>`;
+  }
+
+  async function saveEdits() {
+    const row = selected();
+    if (!row) return;
+    const payload = {
+      factory_name: clean(el.eFactoryName.value),
+      short_code: clean(el.eShortCode.value),
+      contact_name: clean(el.eContactName.value),
+      contact_email: clean(el.eContactEmail.value),
+      phone: clean(el.ePhone.value),
+      payment_terms: clean(el.ePaymentTerms.value),
+      shipping_terms: clean(el.eShippingTerms.value),
+      address: clean(el.eAddress.value),
+      country: clean(el.eCountry.value),
+      notes: clean(el.eNotes.value),
+    };
     if (!payload.factory_name) throw new Error('Factory name is required.');
-    return payload;
-  }
-
-  async function saveRow(rowId) {
-    const payload = getRowPayload(rowId);
-    const { error } = await sb.from('factories').update(payload).eq('id', rowId);
+    const changed = {};
+    EDITABLE.forEach(col => { if ((clean(row[col]) || null) !== payload[col]) changed[col] = payload[col]; });
+    if (!Object.keys(changed).length) { state.editing = false; renderDrawer(); setStatus('Nothing changed.', 'info', 2000); return; }
+    const { error } = await sb.from('factories').update(changed).eq('id', row.id);
     if (error) throw error;
-    state.changed.delete(rowId);
-    await loadFactories();
-    setStatus('Row saved.', 'pos', 2000);
+    Object.assign(row, changed);
+    state.editing = false;
+    renderDrawer();
+    render();
+    setStatus('Factory saved.', 'pos', 2000);
   }
 
-  async function saveAllChanged() {
-    for (const id of [...state.changed]) await saveRow(id);
-    await loadFactories();
-    setStatus('All changed rows saved.', 'pos', 2500);
-  }
-
-  async function deleteRow(rowId) {
-    const row = state.factories.find(f => String(f.id) === String(rowId));
-    if (!confirm(`Delete ${row?.factory_name || 'this factory'}? This may affect PO history if referenced.`)) return;
-    const { error } = await sb.from('factories').delete().eq('id', rowId);
+  async function toggleArchive() {
+    const row = selected();
+    if (!row) return;
+    const next = row.is_active === false;
+    const { error } = await sb.from('factories').update({ is_active: next }).eq('id', row.id);
     if (error) throw error;
-    await loadFactories();
+    row.is_active = next;
+    renderDrawer();
+    applyFilters();
+    setStatus(next ? 'Factory restored.' : 'Factory archived — PO history keeps its name.', 'pos', 2500);
+  }
+
+  async function deleteSelected() {
+    const row = selected();
+    if (!row) return;
+    if (metrics(row.id).total > 0) { setStatus('This factory has PO history — archive it instead.', 'neg', 4000); return; }
+    if (!confirm(`Delete ${row.factory_name || 'this factory'}? It has no POs, so nothing else refers to it.`)) return;
+    const { error } = await sb.from('factories').delete().eq('id', row.id);
+    if (error) throw error;
+    state.factories = state.factories.filter(f => f.id !== row.id);
+    closeDrawer();
+    applyFilters();
     setStatus('Factory deleted.', 'pos', 2000);
   }
+
+  /* ---- create ---------------------------------------------------------- */
 
   function newFactoryPayload() {
     const payload = {
@@ -447,10 +898,13 @@
       short_code: clean(el.newShortCode.value),
       contact_name: clean(el.newContactName.value),
       contact_email: clean(el.newContactEmail.value),
+      phone: clean(el.newPhone.value),
+      payment_terms: clean(el.newPaymentTerms.value),
+      shipping_terms: clean(el.newShippingTerms.value),
+      address: clean(el.newAddress.value),
+      country: clean(el.newCountry.value),
+      notes: clean(el.newNotes.value),
     };
-    if (state.supportedColumns.has('contact_phone')) payload.contact_phone = clean(el.newContactPhone.value);
-    if (state.supportedColumns.has('country')) payload.country = clean(el.newCountry.value);
-    if (state.supportedColumns.has('notes')) payload.notes = clean(el.newNotes.value);
     if (!payload.factory_name) throw new Error('Factory name is required.');
     return payload;
   }
@@ -462,18 +916,29 @@
     if (error) throw error;
     clearNewFactory();
     el.factoryModal.close();
-    await loadFactories();
+    await reload();
     setStatus('Factory created.', 'pos', 2500);
   }
 
   function clearNewFactory() {
-    [el.newFactoryName, el.newShortCode, el.newContactName, el.newContactEmail, el.newContactPhone, el.newCountry, el.newNotes].forEach(n => { n.value = ''; });
+    [el.newFactoryName, el.newShortCode, el.newContactName, el.newContactEmail, el.newPhone,
+     el.newPaymentTerms, el.newShippingTerms, el.newAddress, el.newCountry, el.newNotes]
+      .forEach(n => { n.value = ''; });
   }
 
+  /* ---- export ---------------------------------------------------------- */
+
   function exportCsv() {
-    const cols = ['factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS.filter(col => state.supportedColumns.has(col))];
-    const rows = state.filtered.map(row => cols.map(col => csvCell(row[col])).join(','));
-    const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const cols = ['factory_name','short_code','country','contact_name','contact_email','phone','payment_terms',
+                  'shipping_terms','address','notes','is_active'];
+    const head = cols.concat(['open_pos','open_units','not_sent','avg_lead_days','on_time','received_pos','last_order']);
+    const rows = state.filtered.map(row => {
+      const m = metrics(row.id);
+      return cols.map(c => csvCell(row[c]))
+        .concat([m.open, m.openUnits, m.preSend, avgLead(m) ?? '', m.rated ? `${m.onTime} of ${m.rated}` : '', m.received, m.lastOrder || ''].map(csvCell))
+        .join(',');
+    });
+    const blob = new Blob([[head.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -491,11 +956,25 @@
 
   function clearFilters() {
     el.searchInput.value = '';
-    el.completenessFilter.value = '';
+    el.activityFilter.value = 'ordered';
+    el.countryFilter.value = '';
+    el.gapFilter.value = '';
+    el.sortSelect.value = 'open_units';
     applyFilters();
   }
 
-  el.btnRefresh.addEventListener('click', () => loadFactories().catch(e => setStatus(e.message || 'Refresh failed', 'neg')));
+  async function reload() {
+    await loadStatusOptions();
+    await Promise.all([loadFactories(), loadPos()]);
+    rollUp();
+    populateCountryFilter();
+    applyFilters();
+    if (state.selectedId) renderDrawer();
+  }
+
+  /* ---- wiring ---------------------------------------------------------- */
+
+  el.btnRefresh.addEventListener('click', () => reload().catch(e => setStatus(e.message || 'Refresh failed', 'neg')));
   el.btnExport.addEventListener('click', exportCsv);
   el.btnNewFactory.addEventListener('click', () => {
     clearNewFactory();
@@ -503,35 +982,34 @@
     setTimeout(() => el.newFactoryName.focus(), 50);
   });
   el.btnCreateFactory.addEventListener('click', () => createFactory().catch(e => setStatus(e.message || 'Create failed', 'neg')));
-  el.btnSaveAllChanged.addEventListener('click', () => saveAllChanged().catch(e => setStatus(e.message || 'Save failed', 'neg')));
   el.btnClearFilters.addEventListener('click', clearFilters);
+  el.btnDrawerClose.addEventListener('click', closeDrawer);
   el.searchInput.addEventListener('input', applyFilters);
-  el.completenessFilter.addEventListener('change', applyFilters);
+  [el.activityFilter, el.countryFilter, el.gapFilter, el.sortSelect].forEach(n => n.addEventListener('change', applyFilters));
 
-  function onFieldEdited(ev) {
-    const input = ev.target.closest('[data-field]');
-    if (!input) return;
-    const tr = input.closest('[data-row-id]');
-    if (tr) markChanged(tr.getAttribute('data-row-id'));
-  }
-  document.addEventListener('input', onFieldEdited);
-  document.addEventListener('change', onFieldEdited);
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !el.facDrawer.hidden) closeDrawer();
+  });
 
   document.addEventListener('click', ev => {
     const close = ev.target.closest('[data-close]');
     if (close) {
-      const id = close.getAttribute('data-close');
-      const node = document.getElementById(id);
+      const node = document.getElementById(close.getAttribute('data-close'));
       if (node?.close) node.close();
       return;
     }
-    const save = ev.target.closest('[data-save-row]');
-    if (save) {
-      saveRow(save.getAttribute('data-save-row')).catch(e => setStatus(e.message || 'Save row failed', 'neg'));
+    const act = ev.target.closest('[data-act]');
+    if (act) {
+      const what = act.getAttribute('data-act');
+      if (what === 'edit') { state.editing = true; renderDrawer(); }
+      else if (what === 'cancel-edit') { state.editing = false; renderDrawer(); }
+      else if (what === 'save') saveEdits().catch(e => setStatus(e.message || 'Save failed', 'neg'));
+      else if (what === 'archive') toggleArchive().catch(e => setStatus(e.message || 'Archive failed', 'neg'));
+      else if (what === 'delete') deleteSelected().catch(e => setStatus(e.message || 'Delete failed', 'neg'));
       return;
     }
-    const del = ev.target.closest('[data-delete-row]');
-    if (del) deleteRow(del.getAttribute('data-delete-row')).catch(e => setStatus(e.message || 'Delete failed', 'neg'));
+    const tr = ev.target.closest('tr[data-row-id]');
+    if (tr) openDrawer(tr.getAttribute('data-row-id'));
   });
 
   async function boot() {
@@ -552,7 +1030,7 @@
     });
 
     _co = await cfg.ensureActiveCompany?.(sb) || cfg.getActiveCompany?.() || null;
-    await loadFactories();
+    await reload();
   }
 
   boot().catch(e => setStatus(e.message || 'Initial load failed', 'neg'));
