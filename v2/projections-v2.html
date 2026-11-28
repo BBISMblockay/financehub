@@ -396,15 +396,35 @@
         const res = Promise.resolve({ data: written, error: null });
         return { select: () => res, then: (ok, no) => res.then(ok, no) };
       },
+      // delete and update take the same .eq() chain the page uses, including
+      // the projected_sales predicate that makes Undo a compare-and-swap, and
+      // report the rows they actually touched through .select().
       delete() {
-        const del = { eq(k, v) { del._f.push([k, v]); return del; }, _f: [],
-          then(res, rej) {
-            let keep = PROJ.filter((x) => !del._f.filter(([k]) => k !== 'company_entity_id')
-              .every(([k, v]) => String(x[k]) === String(v)));
+        const match = (x, f) => f.filter(([k]) => k !== 'company_entity_id')
+          .every(([k, v]) => String(x[k]) === String(v));
+        const del = { _f: [], eq(k, v) { del._f.push([k, v]); return del; },
+          _run() {
+            const hit = PROJ.filter((x) => match(x, del._f));
+            const keep = PROJ.filter((x) => !match(x, del._f));
             PROJ.length = 0; PROJ.push(...keep);
-            return Promise.resolve({ data: null, error: null }).then(res, rej);
-          } };
+            return { data: hit, error: null };
+          },
+          select() { return Promise.resolve(del._run()); },
+          then(res, rej) { return Promise.resolve(del._run()).then(res, rej); } };
         return del;
+      },
+      update(patch) {
+        const match = (x, f) => f.filter(([k]) => k !== 'company_entity_id')
+          .every(([k, v]) => String(x[k]) === String(v));
+        const up = { _f: [], eq(k, v) { up._f.push([k, v]); return up; },
+          _run() {
+            const hit = PROJ.filter((x) => match(x, up._f));
+            hit.forEach((x) => Object.assign(x, patch));
+            return { data: hit.map((x) => ({ projection_date: x.projection_date })), error: null };
+          },
+          select() { return Promise.resolve(up._run()); },
+          then(res, rej) { return Promise.resolve(up._run()).then(res, rej); } };
+        return up;
       },
     };
     return api;
@@ -1037,25 +1057,47 @@
   /* Undo puts back only the days that STILL hold the number this operation
    * wrote. The stored plan is re-read first, so a day someone has edited since
    * is left alone rather than reverted or deleted out from under them. */
+  /* Undo is a compare-and-swap at the DATABASE, one day at a time: each put-back
+   * or delete carries `projected_sales = <what this operation wrote>` in its own
+   * WHERE clause, so a day another planner has changed since matches nothing and
+   * is left exactly as they left it. Zero rows affected is not an error, it is
+   * the guarantee. Re-reading the plan first only decides what to attempt. */
+  async function restoreDay(row) {
+    let q = db.from('revenue_projections')
+      .update({ projected_sales: row.value, source: 'manual' })
+      .eq('projection_date', row.date).eq('location_id', row.location_id)
+      .eq('scenario', 'active').eq('projected_sales', row.wrote);
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q.select('projection_date');
+    if (error) return { ok: false, changed: 0 };
+    return { ok: true, changed: (data || []).length };
+  }
+
+  async function removeDay(row) {
+    let q = db.from('revenue_projections').delete()
+      .eq('projection_date', row.date).eq('location_id', row.location_id)
+      .eq('scenario', 'active').eq('projected_sales', row.wrote);
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q.select('projection_date');
+    if (error) return { ok: false, changed: 0 };
+    return { ok: true, changed: (data || []).length };
+  }
+
   async function undo() {
     if (!state.undo?.length) return;
     setStatus('Undoing…', 'info');
-    await loadPlan(L.monthRange(state.month));
-    const mine = state.undo.filter((r) => {
-      if (r.wrote == null) return true;
-      const stored = state.plan.get(L.actualKey(r.location_id, r.date));
-      return stored != null && Math.round(stored) === Math.round(r.wrote);
-    });
-    const held = state.undo.length - mine.length;
-    const restore = mine.filter((r) => r.value != null);
-    const remove = mine.filter((r) => r.value == null);
-    let ok = true;
-    if (restore.length) ok = (await writeDays(restore.map((r) => ({ ...r })), 'manual')).ok && ok;
-    for (const r of remove) ok = await deleteDay(r.location_id, r.date) && ok;
+    const rows = state.undo;
+    let ok = true, done = 0;
+    for (const r of rows) {
+      const res = r.value == null ? await removeDay(r) : await restoreDay(r);
+      ok = res.ok && ok;
+      done += res.changed;
+    }
+    const held = rows.length - done;
     state.undo = null; el('pv-undo').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    const note = held ? ` ${held} day${held === 1 ? '' : 's'} changed since and were left alone.` : '';
+    const note = held ? ` ${held} day${held === 1 ? '' : 's'} changed since and were left as they are.` : '';
     setStatus(ok ? `Put back as it was.${note}` : 'Undo finished with errors — reload to see the stored plan.',
       ok ? 'pos' : 'neg', held ? 4600 : 3000);
   }
