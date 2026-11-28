@@ -67,6 +67,26 @@
     .pv-tag { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; color:var(--bcn-warn);
       border:1px solid var(--bcn-warn); border-radius:3px; padding:1px 4px; white-space:nowrap; }
 
+    /* The sheet is meant to be dense: a month of days readable without
+       scrolling past a screen, which is what makes one narrow column work in
+       place of the 30-column matrix. */
+    #pv-table td { height:30px; padding:0 10px; font-size:12.5px; }
+    #pv-table th { padding:7px 10px; }
+    #pv-table tfoot td { position:sticky; bottom:0; z-index:2; background:var(--bcn-band);
+      color:#fff; font-weight:700; border:none; height:32px; }
+    #pv-table tfoot td:first-child { color:rgba(255,255,255,.75); font-family:var(--bcn-mono);
+      font-size:10px; letter-spacing:.09em; }
+    .pv-spark { grid-column:1/-1; display:flex; align-items:flex-end; gap:2px; height:16px; margin-top:4px; }
+    .pv-spark i { flex:1; background:var(--bcn-accent); opacity:.3; border-radius:1px; min-height:1px; }
+    .pv-spark i.pv-hi { opacity:.85; }
+    .pv-meter { height:4px; border-radius:3px; background:var(--bcn-border); margin-top:6px; overflow:hidden; }
+    .pv-meter i { display:block; height:100%; background:var(--bcn-accent); }
+    .pv-all { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:8px 12px;
+      border-top:1px solid var(--bcn-border); background:var(--bcn-surface); }
+    .pv-all-n { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; letter-spacing:.09em;
+      color:var(--bcn-ink-3); }
+    .pv-all-t { font-family:var(--bcn-mono); font-size:13px; font-weight:700; }
+    .pv-all-s { font-size:10.5px; color:var(--bcn-ink-3); }
     .pv-drawer { border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken);
       padding:10px 12px; display:grid; gap:8px; }
     .pv-drawer[hidden] { display:none; }
@@ -137,11 +157,12 @@
         <div class="bcn-kpi-label">COVERAGE</div>
         <div class="bcn-kpi-value bcn-mono" id="kpi-cov">—</div>
         <div class="bcn-kpi-delta" id="kpi-cov-sub">location-days with a plan</div>
+        <div class="pv-meter"><i id="kpi-cov-bar" style="width:0%"></i></div>
       </div>
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">LOCATIONS</div>
-        <div class="bcn-kpi-value bcn-mono" id="kpi-locs">—</div>
-        <div class="bcn-kpi-delta" id="kpi-locs-sub">active</div>
+        <div class="bcn-kpi-label">PACE VS PLAN</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpi-pace">—</div>
+        <div class="bcn-kpi-delta" id="kpi-pace-sub">days with actuals so far</div>
       </div>
     </section>
 
@@ -357,22 +378,53 @@
       },
       _exec() { return Promise.resolve({ data: api._rows(), error: null }); },
       then(res, rej) { return api._exec().then(res, rej); },
-      async upsert(rows) {
+      upsert(rows, opts) {
+        const written = [];
         for (const p of rows) {
           const i = PROJ.findIndex((x) => x.projection_date === p.projection_date && String(x.location_id) === String(p.location_id));
-          if (i >= 0) PROJ[i] = { ...PROJ[i], ...p }; else PROJ.push({ ...p, id: pid++ });
+          // ignoreDuplicates mirrors ON CONFLICT DO NOTHING: the day is left as
+          // it is AND it is not returned, which is how the page knows what it
+          // actually wrote. The demo behaves the same way.
+          if (i >= 0) {
+            if (opts?.ignoreDuplicates) continue;
+            PROJ[i] = { ...PROJ[i], ...p };
+          } else {
+            PROJ.push({ ...p, id: pid++ });
+          }
+          written.push(p);
         }
-        return { data: rows, error: null };
+        const res = Promise.resolve({ data: written, error: null });
+        return { select: () => res, then: (ok, no) => res.then(ok, no) };
       },
+      // delete and update take the same .eq() chain the page uses, including
+      // the projected_sales predicate that makes Undo a compare-and-swap, and
+      // report the rows they actually touched through .select().
       delete() {
-        const del = { eq(k, v) { del._f.push([k, v]); return del; }, _f: [],
-          then(res, rej) {
-            let keep = PROJ.filter((x) => !del._f.filter(([k]) => k !== 'company_entity_id')
-              .every(([k, v]) => String(x[k]) === String(v)));
+        const match = (x, f) => f.filter(([k]) => k !== 'company_entity_id')
+          .every(([k, v]) => String(x[k]) === String(v));
+        const del = { _f: [], eq(k, v) { del._f.push([k, v]); return del; },
+          _run() {
+            const hit = PROJ.filter((x) => match(x, del._f));
+            const keep = PROJ.filter((x) => !match(x, del._f));
             PROJ.length = 0; PROJ.push(...keep);
-            return Promise.resolve({ data: null, error: null }).then(res, rej);
-          } };
+            return { data: hit, error: null };
+          },
+          select() { return Promise.resolve(del._run()); },
+          then(res, rej) { return Promise.resolve(del._run()).then(res, rej); } };
         return del;
+      },
+      update(patch) {
+        const match = (x, f) => f.filter(([k]) => k !== 'company_entity_id')
+          .every(([k, v]) => String(x[k]) === String(v));
+        const up = { _f: [], eq(k, v) { up._f.push([k, v]); return up; },
+          _run() {
+            const hit = PROJ.filter((x) => match(x, up._f));
+            hit.forEach((x) => Object.assign(x, patch));
+            return { data: hit.map((x) => ({ projection_date: x.projection_date })), error: null };
+          },
+          select() { return Promise.resolve(up._run()); },
+          then(res, rej) { return Promise.resolve(up._run()).then(res, rej); } };
+        return up;
       },
     };
     return api;
@@ -387,9 +439,13 @@
     from: (t) => builder(t),
     rpc: async (name, args) => {
       if (name !== 'chat_run_readonly_query') return { data: [], error: null };
-      const m = /between '(\d{4}-\d{2}-\d{2})'::date and '(\d{4}-\d{2}-\d{2})'::date/.exec(String(args?.query || ''));
-      const from = m ? m[1] : '1900-01-01', to = m ? m[2] : '2999-12-31';
-      const rows = HIST.filter((r) => r.day_date >= from && r.day_date <= to);
+      // The page asks for an explicit list of days; the shim honours that list
+      // so the demo reads the same history the live page would.
+      // The page asks for one block of days per query; the shim honours the
+      // block so the demo reads the same history the live page would.
+      const q = String(args?.query || '');
+      const m = /between '(\d{4}-\d{2}-\d{2})'::date and '(\d{4}-\d{2}-\d{2})'::date/.exec(q);
+      const rows = m ? HIST.filter((r) => r.day_date >= m[1] && r.day_date <= m[2]) : HIST.slice();
       const off = Number(args?.p_offset) || 0;
       return { data: rows.slice(off, off + 1000), error: null };
     },
@@ -547,8 +603,13 @@
       .toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     setStatus('Loading…', 'info');
     try {
+      // The plan is what the person came to edit, and it is one quick read, so
+      // the sheet is on screen before the history behind it arrives. Last year,
+      // the deltas, the bars and the sparklines fill in as each block lands,
+      // and nothing is editable-but-wrong in between: an empty LY cell reads
+      // the same as a day with no history.
       await loadLocations();
-      await Promise.all([loadPlan(range), loadActuals(range), loadLaunches(range)]);
+      await loadPlan(range);
       state.undo = null; el('pv-undo').hidden = true;
       if (state.openOnGap) {
         state.openOnGap = false;
@@ -559,6 +620,12 @@
         }
         if (worst != null) state.locationId = worst;
       }
+      render();
+      setStatus('Reading last year…', 'info');
+      await Promise.all([
+        loadActuals(range, () => render()),
+        loadLaunches(range),
+      ]);
       render();
       setStatus('Ready.', 'pos', 1200);
     } catch (e) {
@@ -604,23 +671,51 @@
    * engine (chat_run_readonly_query) as the signed-in person, and joined
    * locations -> sales_by_day through silo_location_slug(), which is the one
    * definition of that join — the page does not re-slugify in JS. */
-  async function loadActuals(range) {
-    const earliest = L.addDays(range.from, -364 * 3 - 10);
-    const sql = `select l.id as location_id, s.day_date::text as day_date,
-        sum(s.total_net_sales) as net
-      from public.sales_by_day_verification_v s
-      join public.locations l
-        on public.silo_location_slug(coalesce(nullif(l.location_code, ''), l.location_name)) = s.location_tag
-      where s.day_date between '${earliest}'::date and '${range.to}'::date
-      group by 1, 2
-      order by 2, 1`;
+  async function loadActuals(range, onBlock) {
+    // Only the days a basis can read, and ONE BLOCK OF DAYS PER QUERY.
+    //
+    // Both halves of that matter, measured on production as the signed-in
+    // person (a browser query gets 8s): the original three-year range took
+    // 19.5s and the page showed nothing. Asking for just the days the bases
+    // read is 187 days in four blocks — but as one query with four OR'd ranges
+    // the planner bitmap-ORs them into 130k heap rows and still takes 9s, while
+    // the same four blocks asked for one at a time are about 0.2s each. So this
+    // loops the blocks. Each statement is small, and a read that fills its last
+    // page is reported rather than quietly used as if it were complete.
+    const blocks = L.historyRanges(state.dates.length ? state.dates : L.datesBetween(range.from, range.to), range.from);
+    if (!blocks.length) { state.actuals = new Map(); return; }
     const rows = [];
-    for (let offset = 0; offset < L.PAGE_ROWS * 40; offset += L.PAGE_ROWS) {
-      const { data, error } = await db.rpc('chat_run_readonly_query', { query: sql, p_offset: offset });
-      if (error) throw new Error('History could not be read: ' + (error.message || error));
-      if (!Array.isArray(data)) throw new Error('History could not be read');
-      rows.push(...data);
-      if (data.length < L.PAGE_ROWS) break;
+    // Newest block first: the period's own days and the weeks just behind it
+    // are what the first screen shows, so they land first.
+    for (const b of blocks.slice().reverse()) {
+      // The join carries company_entity_id as well as the slug: two companies
+      // can own locations whose names slugify the same, and the tag alone would
+      // pool their sales. RLS scopes what comes back either way; this keeps the
+      // join itself honest, and it is what keeps the read on an index.
+      const sql = `select l.id as location_id, s.day_date::text as day_date,
+          sum(s.total_net_sales) as net
+        from public.sales_by_day_verification_v s
+        join public.locations l
+          on l.company_entity_id = s.company_entity_id
+         and public.silo_location_slug(coalesce(nullif(l.location_code, ''), l.location_name)) = s.location_tag
+        where s.day_date between '${b.from}'::date and '${b.to}'::date
+        group by 1, 2
+        order by 2, 1`;
+      let complete = false, pages = 0;
+      for (let offset = 0; offset < L.PAGE_ROWS * 40; offset += L.PAGE_ROWS) {
+        const { data, error } = await db.rpc('chat_run_readonly_query', { query: sql, p_offset: offset });
+        if (error) throw new Error('History could not be read: ' + (error.message || error));
+        if (!Array.isArray(data)) throw new Error('History could not be read');
+        rows.push(...data);
+        pages++;
+        if (data.length < L.PAGE_ROWS) { complete = true; break; }
+      }
+      if (!complete) {
+        throw new Error(`History for ${b.from} to ${b.to} came back in ${pages} full pages, `
+          + 'so some days are missing. Plan a shorter period.');
+      }
+      state.actuals = L.indexActuals(rows);
+      if (typeof onBlock === 'function') onBlock();
     }
     state.actuals = L.indexActuals(rows);
   }
@@ -666,19 +761,51 @@
 
   function renderRail() {
     const rail = el('pv-rail');
-    rail.querySelectorAll('.pv-loc').forEach((n) => n.remove());
+    rail.querySelectorAll('.pv-loc, .pv-all').forEach((n) => n.remove());
+
+    // The company's own total sits above the list, so picking one location
+    // never loses sight of what the period adds up to.
+    if (state.locations.length) {
+      let allPlan = 0, allLy = 0, allFilled = 0;
+      for (const loc of state.locations) {
+        const t = periodTotals(loc.id);
+        allPlan += t.plan; allLy += t.ly; allFilled += t.filled;
+      }
+      const d = allLy > 0 ? ((allPlan / allLy) - 1) * 100 : null;
+      const sum = document.createElement('div');
+      sum.className = 'pv-all';
+      sum.innerHTML =
+        `<span class="pv-all-n">ALL ${state.locations.length} LOCATIONS</span>
+         <span class="pv-all-t">${kmoney(allPlan)}</span>
+         <span class="pv-all-s">${allFilled} of ${state.locations.length * state.dates.length} days planned</span>
+         <span class="pv-loc-d ${d == null ? '' : d >= 0 ? 'pv-pos' : 'pv-neg'}">${
+           allPlan && d != null ? pctTxt(d) : '—'}</span>`;
+      rail.append(sum);
+    }
+
     for (const loc of state.locations) {
       const { plan, ly, filled } = periodTotals(loc.id);
       const delta = ly > 0 ? ((plan / ly) - 1) * 100 : null;
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'pv-loc';
       if (loc.id === state.locationId) b.setAttribute('aria-current', 'true');
+      // One bar per day of the period: last year's shape, with the days that
+      // already have a plan picked out. It is the quickest read of where the
+      // work is left, and it is why the rail replaces 30 columns of grid.
+      const series = state.dates.map((d) => ({
+        ly: lyOf(loc.id, d) || 0,
+        planned: state.plan.get(L.actualKey(loc.id, d)) != null,
+      }));
+      const peak = Math.max(1, ...series.map((x) => x.ly));
+      const spark = series.map((x) =>
+        `<i class="${x.planned ? 'pv-hi' : ''}" style="height:${Math.max(8, (x.ly / peak) * 100)}%"></i>`).join('');
       b.innerHTML =
         `<span class="pv-loc-n">${esc(loc.location_name || loc.location_code || 'Location')}</span>
          <span class="pv-loc-t">${kmoney(plan)}</span>
          <span class="pv-loc-s">${filled}/${state.dates.length} days</span>
          <span class="pv-loc-d ${delta == null ? '' : delta >= 0 ? 'pv-pos' : 'pv-neg'}">${
-           plan && delta != null ? pctTxt(delta) : '—'}</span>`;
+           plan && delta != null ? pctTxt(delta) : '—'}</span>
+         <span class="pv-spark" aria-hidden="true">${spark}</span>`;
       b.addEventListener('click', () => { state.locationId = loc.id; render(); });
       rail.append(b);
     }
@@ -746,9 +873,34 @@
       ? `<span class="${plan >= ly ? 'pv-pos' : 'pv-neg'}">${pctTxt(((plan / ly) - 1) * 100)}</span> vs last year`
       : 'no history for this period';
     el('kpi-ly').textContent = kmoney(ly);
-    el('kpi-cov').textContent = cells ? Math.round((filled / cells) * 100) + '%' : '—';
+    const cov = cells ? (filled / cells) * 100 : 0;
+    el('kpi-cov').textContent = cells ? Math.round(cov) + '%' : '—';
     el('kpi-cov-sub').textContent = `${filled} of ${cells} location-days`;
-    el('kpi-locs').textContent = String(state.locations.length);
+    el('kpi-cov-bar').style.width = cov + '%';
+
+    // Pace compares the days that HAVE happened with what was planned for
+    // exactly those days, so a half-finished month is not read as a shortfall.
+    let actual = 0, planned = 0, lastDay = '';
+    for (const loc of state.locations) {
+      for (const d of state.dates) {
+        const a = state.actuals.get(L.actualKey(loc.id, d));
+        if (!Number.isFinite(a)) continue;
+        const p = state.plan.get(L.actualKey(loc.id, d));
+        if (p == null) continue;
+        actual += a; planned += p;
+        if (d > lastDay) lastDay = d;
+      }
+    }
+    if (planned > 0) {
+      const pace = ((actual / planned) - 1) * 100;
+      el('kpi-pace').innerHTML = `<span class="${pace >= 0 ? 'pv-pos' : 'pv-neg'}">${pctTxt(pace)}</span>`;
+      el('kpi-pace-sub').textContent = `actuals through ${lastDay}`;
+    } else {
+      el('kpi-pace').textContent = '—';
+      el('kpi-pace-sub').textContent = state.locations.length
+        ? `${state.locations.length} locations · no planned day has happened yet`
+        : 'days with actuals so far';
+    }
   }
 
   /* ---- editing --------------------------------------------------------- */
@@ -786,7 +938,7 @@
     const value = Math.round(n * 100) / 100;
     if (before != null && Math.abs(before - value) < 0.005) return;
     inp.classList.add('pv-in--saving');
-    const ok = await writeDays([{ date, location_id: locId, value }]);
+    const { ok } = await writeDays([{ date, location_id: locId, value }]);
     inp.classList.remove('pv-in--saving');
     if (ok) {
       state.plan.set(key, value); markSaved(inp); render();
@@ -802,8 +954,9 @@
   /* One upsert per batch, on the same (projection_date, location_id) key and
    * the same columns the live page writes, so the two pages cannot disagree
    * about what a projection is. Units and notes already on a row are kept. */
-  async function writeDays(rows, source) {
+  async function writeDays(rows, source, opts) {
     if (!rows.length) return true;
+    const ifAbsent = !!(opts && opts.ifAbsent);
     const payload = rows.map((r) => {
       const existing = state.planRow.get(L.actualKey(r.location_id, r.date));
       return {
@@ -817,10 +970,26 @@
         ...(company?.id ? { company_entity_id: company.id } : {}),
       };
     });
-    const { error } = await db.from('revenue_projections')
-      .upsert(payload, { onConflict: 'projection_date,location_id' });
-    if (error) { setStatus('Save failed: ' + error.message, 'neg'); return false; }
-    return true;
+    // ifAbsent is a real insert-if-absent at the database boundary
+    // (ON CONFLICT DO NOTHING), not a check this page made before writing. So
+    // a day another planner filled while this sheet was open keeps THEIR
+    // number: "only the days with no plan" cannot overwrite anything, however
+    // stale this page's idea of the plan has become.
+    const { data, error } = await db.from('revenue_projections')
+      .upsert(payload, { onConflict: 'projection_date,location_id', ignoreDuplicates: ifAbsent })
+      .select('projection_date, location_id, projected_sales');
+    if (error) { setStatus('Save failed: ' + error.message, 'neg'); return { ok: false, written: [] }; }
+    // What came back is what the DATABASE wrote: under ON CONFLICT DO NOTHING
+    // a day someone else had already filled is simply not returned, even when
+    // their number happens to equal ours. Everything downstream — what Undo may
+    // put back, and the count and total the page reports — reads this and not
+    // the rows we proposed.
+    const written = (data || []).map((r) => ({
+      date: String(r.projection_date).slice(0, 10),
+      location_id: r.location_id,
+      value: Number(r.projected_sales) || 0,
+    }));
+    return { ok: true, written };
   }
 
   async function deleteDay(locId, date) {
@@ -864,33 +1033,73 @@
     if (!r.writes.length) return;
     el('fill-apply').disabled = true;
     setStatus(`Filling ${r.writes.length} days…`, 'info');
-    const undoRows = r.writes.map((w) => ({
-      date: w.date, location_id: w.location_id,
-      value: state.plan.has(L.actualKey(w.location_id, w.date)) ? state.plan.get(L.actualKey(w.location_id, w.date)) : null,
-    }));
-    const ok = await writeDays(r.writes, 'history_fill');
+    const emptyOnly = el('fill-scope').value !== 'all';
+    const was = new Map(r.writes.map((w) => [L.actualKey(w.location_id, w.date),
+      state.plan.has(L.actualKey(w.location_id, w.date)) ? state.plan.get(L.actualKey(w.location_id, w.date)) : null]));
+    const { ok, written } = await writeDays(r.writes, 'history_fill', { ifAbsent: emptyOnly });
     el('fill-apply').disabled = false;
     if (!ok) return;
-    state.undo = undoRows;
-    el('pv-undo').hidden = false;
+    state.undo = written.map((w) => ({
+      date: w.date, location_id: w.location_id, wrote: w.value,
+      value: was.get(L.actualKey(w.location_id, w.date)) ?? null,
+    }));
+    el('pv-undo').hidden = written.length === 0;
     el('pv-fill-drawer').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    setStatus(`Filled ${r.writes.length} days · ${money(r.total)}. Undo is available.`, 'pos', 4000);
+    const held = r.writes.length - written.length;
+    const total = written.reduce((a, w) => a + w.value, 0);
+    setStatus(`Filled ${written.length} day${written.length === 1 ? '' : 's'} · ${money(total)}.`
+      + (held ? ` ${held} day${held === 1 ? '' : 's'} had been planned by someone else and were left as they are.` : '')
+      + (written.length ? ' Undo is available.' : ''), 'pos', 4600);
+  }
+
+  /* Undo puts back only the days that STILL hold the number this operation
+   * wrote. The stored plan is re-read first, so a day someone has edited since
+   * is left alone rather than reverted or deleted out from under them. */
+  /* Undo is a compare-and-swap at the DATABASE, one day at a time: each put-back
+   * or delete carries `projected_sales = <what this operation wrote>` in its own
+   * WHERE clause, so a day another planner has changed since matches nothing and
+   * is left exactly as they left it. Zero rows affected is not an error, it is
+   * the guarantee. Re-reading the plan first only decides what to attempt. */
+  async function restoreDay(row) {
+    let q = db.from('revenue_projections')
+      .update({ projected_sales: row.value, source: 'manual' })
+      .eq('projection_date', row.date).eq('location_id', row.location_id)
+      .eq('scenario', 'active').eq('projected_sales', row.wrote);
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q.select('projection_date');
+    if (error) return { ok: false, changed: 0 };
+    return { ok: true, changed: (data || []).length };
+  }
+
+  async function removeDay(row) {
+    let q = db.from('revenue_projections').delete()
+      .eq('projection_date', row.date).eq('location_id', row.location_id)
+      .eq('scenario', 'active').eq('projected_sales', row.wrote);
+    if (company?.id) q = q.eq('company_entity_id', company.id);
+    const { data, error } = await q.select('projection_date');
+    if (error) return { ok: false, changed: 0 };
+    return { ok: true, changed: (data || []).length };
   }
 
   async function undo() {
     if (!state.undo?.length) return;
     setStatus('Undoing…', 'info');
-    const restore = state.undo.filter((r) => r.value != null);
-    const remove = state.undo.filter((r) => r.value == null);
-    let ok = true;
-    if (restore.length) ok = await writeDays(restore.map((r) => ({ ...r })), 'manual') && ok;
-    for (const r of remove) ok = await deleteDay(r.location_id, r.date) && ok;
+    const rows = state.undo;
+    let ok = true, done = 0;
+    for (const r of rows) {
+      const res = r.value == null ? await removeDay(r) : await restoreDay(r);
+      ok = res.ok && ok;
+      done += res.changed;
+    }
+    const held = rows.length - done;
     state.undo = null; el('pv-undo').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    setStatus(ok ? 'Put back as it was.' : 'Undo finished with errors — reload to see the stored plan.', ok ? 'pos' : 'neg', 3000);
+    const note = held ? ` ${held} day${held === 1 ? '' : 's'} changed since and were left as they are.` : '';
+    setStatus(ok ? `Put back as it was.${note}` : 'Undo finished with errors — reload to see the stored plan.',
+      ok ? 'pos' : 'neg', held ? 4600 : 3000);
   }
 
   /* ---- AI draft -------------------------------------------------------- */
@@ -957,16 +1166,24 @@
   async function acceptDraft() {
     if (!state.draft?.length) return;
     el('ai-accept').disabled = true;
-    const undoRows = state.draft.map((r) => ({ date: r.date, location_id: r.location_id, value: r.was }));
-    const ok = await writeDays(state.draft, 'ai_draft');
+    const emptyOnly = el('ai-scope').value !== 'all';
+    const rows = state.draft;
+    const was = new Map(rows.map((r) => [L.actualKey(r.location_id, r.date), r.was ?? null]));
+    const { ok, written } = await writeDays(rows, 'ai_draft', { ifAbsent: emptyOnly });
     el('ai-accept').disabled = false;
     if (!ok) return;
-    state.undo = undoRows; el('pv-undo').hidden = false;
-    const n = state.draft.length;
+    state.undo = written.map((w) => ({
+      date: w.date, location_id: w.location_id, wrote: w.value,
+      value: was.get(L.actualKey(w.location_id, w.date)) ?? null,
+    }));
+    el('pv-undo').hidden = written.length === 0;
     state.draft = null; el('ai-result').hidden = true; el('pv-ai-drawer').hidden = true;
     await loadPlan(L.monthRange(state.month));
     render();
-    setStatus(`Saved ${n} days from the draft. Undo is available.`, 'pos', 4000);
+    const held = rows.length - written.length;
+    setStatus(`Saved ${written.length} day${written.length === 1 ? '' : 's'} from the draft.`
+      + (held ? ` ${held} day${held === 1 ? '' : 's'} had been planned by someone else and were left as they are.` : '')
+      + (written.length ? ' Undo is available.' : ''), 'pos', 4600);
   }
 })();
 </script>

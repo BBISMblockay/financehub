@@ -225,3 +225,41 @@ test('an answer with no tool call yields no rows', () => {
   assert.equal(good.rows.length, 1);
   assert.equal(good.rationale, 'r');
 });
+
+/* The days a period can read, so the page asks for those instead of three
+ * whole years (PR #1425 review, P2: an oldest-first paged read over a wide
+ * range drops the most recent weeks, which is what trailing-8 is built on). */
+test('historyDates covers every basis a period can use, and nothing else', () => {
+  const dates = L.datesBetween('2026-12-01', '2026-12-31');
+  const want = L.historyDates(dates, '2026-12-01');
+  const set = new Set(want);
+
+  // the period's own days
+  for (const d of dates) assert.ok(set.has(d), `period day ${d}`);
+  // one, two and three years back, under both alignments
+  for (const d of dates) {
+    for (const years of [1, 2, 3]) {
+      for (const align of ['weekday', 'date']) {
+        assert.ok(set.has(L.basisDate(d, years, align)), `${align} ${years}y behind ${d}`);
+      }
+    }
+  }
+  // the eight same weekdays before the period
+  for (const d of dates) {
+    for (const b of L.sameWeekdayBefore(d, '2026-12-01', 8)) {
+      assert.ok(set.has(b), `trailing weekday ${b} for ${d}`);
+    }
+  }
+  // sorted, unique, and far smaller than three years of days
+  assert.deepEqual(want, [...want].sort());
+  assert.equal(new Set(want).size, want.length);
+  assert.ok(want.length < 260, `asked for ${want.length} days`);
+  assert.ok(want.length > 150, `asked for only ${want.length} days`);
+  // nothing older than three years and a week, nothing after the period
+  assert.ok(want[0] >= L.addDays('2026-12-01', -364 * 3 - 10), want[0]);
+  assert.equal(want[want.length - 1], '2026-12-31');
+});
+
+test('historyDates is empty for an empty period', () => {
+  assert.deepEqual(L.historyDates([], ''), []);
+});
