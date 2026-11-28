@@ -801,7 +801,15 @@ await check('verify_v2_schema.sql\'s own check passes against this schema', asyn
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   const at = verify.indexOf("-- A purchase order's step set by a connected AI");
   assert.ok(at > 0, 'the check is in verify_v2_schema.sql');
-  const block = verify.slice(at);
+  // Only this check's own statement: anything appended to the file after it
+  // would otherwise arrive here as a second command in one prepared statement.
+  let block = verify.slice(at);
+  const mine = /\nselect '[^']+' as check_name,/.exec(block);
+  const next = /\nselect '[^']+' as check_name,/.exec(block.slice(mine.index + 1));
+  if (next) block = block.slice(0, mine.index + 1 + next.index + 1);
+  // Trailing comment lines head the NEXT check, so they are not part of this one.
+  block = block.split('\n').reduceRight((acc, l) => (acc.length || !/^\s*(--.*)?$/.test(l) ? [l, ...acc] : acc), []).join('\n').trim();
+  assert.ok(block.endsWith(';'), 'could not extract the verify block');
   const r = await one(block);
   assert.equal(r.status, 'ok', `verify says: ${r.status}`);
 });
